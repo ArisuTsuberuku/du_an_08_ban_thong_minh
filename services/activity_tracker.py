@@ -274,9 +274,11 @@ class ActivityTracker:
             self._cur_web = (dom, "")
         now = time.time()
         try:
-            from services.page_rules import is_content_domain, norm_title, page_key
+            from services.page_rules import is_content_domain, is_generic_page, norm_title, page_key
         except Exception:
             is_content_domain = None
+        if is_content_domain and is_content_domain(dom) and is_generic_page(dom, title):
+            return      # tiêu đề còn là "YouTube" (trang chủ / video chưa tải xong) -> chờ tiêu đề thật rồi mới báo
         if is_content_domain and is_content_domain(dom):
             # YouTube / Google tìm kiếm...: báo theo TỪNG trang (video, từ khóa tìm) để web phân loại học / giải trí
             # theo tiêu đề và phụ huynh chặn đúng link đó. Cùng 1 trang chỉ báo lại sau 30 phút.

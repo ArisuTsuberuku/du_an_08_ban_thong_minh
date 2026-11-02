@@ -738,8 +738,14 @@ function renderEvents(v){const ev=v.events||[];EVS=ev;if(!ev.length){$('evbox').
 async function blockPage(i){const v=cur(),e=EVS[i];if(!v||!e)return;if(!confirm('Chỉ chặn link này: '+(e.title||e.domain)+' ?'))return;
  const r=await api(`/api/parent/devices/${v.id}/block`,{domain:e.domain,scope:'page',title:e.title||'',page:e.page||''});toast(r.message||r.error);load();}
 async function unblockPage(i){const v=cur();if(!v)return;const r=await api(`/api/parent/devices/${v.id}/unblock_page`,{index:i});toast(r.message||r.error);load();}
+function pageLink(p){const d=p.d||'mọi web',u=p.u||'';let href='';
+ if(u.startsWith('v='))href='https://www.youtube.com/watch?'+u;else if(u.startsWith('shorts/'))href='https://www.youtube.com/'+u;
+ else if(u.startsWith('search='))href='https://www.youtube.com/results?search_query='+encodeURIComponent(u.slice(7));
+ else if(u.startsWith('q='))href='https://www.google.com/search?q='+encodeURIComponent(u.slice(2));
+ else if(u.startsWith('/')&&p.d)href='https://'+p.d+u;
+ return href?`<a href="${esc(href)}" target="_blank" rel="noopener">${esc(d)} · ${esc(u.length>40?u.slice(0,40)+'…':u)}</a>`:esc(d)+(u?' · '+esc(u):' · theo tiêu đề');}
 function renderPages(v){const ps=((v.rules||{}).blocked_pages)||[];const el=$('pagebox');if(!el)return;
- el.innerHTML=ps.length?ps.slice(0,50).map((p,i)=>`<div class="app-row"><div class="ic">🔗</div><div class="nm"><div><b>${esc(p.title||p.t||p.u||'')}</b></div><div class="mut">${esc(p.d||'')}${p.why?' · '+esc(p.why):''}</div></div><button style="padding:4px 10px;font-size:12px" onclick="unblockPage(${i})">Bỏ chặn</button></div>`).join(''):'<span class="mut">Chưa chặn link riêng nào. Bấm “Chặn link” ở mục Thay đổi gần đây.</span>';}
+ el.innerHTML=ps.length?ps.slice(0,50).map((p,i)=>`<div class="app-row"><div class="ic">🔗</div><div class="nm"><div><b>${esc(ct(p.title||p.t||p.u||''))}</b></div><div class="mut">${pageLink(p)}${p.why?' · '+esc(p.why):''}</div></div><button style="padding:4px 10px;font-size:12px" onclick="unblockPage(${i})">Bỏ chặn</button></div>`).join(''):'<span class="mut">Chưa chặn link riêng nào. Bấm “Chặn link” ở mục Thay đổi gần đây.</span>';}
 const RESET_ASK={events:'Xóa lịch sử Thay đổi gần đây?',alerts:'Xóa toàn bộ cảnh báo (trên web và trên máy)?',
  report_today:'Xóa báo cáo hoạt động hôm nay?',blocked_links:'Bỏ chặn TẤT CẢ link đã chặn riêng?',
  rules_all:'Xóa TOÀN BỘ luật chặn (trang web, link, ứng dụng, từ khóa, tự chặn theo loại)? Không hoàn tác được.'};
@@ -1220,7 +1226,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.9"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.10"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1332,15 +1338,16 @@ def is_generic_page(dom: str, title: str, page: str = "") -> bool:
 
 
 def _clean_pages(pages: Any) -> List[Dict[str, Any]]:
-    """Bỏ luật chặn "trang chủ" (chặn cả web); luật có mã trang mà tiêu đề là trang chủ -> chỉ giữ mã trang."""
+    """Bỏ luật tạo từ tiêu đề "trang chủ" ("(50) YouTube - Personal…"): hoặc là chặn cả web, hoặc là video được AI
+    xếp loại khi tiêu đề CHƯA tải xong (chỉ thấy chữ "YouTube") -> không đáng tin."""
     out = []
     for p in pages or []:
         if not isinstance(p, dict):
             continue
-        generic = is_generic_page(str(p.get("d", "")), str(p.get("t", "")))
-        if generic and not p.get("u"):
+        d = str(p.get("d", ""))
+        if is_generic_page(d, str(p.get("t", ""))) or is_generic_page(d, str(p.get("title", ""))):
             continue
-        out.append({**p, "t": ""} if generic else p)
+        out.append(p)
     return out
 
 
@@ -1352,6 +1359,9 @@ def classify_page(domain: str, title: str) -> Dict[str, str]:
     base = classify_domain(d, title)
     if not nt:
         return base
+    if is_generic_page(d, title):
+        # Chỉ thấy "YouTube" / "Google" (trang chủ, hoặc video chưa tải xong tiêu đề) -> chưa đủ để xếp học / giải trí
+        return {"kind": "other", "vi": "Chưa rõ nội dung", "category": "Khac", "why": "trang chủ / tiêu đề chưa tải"}
     key = fb_key(d)[:60] + "|" + hashlib.sha1(nt.encode("utf-8")).hexdigest()[:16]
     cached = db.get(f"page_cat/{key}")
     if isinstance(cached, dict) and cached.get("kind") in KIND_VI:
@@ -1414,9 +1424,11 @@ def _add_page_rule(rules: Dict[str, Any], dom: str, title: str, page: str, why: 
     for p in pages:
         if p.get("d", "") == dom and ((pk and p.get("u") == pk) or (not pk and nt and p.get("t") == nt)):
             return False
+    shown = str(title)[:100]
     if pk and is_generic_page(dom, title):
-        nt = ""                         # tiêu đề lúc đó chỉ là "YouTube" -> chặn theo mã video, không theo tiêu đề
-    pages.insert(0, {"d": dom[:80], "t": nt, "u": pk, "why": str(why)[:60], "title": str(title)[:100], "at": now()})
+        # tiêu đề lúc đó chỉ là "YouTube" (chưa tải xong) -> chặn theo mã video, hiển thị bằng mã
+        nt, shown = "", f"{dom} · {pk}"
+    pages.insert(0, {"d": dom[:80], "t": nt, "u": pk, "why": str(why)[:60], "title": shown, "at": now()})
     rules["blocked_pages"] = pages[:300]
     return True
 
