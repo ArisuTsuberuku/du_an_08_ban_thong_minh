@@ -65,6 +65,7 @@ ALERT_COOLDOWN_S = 60
 COMMAND_TYPES = {
     "lock": "🔒 Khóa màn hình",
     "reset_ai": "♻️ Đặt lại giờ dùng AI",
+    "reset_stats": "🧹 Xóa cảnh báo & bộ đếm trên máy",
     "ai_on": "📷 Bật Camera AI",
     "ai_off": "⏸️ Tắt Camera AI",
     "recalibrate": "🔄 Hiệu chỉnh lại tư thế",
@@ -381,6 +382,10 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .app-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
 .app-row .ic{font-size:22px;width:30px;text-align:center}.app-row .nm{flex:1;min-width:0}
 .app-row .nm div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.app-row .mn{font-weight:700}
+.cols>div,.card{min-width:0}.card{overflow-wrap:anywhere}
+.app-row .nm div.sub2{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:13px;line-height:1.35}
+.app-row .acts2{flex:none;display:flex;flex-direction:column;gap:3px;align-items:flex-end}
+.ev-more{margin-top:8px;font-size:13px}.reset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
 .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;color:#fff}
 .open-app{border-bottom:1px solid var(--line);padding:6px 0}.open-app summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none}
 .open-app summary::-webkit-details-marker{display:none}.open-app .ic{font-size:20px;width:28px;text-align:center}
@@ -410,7 +415,8 @@ h3{margin:4px 0 10px}
  .side a i{display:inline;font-size:20px}.side a.act{background:#eff6ff}
  [data-theme=dark] .side a.act{background:#1e293b}
  .main{padding:22px 28px}
- .cols{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;align-items:start}
+ .cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;align-items:start}
+ .main{max-width:1320px}
  .toast{bottom:24px}
 }
 </style>
@@ -438,15 +444,18 @@ h3{margin:4px 0 10px}
      <button onclick="cmd('ai_off')">⏸️ Tắt Camera AI</button><button onclick="cmd('recalibrate')">🧍 Đo lại tư thế ngồi</button>
      <button onclick="go('rules')">🛡️ Sửa luật chặn</button><button onclick="go('report')">📊 Xem báo cáo</button></div></details>
     <div id="acks" class="card" style="display:none"></div>
+    <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div><div id="openbox"></div>
+     <div class="bar" id="h-bar" style="margin-top:12px"></div><div class="mut" id="h-legend" style="margin-top:6px"></div></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🕒 Thay đổi gần đây</h3>
+     <button style="padding:4px 10px;font-size:12px" onclick="resetData('events')">🧹 Xóa</button></div>
+     <p class="mut" style="margin:2px 0 6px;font-size:13px">AI phân loại từng app / trang vừa mở và cho biết đã chặn hay chưa. Chặn bằng nút ở thẻ <b>Đang dùng gì</b>.</p><div id="evbox" class="mut">Chưa có.</div></div>
    </div><div>
-    <div class="card"><h3>🔔 Cảnh báo gần đây</h3><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🔔 Cảnh báo gần đây</h3>
+     <button style="padding:4px 10px;font-size:12px" onclick="resetData('alerts')">🧹 Xóa</button></div><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
     <div class="card" id="boxcard"><h3>📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="boxbtn" onclick="boxMin(15)">🔓 Mở 15′</button><button class="boxbtn" onclick="boxMin(30)">🔓 Mở 30′</button><button class="boxbtn" onclick="boxMin(60)">🔓 Mở 60′</button><button class="boxbtn" onclick="boxMinAsk()">🔓 Mở … phút</button><button class="boxbtn" onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button class="boxbtn" onclick="cmd('box_lock')">🔒 Khóa hộp</button></div>
      <div class="mut" style="margin-top:6px;font-size:12px">Hết giờ, hộp tự khóa lại khi nắp đã đóng. Telegram: /mohop · /khoahop</div></div>
     <div class="card" id="aicard"><h3>🤖 AI hôm nay (ứng dụng + web)</h3><div id="aibox" class="mut">—</div></div>
-    <div class="card"><h3>🕒 Thay đổi gần đây</h3><p class="mut" style="margin-top:-4px">Ứng dụng vừa mở, trang web vừa vào — AI phân loại và cho biết đã chặn hay chưa. Muốn chặn: dùng nút ở thẻ <b>Đang dùng gì</b>.</p><div id="evbox" class="mut">Chưa có.</div></div>
-    <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div><div id="openbox"></div>
-     <div class="bar" id="h-bar" style="margin-top:12px"></div><div class="mut" id="h-legend" style="margin-top:6px"></div></div>
    </div></div>
   </section>
 
@@ -511,6 +520,14 @@ h3{margin:4px 0 10px}
   </section>
 
   <section data-view="settings">
+   <div class="card"><h3>♻️ Đặt lại dữ liệu máy đang chọn</h3><p class="mut">Làm lại từ đầu mà không cần ra máy học sinh. Máy áp dụng trong vài giây (phần trên máy cần bản 1.19.7).</p>
+    <div class="reset-grid">
+     <button onclick="resetData('events')">🧹 Xóa lịch sử Thay đổi gần đây</button>
+     <button onclick="resetData('alerts')">🧹 Xóa cảnh báo (web + máy)</button>
+     <button onclick="resetData('report_today')">🧹 Xóa báo cáo hôm nay</button>
+     <button onclick="cmd('reset_ai')">♻️ Đặt lại giờ dùng AI</button>
+     <button onclick="resetData('blocked_links')">🔗 Bỏ chặn tất cả link riêng</button>
+     <button class="danger" onclick="resetData('rules_all')">⛔ Xóa toàn bộ luật chặn</button></div></div>
    <div class="card"><h3>➕ Thêm máy học sinh</h3><p class="mut">Mã 6 số hiện trong app FocusDesk → tab “Kết nối phụ huynh”.</p>
     <div class="row"><input id="pcode" placeholder="Mã 6 số" inputmode="numeric" maxlength="6" style="width:120px">
      <input id="pname" placeholder="Tên máy (vd: Máy của Minh)" style="flex:1"><button class="pri" style="background:var(--acc);color:#fff" onclick="pair()">Ghép</button></div>
@@ -536,6 +553,9 @@ h3{margin:4px 0 10px}
 <script>
 const CSRF=document.querySelector('meta[name=csrf-token]').content;
 const $=id=>document.getElementById(id);
+function ct(t){ // tiêu đề cửa sổ gọn: bỏ "(50) ", "and 2 more pages", tên hồ sơ + tên trình duyệt
+ t=String(t||'').replace(/[\\u200b\\u200e\\u200f]/g,'').replace(/^\\(\\d+\\+?\\)\\s*/,'').replace(/ and \\d+ more pages?/,'');
+ return t.replace(/( - [^-]{1,30})? - (Microsoft ?Edge|Google Chrome|Cốc Cốc|Mozilla Firefox|Brave|Opera)$/,'');}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function api(url,body){const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:body?JSON.stringify(body):undefined});
  if(r.status===401){location.href='/login';return {};}return r.json();}
@@ -590,14 +610,14 @@ function renderAll(){const v=cur();renderChips();renderSettings();
  if(!v){$('h-name').textContent='Chưa có máy nào';$('h-st').textContent='➕ Ghép máy trong Cài đặt';$('hero').className='hero off';return;}
  const [cls,st,sub]=statusOf(v),s=v.status||{},p=s.posture||{},t=v.today||{};
  $('hero').className='hero '+cls;$('h-name').textContent=v.name+(s.role==='student'?' · đang ở chế độ học sinh':'');
- $('h-st').textContent=st;$('h-sub').textContent=sub||'';
+ $('h-st').textContent=st;$('h-sub').textContent=ct(sub||'');
  $('h-cfi').textContent=p.camera&&p.cfi!=null?Math.round(p.cfi)+'%':'—';
  $('h-study').textContent=fmtMin(t.Hoc_tap);$('h-fun').textContent=fmtMin(t.Giai_tri);
  $('h-ai').textContent=Math.round((s.ai_seconds||0)/60)+'/'+(s.max_ai_minutes||'?')+'′';
  const sum=(t.Hoc_tap||0)+(t.Giai_tri||0)+(t.Khac||0);
  $('h-bar').innerHTML=sum?['Hoc_tap','Giai_tri','Khac'].map(k=>`<span style="width:${100*(t[k]||0)/sum}%;background:${CAT[k][1]}"></span>`).join(''):'';
  $('h-legend').textContent=sum?`Hôm nay: ${fmtMin(t.Hoc_tap)} học · ${fmtMin(t.Giai_tri)} giải trí · ${fmtMin(t.Khac)} khác`:'Chưa có dữ liệu hôm nay';
- const n=v.now||{};NOW=n;$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.domain||n.app||'')}</b>${n.domain?` <span class="mut">${esc(n.app||'')}</span>`:''}</div><div class="mut">${esc(n.title)}</div></div>
+ const n=v.now||{};NOW=n;$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.domain||n.app||'')}</b>${n.domain?` <span class="mut">${esc(n.app||'')}</span>`:''}</div><div class="mut sub2">${esc(ct(n.title))}</div></div>
   ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}${blockBtns(n)}</div>`:(n.category==='Idle'?'<span class="mut">💤 Đang rời máy</span>':'—');
  renderOpen(n.open||[],p);renderEvents(v);renderBox(v);renderAI(v);
  $('alerts').innerHTML=(v.alerts||[]).slice(0,6).map(a=>`<div class="alert-row"><time>${esc(a.time)}</time><div>${esc(a.message)}</div></div>`).join('')||'Không có cảnh báo. 👍';
@@ -625,10 +645,10 @@ function renderOpen(list,p){const box=$('openbox');let h='';OPEN=list;
  if(p&&p.action&&p.action.vi)h+=`<div class="alert-row"><time>🧠 AI</time><div>Hành động: <b>${esc(p.action.vi)}</b> (${Math.round((p.action.score||0)*100)}%)</div></div>`;
  if(list.length){const tag=c=>CAT[c]?`<span class="tag" style="background:${CAT[c][1]}">${CAT[c][0]}</span>`:'';
   h+=`<div class="mut" style="margin:12px 0 4px;font-size:13px;font-weight:700">ĐANG MỞ · ${list.length} ứng dụng</div>`+list.map((a,ai)=>{
-   const items=(a.tabs.length?a.tabs:a.windows);const sub=a.tabs.length?`${a.tabs.length} tab`:(a.windows[0]?a.windows[0].title:'');
+   const items=(a.tabs.length?a.tabs:a.windows);const sub=a.tabs.length?`${a.tabs.length} tab`:(a.windows[0]?ct(a.windows[0].title):'');
    return `<details class="open-app"${a.focused?' open':''}><summary><span class="ic">${appIcon(a.exe,(a.windows[0]||{}).title||'')}</span>
     <span class="nm"><b>${esc(a.exe)}</b>${a.focused?' <span class="pill on" style="font-size:11px">đang dùng</span>':''}<br><span class="mut">${esc(sub)}</span></span>${tag(a.category)}${a.blocked?' <span class="pill">⛔ đã chặn</span>':(a.app_ok&&!a.tabs.length?` <button class="danger" style="padding:3px 9px;font-size:12px" onclick="event.preventDefault();blockApp('${esc(a.exe)}')">Chặn app</button>`:'')}</summary>
-    ${items.length>1||a.tabs.length?items.map((t,ti)=>`<div class="tab-row">${a.tabs.length?'🗂️':'🪟'} <span class="tt">${esc(t.title)}</span>${t.category!=='Khac'?tag(t.category):''}${a.tabs.length?blockBtns(t,ai+','+ti):''}</div>`).join(''):''}</details>`}).join('');}
+    ${items.length>1||a.tabs.length?items.map((t,ti)=>`<div class="tab-row">${a.tabs.length?'🗂️':'🪟'} <span class="tt" title="${esc(t.title)}">${esc(ct(t.title))}</span>${t.category!=='Khac'?tag(t.category):''}${a.tabs.length?blockBtns(t,ai+','+ti):''}</div>`).join(''):''}</details>`}).join('');}
  box.innerHTML=h;}
 function segPick(b){b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('act',x===b));rulesTouched=true;}
 function segSet(id,m){const b=document.querySelector(`#${id} button[data-m="${m}"]`);if(b)b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('act',x===b));}
@@ -705,20 +725,26 @@ function renderAI(v){const s=v.status||{},src=s.ai_sources||[],run=s.ai_running|
  const rows=ent.sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,sec])=>`<div class="app-row"><div class="nm"><b>${esc(k)}</b></div><span class="tag" style="background:${k.endsWith('(web)')?'#2563eb':'#7c3aed'}">${Math.max(1,Math.round(sec/60))}′</span></div>`).join('');
  $('aibox').innerHTML=`<div><b>${tot}</b> / ${s.max_ai_minutes||'?'} phút cho phép</div>`+(rows||'<div class="mut">Chưa dùng AI hôm nay.</div>')+
   (run.length?`<div class="mut" style="margin-top:6px">Ứng dụng AI đang chạy trên máy: ${run.map(esc).join(', ')}</div>`:'');}
-let EVS=[];
+let EVS=[],EV_SHOW=6;
 function renderEvents(v){const ev=v.events||[];EVS=ev;if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
- $('evbox').innerHTML=ev.slice(0,15).map(e=>{const tm=new Date((e.t||0)*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+ $('evbox').innerHTML=ev.slice(0,EV_SHOW).map(e=>{const tm=new Date((e.t||0)*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
   const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖',ai_game:'🎮'}[e.cls]||'🌐'):'🪟';
   const risky=['game','social','video','shopping','comics'].includes(e.cls);
   const i=ev.indexOf(e);
   const btn=e.kind==='web'?(e.blocked?'<span class="pill" style="background:#fee2e2;color:#991b1b">⛔ đã chặn</span>':'<span class="pill">chưa chặn</span>'):'';
   return `<div class="app-row"><div class="ic">${ic}</div><div class="nm"><div><b>${esc(name||'')}</b> <span class="tag" style="background:${KCOL[e.cls]||KCOL.other}">${esc(e.vi||'')}</span></div>
-   <div class="mut">${tm}${e.title?' · '+esc(e.title):''}${e.why?' · '+esc(e.why):''}</div></div>${btn}</div>`;}).join('');}
+   <div class="mut sub2">${tm}${e.title?' · '+esc(ct(e.title)):''}${e.why?' · '+esc(e.why):''}</div></div><div class="acts2">${btn}</div></div>`;}).join('')
+  +(ev.length>EV_SHOW?`<div class="ev-more"><a href="#" onclick="event.preventDefault();EV_SHOW=25;renderEvents(cur())">Xem thêm ${Math.min(ev.length,25)-EV_SHOW} mục</a></div>`:'');}
 async function blockPage(i){const v=cur(),e=EVS[i];if(!v||!e)return;if(!confirm('Chỉ chặn link này: '+(e.title||e.domain)+' ?'))return;
  const r=await api(`/api/parent/devices/${v.id}/block`,{domain:e.domain,scope:'page',title:e.title||'',page:e.page||''});toast(r.message||r.error);load();}
 async function unblockPage(i){const v=cur();if(!v)return;const r=await api(`/api/parent/devices/${v.id}/unblock_page`,{index:i});toast(r.message||r.error);load();}
 function renderPages(v){const ps=((v.rules||{}).blocked_pages)||[];const el=$('pagebox');if(!el)return;
  el.innerHTML=ps.length?ps.slice(0,50).map((p,i)=>`<div class="app-row"><div class="ic">🔗</div><div class="nm"><div><b>${esc(p.title||p.t||p.u||'')}</b></div><div class="mut">${esc(p.d||'')}${p.why?' · '+esc(p.why):''}</div></div><button style="padding:4px 10px;font-size:12px" onclick="unblockPage(${i})">Bỏ chặn</button></div>`).join(''):'<span class="mut">Chưa chặn link riêng nào. Bấm “Chặn link” ở mục Thay đổi gần đây.</span>';}
+const RESET_ASK={events:'Xóa lịch sử Thay đổi gần đây?',alerts:'Xóa toàn bộ cảnh báo (trên web và trên máy)?',
+ report_today:'Xóa báo cáo hoạt động hôm nay?',blocked_links:'Bỏ chặn TẤT CẢ link đã chặn riêng?',
+ rules_all:'Xóa TOÀN BỘ luật chặn (trang web, link, ứng dụng, từ khóa, tự chặn theo loại)? Không hoàn tác được.'};
+async function resetData(w){const v=cur();if(!v||!confirm(RESET_ASK[w]))return;
+ const r=await api(`/api/parent/devices/${v.id}/reset`,{what:w});toast(r.message||r.error);rulesTouched=false;load();}
 async function blockDom(d){const v=cur();if(!v||!confirm('Chặn TOÀN BỘ trang web '+d+' (mọi link của trang này)?'))return;const r=await api(`/api/parent/devices/${v.id}/block`,{domain:d});toast(r.message||r.error);load();}
 function ytMode(b){document.querySelectorAll('#yt-mode button').forEach(x=>x.classList.toggle('act',x===b));$('yt-kw-box').style.display=b.dataset.m==='keyword'?'block':'none';rulesTouched=true;}
 function ytSet(m){const b=document.querySelector(`#yt-mode button[data-m="${m}"]`)||document.querySelector('#yt-mode button');ytMode(b);}
@@ -855,7 +881,7 @@ def api_parent_devices():
     for did, dev in devices_of_parent(uid):
         mark_watching(did, dev=dev)  # phụ huynh đang xem -> máy báo nhanh 5s
         ru = dev.get("rules") or {}
-        if ru.get("blocked_pages") and len(_clean_pages(ru["blocked_pages"])) != len(ru["blocked_pages"]):
+        if ru.get("blocked_pages") and _clean_pages(ru["blocked_pages"]) != ru["blocked_pages"]:
             # Dọn luật "chặn trang chủ YouTube" tạo nhầm (chặn cả YouTube) -> máy nhận bộ luật mới ở lần báo kế tiếp
             ru = {**ru, "blocked_pages": _clean_pages(ru["blocked_pages"]), "ver": int(time.time() * 1000)}
             db.set(f"devices/{did}/rules", ru)
@@ -1041,6 +1067,48 @@ def api_parent_block(did):
     return jsonify({"ok": True, "message": f"Đã chặn {dom}. Máy áp dụng trong vài giây.{note}"})
 
 
+RESET_WHAT = {
+    "events": "Đã xóa lịch sử Thay đổi gần đây",
+    "alerts": "Đã xóa cảnh báo (trên web và trên máy)",
+    "report_today": "Đã xóa báo cáo hoạt động hôm nay",
+    "blocked_links": "Đã bỏ chặn tất cả link riêng",
+    "rules_all": "Đã xóa toàn bộ luật chặn (web, link, ứng dụng, từ khóa, tự chặn theo loại)",
+}
+
+
+@app.route("/api/parent/devices/<did>/reset", methods=["POST"])
+@login_required
+def api_parent_reset(did):
+    """Đặt lại dữ liệu để làm lại từ đầu (trước đây chỉ làm được trên máy học sinh)."""
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    what = str((request.get_json(silent=True) or {}).get("what", ""))
+    if what not in RESET_WHAT:
+        return jsonify({"error": "Không rõ cần đặt lại gì."}), 400
+    if what == "events":
+        db.delete(f"devices/{did}/events")
+        db.delete(f"events/{did}/{vn_date()}")
+    elif what == "alerts":
+        db.delete(f"devices/{did}/recent_alerts")
+        db.delete(f"devices/{did}/acks")
+        queue_command(did, "reset_stats", by=uid)
+    elif what == "report_today":
+        db.delete(f"activity_sum/{did}/{vn_date()}")
+        db.delete(f"activity/{did}/{vn_date()}")
+        queue_command(did, "reset_stats", by=uid)
+    else:
+        rules = dict(db.get(f"devices/{did}/rules") or {})
+        rules["blocked_pages"] = []
+        if what == "rules_all":
+            rules.update(domains=[], apps=[], keywords=[], groups=[], block_kinds=[], auto_block_games=False,
+                         youtube_mode="keyword")
+        rules["ver"], rules["by"] = int(time.time() * 1000), uid
+        db.set(f"devices/{did}/rules", rules)
+    mark_watching(did, force=True)
+    return jsonify({"ok": True, "message": RESET_WHAT[what] + ". Máy áp dụng trong vài giây."})
+
+
 @app.route("/api/parent/devices/<did>/unblock_page", methods=["POST"])
 @login_required
 def api_parent_unblock_page(did):
@@ -1152,7 +1220,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.7"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.9"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1264,8 +1332,16 @@ def is_generic_page(dom: str, title: str, page: str = "") -> bool:
 
 
 def _clean_pages(pages: Any) -> List[Dict[str, Any]]:
-    return [p for p in (pages or []) if isinstance(p, dict)
-            and not (not p.get("u") and is_generic_page(str(p.get("d", "")), str(p.get("t", ""))))]
+    """Bỏ luật chặn "trang chủ" (chặn cả web); luật có mã trang mà tiêu đề là trang chủ -> chỉ giữ mã trang."""
+    out = []
+    for p in pages or []:
+        if not isinstance(p, dict):
+            continue
+        generic = is_generic_page(str(p.get("d", "")), str(p.get("t", "")))
+        if generic and not p.get("u"):
+            continue
+        out.append({**p, "t": ""} if generic else p)
+    return out
 
 
 def classify_page(domain: str, title: str) -> Dict[str, str]:
@@ -1338,6 +1414,8 @@ def _add_page_rule(rules: Dict[str, Any], dom: str, title: str, page: str, why: 
     for p in pages:
         if p.get("d", "") == dom and ((pk and p.get("u") == pk) or (not pk and nt and p.get("t") == nt)):
             return False
+    if pk and is_generic_page(dom, title):
+        nt = ""                         # tiêu đề lúc đó chỉ là "YouTube" -> chặn theo mã video, không theo tiêu đề
     pages.insert(0, {"d": dom[:80], "t": nt, "u": pk, "why": str(why)[:60], "title": str(title)[:100], "at": now()})
     rules["blocked_pages"] = pages[:300]
     return True
@@ -1585,6 +1663,8 @@ def block_state(rules: Dict[str, Any], dom: str, title: str, page: str = "", exe
             continue
         if page and p.get("u") and p["u"] == page:
             return "page"
+        if page and p.get("u"):
+            continue
         pt = str(p.get("t", ""))
         if pt and nt and (pt == nt or nt.startswith(pt + " - ") or pt.startswith(nt + " - ")):
             return "page"
@@ -1616,7 +1696,7 @@ def live_category(dev: Dict[str, Any]) -> Dict[str, Any]:
     cat, _ = classify_rules(str(nw.get("exe", "")), str(nw.get("title", "")))
     dom, page, title = str(nw.get("domain", "")), str(nw.get("page", "")), str(nw.get("title", ""))
     exe_l = str(nw.get("exe", "")).lower()
-    return {"category": cat, "app": nw.get("exe", ""), "title": title[:90],
+    return {"category": cat, "app": nw.get("exe", ""), "title": title[:160],
             "age": now() - int(nw.get("t", 0) or 0), "open": opened,
             "domain": dom, "page": page, "page_ok": bool(dom) and not is_generic_page(dom, title, page),
             "app_ok": exe_l not in NEVER_BLOCK_APPS and bool(exe_l),

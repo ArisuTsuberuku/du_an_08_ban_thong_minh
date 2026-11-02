@@ -106,7 +106,9 @@ def match_blocked_page(url: str, title: str, rules: Optional[Iterable[Dict[str, 
         rk, rt = str(r.get("u", "")).lower(), str(r.get("t", ""))
         if rk and key and rk == key.lower():
             return r
-        if not rk and is_generic_page(d or host, rt):
+        if rk and key:
+            continue    # luật có mã trang (vd 1 video) + đang mở trang có mã khác -> KHÔNG xét tiêu đề
+        if is_generic_page(d or host, rt):
             continue    # luật "trang chủ YouTube / Google" tạo nhầm = chặn cả web -> bỏ qua
         # Tiêu đề khớp: bằng nhau, hoặc 1 bên là tiêu đề TAB ("X - youtube"), bên kia là tiêu đề CỬA SỔ
         # ("X - youtube - personal": thêm tên hồ sơ trình duyệt ở cuối)

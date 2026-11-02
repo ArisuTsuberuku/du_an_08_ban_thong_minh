@@ -231,6 +231,11 @@ class CloudAgent:
             elif ctype == "reset_ai":
                 update_runtime_state(ai_seconds=0, ai_reset_at=time.time())
                 msg = "Đã đặt lại giờ dùng AI về 0"
+            elif ctype == "reset_stats":
+                # Phụ huynh bấm "Xóa cảnh báo & bộ đếm" trên web: giống nút Đặt lại trong trang Phụ huynh của máy
+                update_runtime_state(alerts=[], app_usage={}, stats_reset_at=time.time())
+                self._sent_alert_keys = []
+                msg = "Đã xóa cảnh báo và bộ đếm giờ dùng ứng dụng trên máy"
             elif ctype in ("ai_on", "ai_off"):
                 from services.posture_controller import posture_manager
 

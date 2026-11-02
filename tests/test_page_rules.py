@@ -48,6 +48,13 @@ def test_tab_title_rule_matches_window_title():
     assert match_blocked_page("https://chat.zalo.me/", "Zalo - Vũ Hoàng Linh and 2 more pages - Personal - Microsoft Edge", rule)
 
 
+def test_video_rule_does_not_block_other_videos_by_title():
+    rule = [{"d": "youtube.com", "t": norm_title("YouTube - Personal - Microsoft Edge"), "u": "v=abc"}]
+    assert match_blocked_page("https://www.youtube.com/watch?v=abc", "YouTube - Personal", rule)
+    assert not match_blocked_page("https://www.youtube.com/watch?v=xyz", "YouTube - Personal", rule)
+    assert not match_blocked_page("https://www.youtube.com/", "YouTube - Personal - Microsoft Edge", rule)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

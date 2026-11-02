@@ -485,6 +485,7 @@ class BoGiamSatThongMinh:
         self._ai_locked = isinstance(lock, dict) and lock.get("day") == today
         self._usage_day = today
         self._ai_reset_seen = float(state.get("ai_reset_at", 0) or 0)
+        self._stats_reset_seen = float(state.get("stats_reset_at", 0) or 0)
         self._last_ai_alert_at_sec: float = 0
 
     def bat_dau(self) -> None:
@@ -564,6 +565,10 @@ class BoGiamSatThongMinh:
             self.ai_sources = {}
             self.app_usage = {}
             self._last_ai_alert_at_sec = 0
+        st_at = float(state.get("stats_reset_at", 0) or 0)
+        if st_at > self._stats_reset_seen:          # phụ huynh xóa bộ đếm từ web
+            self._stats_reset_seen = st_at
+            self.app_usage = {}
         reset_at = float(state.get("ai_reset_at", 0) or 0)
         if reset_at > self._ai_reset_seen:
             self._ai_reset_seen = reset_at
