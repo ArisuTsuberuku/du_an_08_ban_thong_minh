@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trạm Quản Trị & Kiểm Soát Truy Cập AI</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      margin: 0;
+      padding: 24px;
+      color: var(--text);
+      transition: padding 0.2s ease;
+    }
+
+    /* Header & Thanh công cụ */
+    .header {
+      max-width: 1120px;
+      margin: 0 auto 20px auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .header-title { margin: 0; font-size: 21px; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* Cụm nút chuyển đổi giao diện */
+    .view-switcher {
+      display: inline-flex;
+      background: #e2e8f0;
+      padding: 3px;
+      border-radius: 8px;
+      gap: 2px;
+    }
+    .view-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .view-btn.active {
+      background: white;
+      color: var(--primary);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    /* Trạng thái kết nối */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f59e0b;
+    }
+    .dot.online { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .dot.error { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+
+    /* Layout mặc định (Máy tính - 2 cột) */
+    .container {
+      max-width: 1120px;
+      margin: auto;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .card {
+      background: var(--card-bg);
+      padding: 20px;
+      border-radius: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      margin-bottom: 20px;
+    }
+    .card-header-flex {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+    }
+    .card-header-flex h2 {
+      margin: 0;
+      border: none;
+      padding: 0;
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 9px 11px;
+      margin: 6px 0 14px 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .filter-bar {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .filter-bar input[type="date"],
+    .filter-bar select {
+      padding: 5px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text);
+      background: #f8fafc;
+    }
+
+    .btn-primary {
+      width: 100%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 11px;
+      border-radius: 8px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-action {
+      background: #0f172a;
+      color: white;
+      border: none;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .btn-action.active-ok { background: #15803d; }
+
+    /* Bảng dữ liệu & Thanh cuộn dọc */
+    .table-wrapper {
+      width: 100%;
+      max-height: 540px;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding-right: 4px;
+      border-radius: 8px;
+    }
+    .table-wrapper::-webkit-scrollbar { width: 6px; height: 6px; }
+    .table-wrapper::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
+    .table-wrapper::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+    .table-wrapper::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #f1f5f9; }
+    
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      z-index: 2;
+      box-shadow: 0 1px 0 var(--border);
+    }
+
+    .badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-block;
+      white-space: nowrap;
+    }
+    .Hoc_tap { background: #dcfce7; color: #15803d; }
+    .Giai_tri { background: #fee2e2; color: #b91c1c; }
+    .Khac { background: #f1f5f9; color: #475569; }
+    .alert-row { background-color: #fef2f2 !important; animation: flash 1s infinite alternate; }
+    @keyframes flash { from { background-color: #fecaca; } to { background-color: #fef2f2; } }
+
+    .chart-box { max-width: 280px; margin: 0 auto; }
+
+    /* ==========================================================
+       CHẾ ĐỘ ĐIỆN THOẠI
+       ========================================================== */
+    body.force-mobile { padding: 12px; }
+    body.force-mobile .header {
+      max-width: 520px;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    body.force-mobile .header-title {
+      font-size: 18px;
+      text-align: center;
+    }
+    body.force-mobile .toolbar {
+      justify-content: center;
+    }
+    body.force-mobile .btn-action {
+      flex: 1;
+      padding: 9px;
+      text-align: center;
+    }
+    body.force-mobile .container {
+      max-width: 520px;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    body.force-mobile .card {
+      padding: 15px;
+      margin-bottom: 14px;
+    }
+    body.force-mobile .table-wrapper {
+      max-height: 420px;
+    }
+
+    body.force-mobile table thead { display: none; }
+    body.force-mobile table,
+    body.force-mobile tbody,
+    body.force-mobile tr,
+    body.force-mobile td {
+      display: block;
+      width: 100%;
+    }
+    body.force-mobile tr {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      background: #ffffff;
+    }
+    body.force-mobile td {
+      border-bottom: 1px dashed #f1f5f9;
+      padding: 6px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      text-align: right;
+    }
+    body.force-mobile td:last-child { border-bottom: none; }
+    body.force-mobile td::before {
+      content: attr(data-label);
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: left;
+      flex-shrink: 0;
+    }
+
+    body.force-desktop .container { min-width: 960px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 class="header-title">🛡️ Trạm Quản Trị & Cảnh Báo Truy Cập (AI)</h1>
+    <div class="toolbar">
+      <div class="view-switcher" title="Chuyển đổi chế độ hiển thị">
+        <button class="view-btn" id="btnAuto" onclick="setViewMode('auto')">🔄 Tự động</button>
+        <button class="view-btn" id="btnDesktop" onclick="setViewMode('desktop')">💻 Máy tính</button>
+        <button class="view-btn" id="btnMobile" onclick="setViewMode('mobile')">📱 Điện thoại</button>
+      </div>
+
+      <div class="status-pill">
+        <span class="dot" id="connDot"></span>
+        <span id="statusText">Đang kết nối...</span>
+      </div>
+
+      <button class="btn-action" id="wakeBtn" onclick="toggleWakeLock()">☀️ Giữ Sáng Màn Hình</button>
+      <button class="btn-action" id="soundBtn" onclick="enableAudio()">🔇 Bật Chuông Cảnh Báo</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Cột trái: Điều khiển chặn + Biểu đồ -->
+    <div>
+      <div class="card">
+        <h2>🔒 Cấu hình Chặn Từ Xa</h2>
+        <label style="font-size:12px; font-weight:600;">1. Chặn Phần mềm / Công cụ (.exe, cách nhau dấu phẩy):</label>
+        <input type="text" id="blockApps" placeholder="vd: cmd.exe, taskmgr.exe, steam.exe">
+
+        <label style="font-size:12px; font-weight:600;">2. Chặn Tên miền Web (khóa tận gốc file hosts):</label>
+        <input type="text" id="blockDomains" placeholder="vd: tiktok.com, facebook.com">
+
+        <label style="font-size:12px; font-weight:600;">3. Chặn Từ khóa trên Tiêu đề cửa sổ:</label>
+        <input type="text" id="blockKeywords" placeholder="vd: game, phim lậu, cá cược">
+
+        <button class="btn-primary" onclick="saveBlockRules()">Lưu & Áp dụng Chặn Ngay</button>
+        <p id="saveMsg" style="font-size:12px; color:#15803d; text-align:center; margin:8px 0 0 0;"></p>
+      </div>
+
+      <div class="card">
+        <h2>📊 Tỷ lệ Thời gian Trong Ngày</h2>
+        <div class="chart-box">
+          <canvas id="pieChart"></canvas>
+        </div>
+        <p id="summaryText" style="text-align:center; font-weight:600; margin-top:14px; font-size:14px;"></p>
+      </div>
+    </div>
+
+    <!-- Cột phải: Nhật ký AI & Cảnh báo bất thường -->
+    <div class="card">
+      <div class="card-header-flex">
+        <h2>📋 Nhật ký Phân tích AI & Cảnh báo</h2>
+        <div class="filter-bar">
+          <input type="date" id="datePicker" onchange="onDateChange()" title="Chọn ngày xem nhật ký">
+          <select id="limitSelect" onchange="loadData()" title="Giới hạn hiển thị để tiết kiệm RAM/4G">
+            <option value="100" selected>100 dòng mới nhất</option>
+            <option value="300">300 dòng mới nhất</option>
+            <option value="0">Tất cả trong ngày</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Giờ</th>
+              <th>Phần mềm</th>
+              <th>Nội dung / Chi tiết Cảnh báo</th>
+              <th>Phân loại</th>
+              <th>Thời lượng</th>
+            </tr>
+          </thead>
+          <tbody id="logTable">
+            <tr><td colspan="5" style="text-align:center; color:#94a3b8;">Đang chờ dữ liệu từ máy trạm...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =====================================================================
+    // ĐƯỜNG LINK FIREBASE CỦA BẠN:
+    // =====================================================================
+    const FIREBASE_URL = (function () {
+      // Không ghi URL database vào mã nguồn (repo có thể công khai). Nhập 1 lần, lưu trong trình duyệt này.
+      let u = "";
+      try { u = localStorage.getItem("smartdesk_fb_url") || ""; } catch (e) {}
+      if (!u) {
+        u = (prompt("Nhập Firebase Realtime Database URL (https://...firebasedatabase.app):") || "").trim();
+        try { if (u) localStorage.setItem("smartdesk_fb_url", u); } catch (e) {}
+      }
+      return u.replace(/\/$/, "");
+    })();
+
+    // Danh sách tên miền hệ thống BẤT KHẢ XÂM PHẠM (Tránh lỗi tự khóa kết nối Firebase)
+    const SAFE_DOMAINS = [
+      "firebasedatabase.app",
+      "firebaseio.com",
+      "googleapis.com",
+      "gstatic.com",
+      "jsdelivr.net"
+    ];
+
+    let chartInstance = null;
+    let lastLatestKey = null; // Theo dõi ID bản ghi mới nhất thay vì đếm số lượng
+    let audioCtx = null;
+    let wakeLock = null;
+    let currentViewMode = localStorage.getItem("ui_view_mode") || "auto";
+
+    // Lấy ngày hiện tại chuẩn theo múi giờ Việt Nam (YYYY-MM-DD)
+    function getVietnamDateString() {
+      return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+    }
+
+    // Khởi tạo ô chọn ngày
+    const dateInput = document.getElementById("datePicker");
+    dateInput.value = getVietnamDateString();
+
+    function onDateChange() {
+      lastLatestKey = null; // Reset mốc cảnh báo khi đổi ngày
+      loadData();
+    }
+
+    // 1. CHUYỂN ĐỔI GIAO DIỆN MÁY TÍNH / ĐIỆN THOẠI
+    function setViewMode(mode) {
+      currentViewMode = mode;
+      localStorage.setItem("ui_view_mode", mode);
+      applyViewMode();
+    }
+
+    function applyViewMode() {
+      document.body.classList.remove("force-mobile", "force-desktop");
+      document.querySelectorAll(".view-btn").forEach(btn => btn.classList.remove("active"));
+
+      if (currentViewMode === "mobile") {
+        document.body.classList.add("force-mobile");
+        document.getElementById("btnMobile").classList.add("active");
+      } else if (currentViewMode === "desktop") {
+        document.body.classList.add("force-desktop");
+        document.getElementById("btnDesktop").classList.add("active");
+      } else {
+        document.getElementById("btnAuto").classList.add("active");
+        if (window.innerWidth <= 768) {
+          document.body.classList.add("force-mobile");
+        }
+      }
+    }
+
+    window.addEventListener("resize", () => {
+      if (currentViewMode === "auto") applyViewMode();
+    });
+
+    // 2. GIỮ SÁNG MÀN HÌNH ĐIỆN THOẠI (WAKE LOCK API)
+    async function toggleWakeLock() {
+      const btn = document.getElementById("wakeBtn");
+      if (!('wakeLock' in navigator)) {
+        alert("Trình duyệt này không hỗ trợ giữ sáng màn hình tự động. Hãy chỉnh thời gian chờ màn hình trong Cài đặt máy.");
+        return;
+      }
+      try {
+        if (wakeLock !== null) {
+          await wakeLock.release();
+          wakeLock = null;
+          btn.innerText = "☀️ Giữ Sáng Màn Hình";
+          btn.classList.remove("active-ok");
+        } else {
+          wakeLock = await navigator.wakeLock.request('screen');
+          btn.innerText = "☀️ Đang Giữ Sáng";
+          btn.classList.add("active-ok");
+          wakeLock.addEventListener('release', () => {
+            btn.innerText = "☀️ Giữ Sáng Màn Hình";
+            btn.classList.remove("active-ok");
+          });
+        }
+      } catch (err) {
+        console.log("Không thể bật WakeLock:", err);
+      }
+    }
+
+    // Tự động khôi phục WakeLock, Audio và tải lại dữ liệu khi mở lại tab trên điện thoại
+    document.addEventListener("visibilitychange", async () => {
+      if (document.visibilityState === "visible") {
+        if (audioCtx && audioCtx.state === "suspended") {
+          audioCtx.resume();
+        }
+        loadData();
+      }
+    });
+
+    // 3. ÂM THANH BÁO ĐỘNG
+    function enableAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+      }
+      const btn = document.getElementById("soundBtn");
+      btn.innerText = "🔊 Đã Bật Chuông";
+      btn.classList.add("active-ok");
+
+      // Tự động bật giữ sáng màn hình nếu đang trên điện thoại
+      if (wakeLock === null && 'wakeLock' in navigator) {
+        toggleWakeLock();
+      }
+      playAbnormalAlertSound();
+    }
+
+    function playAbnormalAlertSound() {
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === "suspended") {
+          audioCtx.resume();
+        }
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(950, now);
+        osc.frequency.setValueAtTime(600, now + 0.18);
+        osc.frequency.setValueAtTime(950, now + 0.36);
+
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.65);
+      } catch (e) {
+        console.log("Hãy bấm nút Bật Chuông trên thanh công cụ trước.");
+      }
+    }
+
+    function isAbnormalEvent(item) {
+      if (!item) return false;
+      if (item.is_alert === true) return true;
+      const summary = (item.title_summary || "").toUpperCase();
+      return summary.includes("⛔ ĐÃ CHẶN") || summary.includes("CẢNH BÁO") || summary.includes("CỐ TÌNH MỞ");
+    }
+
+    // 4. ĐỒNG BỘ CẤU HÌNH CHẶN (CÓ BỘ LỌC CHỐNG TỰ KHÓA FIREBASE)
+    async function loadBlockRules() {
+      try {
+        const res = await fetch(`${FIREBASE_URL}/rules.json`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const rules = await res.json();
+        if (rules) {
+          document.getElementById("blockApps").value = (rules.apps || []).join(", ");
+          document.getElementById("blockDomains").value = (rules.domains || []).join(", ");
+          document.getElementById("blockKeywords").value = (rules.keywords || []).join(", ");
+        }
+      } catch (e) {
+        console.error("Lỗi tải cấu hình chặn:", e);
+      }
+    }
+
+    async function saveBlockRules() {
+      const parseList = (id) => document.getElementById(id).value.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      
+      let rawDomains = parseList("blockDomains");
+      let blockedSelf = false;
+
+      // Lọc bỏ các tên miền hệ thống để tránh máy trạm tự chặn đường truyền Firebase
+      const safeFilteredDomains = rawDomains.filter(domain => {
+        const isSystemDomain = SAFE_DOMAINS.some(sys => domain.includes(sys));
+        if (isSystemDomain) blockedSelf = true;
+        return !isSystemDomain;
+      });
+
+      const payload = {
+        apps: parseList("blockApps"),
+        domains: safeFilteredDomains,
+        keywords: parseList("blockKeywords")
+      };
+
+      try {
+        const res = await fetch(`${FIREBASE_URL}/rules.json`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+
+        document.getElementById("blockDomains").value = safeFilteredDomains.join(", ");
+        const msgEl = document.getElementById("saveMsg");
+        msgEl.style.color = "#15803d";
+        msgEl.innerText = blockedSelf
+          ? "✓ Đã lưu (Đã tự động loại bỏ tên miền hệ thống Firebase để tránh mất kết nối)!"
+          : "✓ Đã lưu và đồng bộ lệnh chặn!";
+        setTimeout(() => msgEl.innerText = "", 4000);
+      } catch (err) {
+        const msgEl = document.getElementById("saveMsg");
+        msgEl.style.color = "#dc2626";
+        msgEl.innerText = "⚠️ Lỗi lưu cấu hình! Kiểm tra lại mạng hoặc Firebase Rules.";
+      }
+    }
+
+    // 5. ĐỒNG BỘ DỮ LIỆU NHẬT KÝ & CẢNH BÁO
+    async function loadData() {
+      const connDot = document.getElementById("connDot");
+      const statusText = document.getElementById("statusText");
+
+      try {
+        // Nếu đang để ngày hôm nay và đồng hồ bước qua 00:00 sang ngày mới, tự động nhảy ngày
+        const todayVN = getVietnamDateString();
+        const selectedDate = dateInput.value || todayVN;
+
+        const res = await fetch(`${FIREBASE_URL}/logs/${selectedDate}.json`);
+        if (!res.ok) {
+          throw new Error(res.status === 401 ? "Khóa quyền Firebase (401)" : `Lỗi HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        connDot.className = "dot online";
+        statusText.innerText = "Cập nhật: " + new Date().toLocaleTimeString();
+
+        if (!data) {
+          document.getElementById("logTable").innerHTML = `<tr><td colspan="5" style="text-align:center; color:#94a3b8;">Chưa có dữ liệu trong ngày ${selectedDate}...</td></tr>`;
+          document.getElementById("summaryText").innerText = "Tổng thời gian: 0 phút (0s)";
+          return;
+        }
+
+        const entries = Object.entries(data); // [[key, item], ...]
+        const latestKey = entries[entries.length - 1][0];
+
+        // Kiểm tra bản ghi mới bằng Key ID thay vì độ dài mảng (Tránh lỗi khi xóa bớt log)
+        if (lastLatestKey !== null && latestKey !== lastLatestKey) {
+          const lastIndex = entries.findIndex(([k]) => k === lastLatestKey);
+          const newEntries = lastIndex !== -1 ? entries.slice(lastIndex + 1) : [entries[entries.length - 1]];
+          if (newEntries.some(([, item]) => isAbnormalEvent(item))) {
+            playAbnormalAlertSound();
+          }
+        }
+        lastLatestKey = latestKey;
+
+        // Tính tổng thống kê trên toàn bộ dữ liệu trong ngày
+        let stats = { Hoc_tap: 0, Giai_tri: 0, Khac: 0 };
+        entries.forEach(([, item]) => {
+          const dur = Number(item.duration_sec) || 0;
+          stats[item.category] = (stats[item.category] || 0) + dur;
+        });
+
+        // Giới hạn số dòng render ra bảng HTML để trình duyệt điện thoại luôn mượt
+        const limit = parseInt(document.getElementById("limitSelect").value, 10);
+        const reversedEntries = [...entries].reverse();
+        const displayEntries = limit > 0 ? reversedEntries.slice(0, limit) : reversedEntries;
+
+        let rows = "";
+        const labelMap = { "Hoc_tap": "Học tập", "Giai_tri": "Giải trí", "Khac": "Khác" };
+
+        displayEntries.forEach(([, item]) => {
+          const abnormal = isAbnormalEvent(item);
+          const badgeText = abnormal ? "⚠️ Vi phạm / Chặn" : (labelMap[item.category] || item.category);
+
+          rows += `
+            <tr class="${abnormal ? 'alert-row' : ''}">
+              <td data-label="Giờ">${item.timestamp || ""}</td>
+              <td data-label="Phần mềm"><b>${item.app_or_web || ""}</b></td>
+              <td data-label="Nội dung"><div><b>${item.title_summary || ""}</b><br><small style="color:#64748b">${item.reason || ""}</small></div></td>
+              <td data-label="Phân loại"><span class="badge ${item.category}">${badgeText}</span></td>
+              <td data-label="Thời lượng"><b>${item.duration_sec || 0}s</b></td>
+            </tr>`;
+        });
+        document.getElementById("logTable").innerHTML = rows;
+
+        const totalSec = stats.Hoc_tap + stats.Giai_tri + stats.Khac;
+        document.getElementById("summaryText").innerText = `Tổng thời gian: ${Math.round(totalSec / 60)} phút (${totalSec}s) — Tổng ${entries.length} bản ghi`;
+
+        const ctx = document.getElementById("pieChart").getContext("2d");
+        if (chartInstance) {
+          chartInstance.data.datasets[0].data = [stats.Hoc_tap, stats.Giai_tri, stats.Khac];
+          chartInstance.update();
+        } else {
+          chartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+              labels: ['Học tập & Làm việc', 'Giải trí & Vi phạm', 'Khác'],
+              datasets: [{ data: [stats.Hoc_tap, stats.Giai_tri, stats.Khac], backgroundColor: ['#22c55e', '#ef4444', '#94a3b8'] }]
+            }
+          });
+        }
+      } catch (err) {
+        connDot.className = "dot error";
+        statusText.innerText = "Mất kết nối (" + err.message + ")";
+      }
+    }
+
+    // Khởi chạy
+    applyViewMode();
+    loadBlockRules();
+    loadData();
+    setInterval(loadData, 4000);
+  </script>
+</body>
+</html>

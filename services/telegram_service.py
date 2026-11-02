@@ -37,11 +37,21 @@ def _normalize_event_type(event_type: str) -> str:
     return aliases.get(ev, ev)
 
 
+def _secret_token() -> str:
+    try:
+        from core.secrets_store import get_secret
+
+        return get_secret("telegram_bot_token") or ""
+    except Exception:
+        return ""
+
+
 def _get_telegram_settings(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Đọc cấu hình Telegram hỗ trợ cả khóa 'telegram' và khóa 'telegram_config' tương thích ngược."""
     tg = cfg.get("telegram") or cfg.get("telegram_config") or {}
     return {
-        "bot_token": str(tg.get("bot_token", "")).strip(),
+        # Token ưu tiên lấy từ kho bí mật (env / secrets.local.json), không lưu trong shared_config.json
+        "bot_token": _secret_token() or str(tg.get("bot_token", "")).strip(),
         "chat_id": str(tg.get("chat_id", "")).strip(),
         "enable_alerts": bool(tg.get("enable_alerts", True)),
         "alert_on_game": bool(tg.get("alert_on_game", True)),

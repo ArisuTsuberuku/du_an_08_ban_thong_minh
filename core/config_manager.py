@@ -95,6 +95,19 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "enforce_app_whitelist": False,
     "enable_posture_ai": True,
     "camera_index": 0,
+    # Ưu tiên mở Webcam vật lý theo tên (khớp một phần, không phân biệt hoa thường) trước khi dùng camera_index
+    "camera_preferred_names": ["HD Webcam"],
+    # Bỏ qua các Camera ảo / driver phần mềm không phải Webcam thật
+    "camera_ignored_names": [
+        "Imaging Edge",
+        "OBS Virtual",
+        "SplitCam",
+        "ManyCam",
+        "VCam",
+        "DroidCam",
+        "Iriun",
+        "XSplit",
+    ],
     "web_port": 5000,
     "esp32_com_port": "COM3",
     "allowed_apps": [

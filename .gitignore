@@ -15,3 +15,19 @@ env/
 UNLOCK.txt
 *.log
 *.tmp
+
+# Bí mật & dữ liệu riêng từng máy (KHÔNG commit)
+secrets.local.json
+device_identity.json
+.env
+.env.*
+# Web cũ DuAnAI: khóa thật nằm trong 01_11/ và secrets.local.json; bỏ file build nặng
+DuAnAI/01_11/
+DuAnAI/build/
+DuAnAI/dist/
+DuAnAI/mo_khoa_admin.txt
+# Log đặc trưng AI & ảnh test
+logs/
+_anh_test_ai.jpg
+# Vercel
+.vercel/

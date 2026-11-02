@@ -168,6 +168,7 @@ def du_lieu_dashboard():
             "enable_posture_ai": bool(cfg.get("enable_posture_ai", True)),
             "lan_url": f"http://{get_local_lan_ip()}:{port}",
             "telegram_ready": _is_telegram_module_available(),
+            "cloud": state.get("cloud", {}),
         }
     )
 
@@ -656,6 +657,35 @@ def api_telegram_test_compat():
     return jsonify({"status": "err", "message": "⚠️ Chưa nhập Bot Token / Chat ID hợp lệ (Đã in nội dung Mock)."})
 
 
+def _try_start_cloud_agent() -> None:
+    """Bật agent kết nối bản cloud (Vercel) nếu secrets.local.json / env có cloud_url."""
+    try:
+        from services.cloud_agent import start_cloud_agent
+
+        start_cloud_agent()
+    except Exception as exc:
+        safe_log(f"[WARN] Không khởi động được Cloud Agent: {exc}")
+
+
+CLOUD_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kết nối Cloud - Bảng Điều Khiển Bàn Học</title>
+<body style="font-family:system-ui;background:#0b1220;color:#e2e8f0;display:grid;place-items:center;min-height:90vh">
+<div style="background:#131c2e;padding:28px;border-radius:16px;max-width:460px;text-align:center">
+{% if not c.enabled %}<h2>☁️ Chưa bật kết nối Cloud</h2><p>Thêm <code>"cloud_url"</code> vào <code>secrets.local.json</code> rồi khởi động lại.</p>
+{% elif c.paired %}<h2>✅ Máy đã được phụ huynh ghép</h2><p>Mã máy: {{ c.device_id }}</p>
+{% else %}<h2>🔗 Mã ghép máy</h2><div style="font-size:56px;letter-spacing:10px;font-weight:700">{{ c.pair_code or '......' }}</div>
+<p>Phụ huynh đăng nhập <b>{{ c.url }}</b> → <i>Thêm máy học sinh</i> → nhập mã này (hết hạn sau 15 phút, tự đổi mã mới).</p>{% endif %}
+{% if c.error %}<p style="color:#f87171">Lỗi kết nối: {{ c.error }}</p>{% endif %}
+</div><script>setTimeout(()=>location.reload(),10000)</script></body>"""
+
+
+@app.route("/ket-noi-cloud")
+def ket_noi_cloud():
+    cloud = load_runtime_state().get("cloud") or {}
+    return render_template_string(CLOUD_PAGE, c=type("C", (), {k: cloud.get(k) for k in (
+        "enabled", "paired", "device_id", "pair_code", "url", "error")})())
+
+
 def _try_start_telegram_poller() -> None:
     try:
         from services.telegram_service import start_telegram_command_poller
@@ -683,6 +713,7 @@ def start_web_server_in_background(port: Optional[int] = None) -> bool:
     ensure_data_files_exist()
     _sync_memory_from_disk()
     _try_start_telegram_poller()
+    _try_start_cloud_agent()
     cfg = load_config()
     target_port = int(port or cfg.get("web_port", 5000))
 
@@ -731,6 +762,7 @@ if __name__ == "__main__":
     ensure_data_files_exist()
     _sync_memory_from_disk()
     _try_start_telegram_poller()
+    _try_start_cloud_agent()
     cfg_main = load_config()
     listen_port = int(cfg_main.get("web_port", 5000))
     safe_log(

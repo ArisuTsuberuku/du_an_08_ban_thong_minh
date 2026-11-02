@@ -58,23 +58,37 @@ def run_daemon_mode() -> None:
 
 
 def run_interactive_preview() -> None:
+    from services.posture_ai_engine import LABEL_KEYS
+
     ensure_data_files_exist()
     cfg = load_config()
     cam_idx = int(cfg.get("camera_index", 0))
     engine = PostureAIEngine(camera_index=cam_idx, open_camera=True)
-    safe_log(">>> Đang mở cửa sổ xem trực tiếp AI Nhận diện Tư thế 3D (Nhấn 'r' để hiệu chỉnh lại 5s, 'q' để thoát)...")
+    safe_log(
+        ">>> Cửa sổ AI Tư thế 3D: 'r' hiệu chỉnh lại 5s | 'q' thoát | 'l' bật/tắt ghi log đặc trưng\n"
+        "    Gán NHÃN thực tế (để đo độ chính xác): 1 Nhìn màn hình | 2 Cúi viết | 3 Cúi đọc | "
+        "4 Mất tập trung | 5 Buồn ngủ | 6 Vắng mặt | 0 Bỏ nhãn"
+    )
     try:
         while True:
             jpeg_bytes, telemetry = engine.process_frame()
             arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
             vis_frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if vis_frame is not None:
+                if engine.log_features:
+                    cv2.circle(vis_frame, (vis_frame.shape[1] - 18, 100), 7, (0, 0, 255), -1)  # chấm đỏ = đang ghi log
                 cv2.imshow("Smart Study Desk - AI Nhan Dien Tu The 3D (MediaPipe)", vis_frame)
             key = cv2.waitKey(30) & 0xFF
             if key == ord("q") or key == 27:
                 break
             if key == ord("r"):
                 engine.reset_calibration()
+            elif key == ord("l"):
+                engine.log_features = not engine.log_features
+                safe_log(f"[LOG] Ghi log đặc trưng: {'BẬT' if engine.log_features else 'TẮT'} -> thư mục logs/")
+            elif key in LABEL_KEYS:
+                engine.current_label = LABEL_KEYS[key]
+                safe_log(f"[NHÃN] {engine.current_label or '(bỏ nhãn)'}")
     finally:
         engine.release()
         cv2.destroyAllWindows()

@@ -7,5 +7,8 @@ uiautomation>=2.0.18
 pywin32>=306
 pyinstaller>=6.0.0
 numpy>=2.0.0
-opencv-python>=4.9.0
+# Chỉ cài 1 gói OpenCV duy nhất (mediapipe yêu cầu bản contrib). KHÔNG cài thêm opencv-python để tránh xung đột thư mục cv2.
+opencv-contrib-python>=4.9.0,<5
 mediapipe>=0.10.14
+# Liệt kê tên Webcam DirectShow để ưu tiên chọn đúng "HD Webcam" thay vì Camera ảo
+pygrabber>=0.2

@@ -177,8 +177,30 @@ def consume_recalibration_request() -> bool:
     return False
 
 
+def _sibling_pythonw() -> Optional[str]:
+    """pythonw.exe nằm cạnh trình thông dịch hiện tại (khi đang chạy bằng mã nguồn .py)."""
+    if getattr(sys, "frozen", False) or os.name != "nt":
+        return None
+    cand = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "pythonw.exe")
+    return cand if os.path.isfile(cand) else None
+
+
+def _should_use_pythonw_sidecar() -> bool:
+    """
+    Tùy chọn: ép tách AI Camera sang tiến trình pythonw.exe khi chạy bằng mã nguồn .py
+    (đặt biến môi trường SMARTDESK_AI_SIDECAR=1). Mặc định chạy AI trong cùng tiến trình.
+    Dùng khi Windows/Antivirus chặn Webcam riêng với python.exe (đã gặp 02/11/2026 trên MSI Bravo 15).
+    """
+    if os.environ.get("SMARTDESK_AI_SIDECAR", "").strip() != "1":
+        return False
+    return _sibling_pythonw() is not None
+
+
 def _find_python_interpreter() -> Optional[str]:
     """Định vị pythonw.exe / python.exe trên máy Windows khi chạy từ bản đóng gói .EXE."""
+    sib = _sibling_pythonw()
+    if sib:
+        return sib
     for cmd in ("pythonw", "python"):
         found = shutil.which(cmd)
         if found and os.path.exists(found):
@@ -241,7 +263,7 @@ class PostureAIManager:
         cam_idx = int(cfg.get("camera_index", 0))
         with self._lock:
             # Chế độ 1: Chạy trực tiếp trong tiến trình Python khi không phải bản đóng gói .exe
-            if not getattr(sys, "frozen", False):
+            if not getattr(sys, "frozen", False) and not _should_use_pythonw_sidecar():
                 try:
                     from services.posture_ai_engine import PostureAIServiceWorker
 
@@ -257,7 +279,7 @@ class PostureAIManager:
                     safe_log(f"[WARN] Không thể nạp trực tiếp PostureAIServiceWorker: {exc}")
                     self._worker = None
 
-            # Chế độ 2: Khi chạy từ SmartDeskLauncher.exe -> gọi tiến trình vệ tinh ẩn posture_ai_engine.py
+            # Chế độ 2: Bản .exe HOẶC đang chạy bằng python.exe -> gọi tiến trình vệ tinh pythonw posture_ai_engine.py
             py_exe = _find_python_interpreter()
             script_path = _find_posture_script_path()
             if not py_exe or not script_path:

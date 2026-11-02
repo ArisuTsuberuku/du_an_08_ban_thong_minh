@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Trạm Quản Trị & Kiểm Soát Truy Cập AI</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; margin: 0; padding: 24px; color: #1e293b; }
+    .header { max-width: 1120px; margin: 0 auto 20px auto; display: flex; justify-content: space-between; align-items: center; }
+    .container { max-width: 1120px; margin: auto; display: grid; grid-template-columns: 360px 1fr; gap: 20px; }
+    .card { background: white; padding: 20px; border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; }
+    h2 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px 10px; margin: 6px 0 14px 0; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+    .btn-primary { width: 100%; background: #2563eb; color: white; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-sound { background: #0f172a; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #f1f5f9; }
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
+    .Hoc_tap { background: #dcfce7; color: #15803d; }
+    .Giai_tri { background: #fee2e2; color: #b91c1c; }
+    .Khac { background: #f1f5f9; color: #475569; }
+    .alert-row { background-color: #fef2f2 !important; animation: flash 1s infinite alternate; }
+    @keyframes flash { from { background-color: #fecaca; } to { background-color: #fef2f2; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 style="margin:0; font-size:22px;">🛡️ Trạm Quản Trị & Cảnh Báo Truy Cập (AI)</h1>
+    <div style="display:flex; gap:12px; align-items:center;">
+      <button class="btn-sound" id="soundBtn" onclick="enableAudio()">🔇 Bấm để Bật Âm Thanh Cảnh Báo</button>
+      <span id="statusText" style="font-size:13px; color:#64748b;">Đang đồng bộ...</span>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Cột trái: Điều khiển chặn + Biểu đồ -->
+    <div>
+      <div class="card">
+        <h2>🔒 Cấu hình Chặn Từ Xa</h2>
+        <label style="font-size:12px; font-weight:600;">1. Chặn Phần mềm / Công cụ (.exe, cách nhau dấu phẩy):</label>
+        <input type="text" id="blockApps" placeholder="vd: cmd.exe, taskmgr.exe, steam.exe">
+
+        <label style="font-size:12px; font-weight:600;">2. Chặn Tên miền Web (khóa tận gốc file hosts):</label>
+        <input type="text" id="blockDomains" placeholder="vd: tiktok.com, facebook.com">
+
+        <label style="font-size:12px; font-weight:600;">3. Chặn Từ khóa trên Tiêu đề cửa sổ:</label>
+        <input type="text" id="blockKeywords" placeholder="vd: game, phim lậu, cá cược">
+
+        <button class="btn-primary" onclick="saveBlockRules()">Lưu & Áp dụng Chặn Ngay</button>
+        <p id="saveMsg" style="font-size:12px; color:#15803d; text-align:center; margin:8px 0 0 0;"></p>
+      </div>
+
+      <div class="card">
+        <h2>📊 Tỷ lệ Thời gian Hôm nay</h2>
+        <canvas id="pieChart"></canvas>
+        <p id="summaryText" style="text-align:center; font-weight:600; margin-top:14px; font-size:14px;"></p>
+      </div>
+    </div>
+
+    <!-- Cột phải: Nhật ký AI & Cảnh báo bất thường -->
+    <div class="card">
+      <h2>📋 Nhật ký Phân tích AI & Cảnh báo Thao tác Bất thường</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Giờ</th>
+            <th>Phần mềm</th>
+            <th>Nội dung / Chi tiết Cảnh báo</th>
+            <th>Phân loại</th>
+            <th>Thời lượng</th>
+          </tr>
+        </thead>
+        <tbody id="logTable">
+          <tr><td colspan="5" style="text-align:center; color:#94a3b8;">Đang chờ dữ liệu từ máy trạm...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // =====================================================================
+    // DÁN ĐƯỜNG LINK FIREBASE CỦA BẠN VÀO ĐÂY:
+    // =====================================================================
+    const FIREBASE_URL = (function () {
+      // Không ghi URL database vào mã nguồn (repo có thể công khai). Nhập 1 lần, lưu trong trình duyệt này.
+      let u = "";
+      try { u = localStorage.getItem("smartdesk_fb_url") || ""; } catch (e) {}
+      if (!u) {
+        u = (prompt("Nhập Firebase Realtime Database URL (https://...firebasedatabase.app):") || "").trim();
+        try { if (u) localStorage.setItem("smartdesk_fb_url", u); } catch (e) {}
+      }
+      return u.replace(/\/$/, "");
+    })();
+
+    let chartInstance = null;
+    let lastLogCount = 0;
+    let audioCtx = null;
+
+    // Kích hoạt quyền âm thanh của trình duyệt và phát thử 1 tiếng bíp
+    function enableAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+      }
+      document.getElementById("soundBtn").innerText = "🔊 Đã Bật Chuông Báo Động";
+      document.getElementById("soundBtn").style.background = "#15803d";
+      playAbnormalAlertSound();
+    }
+
+    // Hàm phát âm thanh báo động kép khi có thao tác bất thường
+    function playAbnormalAlertSound() {
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = "sawtooth";
+        // Tạo 2 nhịp còi báo động (950Hz -> 600Hz -> 950Hz)
+        osc.frequency.setValueAtTime(950, now);
+        osc.frequency.setValueAtTime(600, now + 0.18);
+        osc.frequency.setValueAtTime(950, now + 0.36);
+
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.65);
+      } catch (e) {
+        console.log("Hãy bấm nút Bật Âm Thanh trên góc phải trang web trước.");
+      }
+    }
+
+    // Kiểm tra xem một bản ghi có phải là thao tác bất thường / bị chặn hay không
+    function isAbnormalEvent(item) {
+      if (!item) return false;
+      if (item.is_alert === true) return true;
+      const summary = (item.title_summary || "").toUpperCase();
+      return summary.includes("⛔ ĐÃ CHẶN") || summary.includes("CẢNH BÁO") || summary.includes("CỐ TÌNH MỞ");
+    }
+
+    async function loadBlockRules() {
+      try {
+        const res = await fetch(`${FIREBASE_URL}/rules.json`);
+        const rules = await res.json();
+        if (rules) {
+          document.getElementById("blockApps").value = (rules.apps || []).join(", ");
+          document.getElementById("blockDomains").value = (rules.domains || []).join(", ");
+          document.getElementById("blockKeywords").value = (rules.keywords || []).join(", ");
+        }
+      } catch (e) {}
+    }
+
+    async function saveBlockRules() {
+      const parseList = (id) => document.getElementById(id).value.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      const payload = {
+        apps: parseList("blockApps"),
+        domains: parseList("blockDomains"),
+        keywords: parseList("blockKeywords")
+      };
+      await fetch(`${FIREBASE_URL}/rules.json`, {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      });
+      document.getElementById("saveMsg").innerText = "✓ Đã lưu và đồng bộ lệnh chặn!";
+      setTimeout(() => document.getElementById("saveMsg").innerText = "", 3000);
+    }
+
+    async function loadData() {
+      try {
+        const today = new Date().toLocaleDateString('sv-SE');
+        const res = await fetch(`${FIREBASE_URL}/logs/${today}.json`);
+        const data = await res.json();
+        document.getElementById("statusText").innerText = "Cập nhật: " + new Date().toLocaleTimeString();
+        if (!data) return;
+
+        const logs = Object.values(data);
+
+        // CHỈ PHÁT ÂM THANH NẾU BẢN GHI MỚI NHẤT LÀ CẢNH BÁO THAO TÁC BẤT THƯỜNG
+        if (logs.length > lastLogCount && lastLogCount !== 0) {
+          const newItems = logs.slice(lastLogCount);
+          if (newItems.some(item => isAbnormalEvent(item))) {
+            playAbnormalAlertSound();
+          }
+        }
+        lastLogCount = logs.length;
+
+        const reversedLogs = [...logs].reverse();
+        let stats = { Hoc_tap: 0, Giai_tri: 0, Khac: 0 };
+        let rows = "";
+        const labelMap = { "Hoc_tap": "Học tập", "Giai_tri": "Giải trí", "Khac": "Khác" };
+
+        reversedLogs.forEach(item => {
+          stats[item.category] = (stats[item.category] || 0) + item.duration_sec;
+          const abnormal = isAbnormalEvent(item);
+          const badgeText = abnormal ? "⚠️ Vi phạm / Chặn" : (labelMap[item.category] || item.category);
+
+          rows += `
+            <tr class="${abnormal ? 'alert-row' : ''}">
+              <td>${item.timestamp}</td>
+              <td><b>${item.app_or_web}</b></td>
+              <td><b>${item.title_summary}</b><br><small style="color:#64748b">${item.reason}</small></td>
+              <td><span class="badge ${item.category}">${badgeText}</span></td>
+              <td><b>${item.duration_sec}s</b></td>
+            </tr>`;
+        });
+        document.getElementById("logTable").innerHTML = rows;
+
+        const totalSec = stats.Hoc_tap + stats.Giai_tri + stats.Khac;
+        document.getElementById("summaryText").innerText = `Tổng thời gian: ${Math.round(totalSec / 60)} phút (${totalSec}s)`;
+
+        const ctx = document.getElementById("pieChart").getContext("2d");
+        if (chartInstance) {
+          chartInstance.data.datasets[0].data = [stats.Hoc_tap, stats.Giai_tri, stats.Khac];
+          chartInstance.update();
+        } else {
+          chartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+              labels: ['Học tập & Làm việc', 'Giải trí & Vi phạm', 'Khác'],
+              datasets: [{ data: [stats.Hoc_tap, stats.Giai_tri, stats.Khac], backgroundColor: ['#22c55e', '#ef4444', '#94a3b8'] }]
+            }
+          });
+        }
+      } catch (err) {}
+    }
+
+    loadBlockRules();
+    loadData();
+    setInterval(loadData, 4000);
+  </script>
+</body>
+</html>
