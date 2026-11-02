@@ -14,7 +14,7 @@
 | **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ✅ Đã hoàn thành |
 | **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ✅ Đã hoàn thành |
 | **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ✅ Đã hoàn thành |
-| **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ⏳ Đang thực hiện |
+| **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ✅ Đã hoàn thành |
 
 ---
 
@@ -106,3 +106,17 @@
   2. Chạy kiểm thử thực tế trực tiếp trên file thực thi đã biên dịch `dist\SmartDeskLauncher.exe --self-test`:
      - Mã thoát: `ExitCode = 0`
      - `self_test_passed = true`, `uia_available = true`, Embedded Flask Server cổng `5000` phản hồi `200 OK`, tự động định vị đúng thư mục `dist/` thông qua `sys.executable`.
+
+---
+
+### ✅ Giai đoạn 7 (Thành phần sau cùng): Dịch vụ Bot Telegram 2 Chiều & Đóng gói Hoàn chỉnh (`services/telegram_service.py`)
+- **Thời gian hoàn thành:** 02/11/2026
+- **Các công việc đã thực hiện:**
+  1. Xây dựng module `services/telegram_service.py` và wrapper tương thích gốc `telegram_service.py`:
+     - Tuân thủ nguyên tắc **Local-first, Zero-cloud**: chỉ gửi siêu dữ liệu cảnh báo văn bản định dạng HTML an toàn (`html.escape`, không lỗi ký tự `_` của tên tiến trình game hay URL), không gửi hình ảnh.
+     - Hỗ trợ đủ 4 kịch bản cảnh báo tự động (`GAME_DETECTED`, `WRONG_LOGIN`, `AI_OVERUSE`, `POSTURE_OR_HW`) + `SYSTEM_TEST` với bộ lọc chống spam `cooldown_seconds`.
+     - Xây dựng `start_telegram_command_poller()` nhận lệnh 2 chiều xác thực theo đúng `chat_id` Phụ huynh: `/help`, `/status` (báo cáo điểm `CFI`, thời gian dùng App & AI, vi phạm gần nhất), `/lock` (khóa màn hình máy tính học sinh từ xa trong ~1 giây), `/reset_ai` (cấp lại thời gian AI).
+  2. Tích hợp Tab **4. Cấu hình Bot Telegram 2 Chiều** trực tiếp trên Bảng điều khiển Phụ huynh trong App `.exe` và kích hoạt đầy đủ khu vực cấu hình + nút Test Telegram trên `trang_web.py` (kèm các route tương thích `/bot-settings`, `/api/telegram-config`, `/api/telegram-test`).
+  3. Tối ưu `build_exe.bat` sử dụng `--workpath "%TEMP%\SmartDeskLauncher_pyi_build"` để triệt tiêu xung đột khóa file tạm của OneDrive khi đóng gói lại `dist/SmartDeskLauncher.exe`.
+- **Hướng dẫn bàn giao tiếp theo (Nếu phát triển mở rộng Gói 3 AI Camera MediaPipe):**
+  - Mọi cổng dữ liệu (`runtime_state.json` trường `posture_telemetry` và API `POST http://127.0.0.1:5000/api/posture_telemetry`) cùng cảnh báo `POSTURE_OR_HW` qua Bot Telegram đã được mở sẵn, chỉ cần chạy độc lập `posture_ai_engine.py` đẩy JSON vào cổng này là hợp nhất trọn vẹn 4 phân hệ.

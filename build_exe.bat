@@ -12,10 +12,14 @@ python -m PyInstaller ^
     --noconsole ^
     --uac-admin ^
     --name SmartDeskLauncher ^
+    --workpath "%TEMP%\SmartDeskLauncher_pyi_build" ^
+    --distpath "dist" ^
     --collect-data uiautomation ^
     --hidden-import=core.config_manager ^
     --hidden-import=core.failsafe ^
     --hidden-import=services.giam_sat_worker ^
+    --hidden-import=services.telegram_service ^
+    --hidden-import=telegram_service ^
     --hidden-import=trang_web ^
     --hidden-import=win32gui ^
     --hidden-import=win32process ^

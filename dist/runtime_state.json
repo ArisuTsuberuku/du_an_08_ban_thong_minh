@@ -1,11 +1,11 @@
 {
-  "updated_at": "2026-11-02 11:12:16",
+  "updated_at": "2026-11-02 11:17:02",
   "current_role": "locked",
   "monitoring_active": false,
   "remote_lock_requested": false,
   "ai_seconds": 0,
   "app_usage": {
-    "Microsoft Edge (msedge.exe)": 2
+    "Microsoft Edge (msedge.exe)": 4
   },
   "alerts": [],
   "posture_telemetry": {
@@ -27,5 +27,5 @@
   },
   "self_test_passed": true,
   "uia_available": true,
-  "telegram_ready": false
+  "telegram_ready": true
 }

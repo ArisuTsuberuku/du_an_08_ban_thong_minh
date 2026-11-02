@@ -493,6 +493,7 @@ DASHBOARD_HTML = """
 
 
 @app.route("/")
+@app.route("/bot-settings")
 def home():
     cfg = load_config()
     port = int(cfg.get("web_port", 5000))
@@ -504,14 +505,51 @@ def home():
     )
 
 
+@app.route("/api/telegram-config", methods=["POST"])
+def api_telegram_config_compat():
+    """Route tương thích Tài liệu số 02: cập nhật cấu hình Bot Telegram."""
+    return luu_cau_hinh_web()
+
+
+@app.route("/api/telegram-test", methods=["POST"])
+def api_telegram_test_compat():
+    """Route tương thích Tài liệu số 02: gửi tin nhắn kiểm tra kết nối Bot Telegram."""
+    ok = _dispatch_telegram_hook(
+        "Cấu hình Bot Telegram từ Website Bàn Học Thông Minh đã hoạt động chính xác!",
+        "SYSTEM_TEST",
+    )
+    if ok:
+        return jsonify({"status": "ok", "message": "📨 Đã bắn tin nhắn thử nghiệm về Telegram của Phụ huynh!"})
+    return jsonify({"status": "err", "message": "⚠️ Chưa nhập Bot Token / Chat ID hợp lệ (Đã in nội dung Mock)."})
+
+
+def _try_start_telegram_poller() -> None:
+    try:
+        from services.telegram_service import start_telegram_command_poller
+
+        start_telegram_command_poller()
+    except Exception:
+        pass
+
+
+def _try_stop_telegram_poller() -> None:
+    try:
+        from services.telegram_service import stop_telegram_command_poller
+
+        stop_telegram_command_poller()
+    except Exception:
+        pass
+
+
 def start_web_server_in_background(port: Optional[int] = None) -> bool:
     """
-    Khởi chạy Flask Web Server (0.0.0.0:5000) trong luồng nền an toàn (dùng cho App .EXE).
+    Khởi chạy Flask Web Server (0.0.0.0:5000) + Telegram 2-way Poller trong luồng nền an toàn.
     Nếu cổng 5000 đã có tiến trình trang_web.py bên ngoài chạy sẵn thì tự động tái sử dụng, không xung đột.
     """
     global _server_instance
     ensure_data_files_exist()
     _sync_memory_from_disk()
+    _try_start_telegram_poller()
     cfg = load_config()
     target_port = int(port or cfg.get("web_port", 5000))
 
@@ -545,6 +583,7 @@ def start_web_server_in_background(port: Optional[int] = None) -> bool:
 
 def stop_web_server_in_background() -> None:
     global _server_instance
+    _try_stop_telegram_poller()
     with _server_lock:
         if _server_instance is not None:
             try:
@@ -557,6 +596,7 @@ def stop_web_server_in_background() -> None:
 if __name__ == "__main__":
     ensure_data_files_exist()
     _sync_memory_from_disk()
+    _try_start_telegram_poller()
     cfg_main = load_config()
     listen_port = int(cfg_main.get("web_port", 5000))
     safe_log(

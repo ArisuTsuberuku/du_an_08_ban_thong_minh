@@ -976,6 +976,93 @@ class PhanMemQuanLyBanHocEXE:
         ).pack(side="left", padx=6)
         tai_bao_cao()
 
+        # --- TAB 4: CẤU HÌNH BOT TELEGRAM 2 CHIỀU (GIAI ĐOẠN 7) ---
+        tab_tg = tk.Frame(notebook, bg="#1e293b", padx=22, pady=16)
+        notebook.add(tab_tg, text="  4. Cấu hình Bot Telegram 2 Chiều  ")
+
+        tg_cfg = cfg.get("telegram", {})
+        tk.Label(
+            tab_tg,
+            text="🤖 THIẾT LẬP BOT TELEGRAM CẢNH BÁO & ĐIỀU KHIỂN TỪ XA (/status, /lock, /reset_ai)",
+            bg="#1e293b",
+            fg="#34d399",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        tk.Label(tab_tg, text="1. Telegram Bot Token (Lấy từ @BotFather):", bg="#1e293b", fg="white", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        ent_tg_token = tk.Entry(tab_tg, font=("Segoe UI", 10), bg="#090d16", fg="white", insertbackground="white")
+        ent_tg_token.insert(0, tg_cfg.get("bot_token", ""))
+        ent_tg_token.pack(fill="x", ipady=4, pady=(2, 8))
+
+        tk.Label(tab_tg, text="2. Telegram Chat ID của Phụ huynh:", bg="#1e293b", fg="white", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        ent_tg_chat = tk.Entry(tab_tg, font=("Segoe UI", 10), bg="#090d16", fg="white", insertbackground="white")
+        ent_tg_chat.insert(0, tg_cfg.get("chat_id", ""))
+        ent_tg_chat.pack(fill="x", ipady=4, pady=(2, 8))
+
+        tk.Label(tab_tg, text="3. Thời gian giãn cách chống spam giữa 2 cảnh báo cùng loại (Giây):", bg="#1e293b", fg="white", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        ent_tg_cd = tk.Entry(tab_tg, font=("Segoe UI", 10), bg="#090d16", fg="white", insertbackground="white")
+        ent_tg_cd.insert(0, str(tg_cfg.get("cooldown_seconds", 30)))
+        ent_tg_cd.pack(fill="x", ipady=4, pady=(2, 10))
+
+        v_en = tk.BooleanVar(value=bool(tg_cfg.get("enable_alerts", True)))
+        v_gm = tk.BooleanVar(value=bool(tg_cfg.get("alert_on_game", True)))
+        v_wl = tk.BooleanVar(value=bool(tg_cfg.get("alert_on_wrong_login", True)))
+        v_ai = tk.BooleanVar(value=bool(tg_cfg.get("alert_on_ai_overuse", True)))
+
+        for txt_c, var_c in [
+            ("Kích hoạt gửi cảnh báo tự động qua Bot Telegram", v_en),
+            ("Báo cáo khi học sinh mở Web Game / Ứng dụng Game", v_gm),
+            ("Báo cáo khi học sinh thử đăng nhập vượt quyền Phụ huynh / Admin thất bại", v_wl),
+            ("Báo cáo khi học sinh dùng ChatGPT / Chatbot AI quá thời gian quy định", v_ai),
+        ]:
+            tk.Checkbutton(
+                tab_tg,
+                text=txt_c,
+                variable=var_c,
+                bg="#1e293b",
+                fg="#e2e8f0",
+                selectcolor="#090d16",
+                activebackground="#1e293b",
+                font=("Segoe UI", 9),
+            ).pack(anchor="w", pady=2)
+
+        def luu_va_test_tg(gui_test: bool = False) -> None:
+            try:
+                cd_val = max(5, int(ent_tg_cd.get().strip() or 30))
+            except ValueError:
+                cd_val = 30
+            cfg["telegram"].update(
+                {
+                    "bot_token": ent_tg_token.get().strip(),
+                    "chat_id": ent_tg_chat.get().strip(),
+                    "cooldown_seconds": cd_val,
+                    "enable_alerts": bool(v_en.get()),
+                    "alert_on_game": bool(v_gm.get()),
+                    "alert_on_wrong_login": bool(v_wl.get()),
+                    "alert_on_ai_overuse": bool(v_ai.get()),
+                }
+            )
+            save_config(cfg)
+            if gui_test:
+                from services.telegram_service import trigger_parent_alert
+
+                ok = trigger_parent_alert(
+                    "SYSTEM_TEST",
+                    "Kết nối từ Phần mềm Quản lý Bàn Học Thông Minh (.EXE) thành công! Gửi /help để xem lệnh điều khiển.",
+                    sync=True,
+                )
+                if ok:
+                    messagebox.showinfo("Thành công", "📨 Đã lưu & gửi tin nhắn thử nghiệm về Telegram Phụ huynh!", parent=self.root)
+                else:
+                    messagebox.showwarning("Chưa thể gửi", "Đã lưu cấu hình! Vui lòng kiểm tra lại Bot Token & Chat ID hợp lệ.", parent=self.root)
+            else:
+                messagebox.showinfo("Đã lưu", "Đã lưu cấu hình Bot Telegram thành công!", parent=self.root)
+
+        tg_btn_row = tk.Frame(tab_tg, bg="#1e293b")
+        tg_btn_row.pack(fill="x", pady=(14, 0))
+        tk.Button(tg_btn_row, text="💾 Lưu Cấu Hình Telegram", command=lambda: luu_va_test_tg(False), bg="#0284c7", fg="white", font=("Segoe UI", 10, "bold"), padx=16, pady=8, relief="flat").pack(side="left", padx=(0, 8))
+        tk.Button(tg_btn_row, text="📨 Lưu & Gửi Tin Nhắn Test", command=lambda: luu_va_test_tg(True), bg="#059669", fg="white", font=("Segoe UI", 10, "bold"), padx=16, pady=8, relief="flat").pack(side="left")
+
     # =====================================================================
     # CẤP 1: CHẾ ĐỘ ADMIN (QUẢN TRỊ HỆ THỐNG LÕI & MỞ TOÀN QUYỀN WINDOWS)
     # =====================================================================
