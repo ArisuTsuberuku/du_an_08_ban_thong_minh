@@ -316,6 +316,12 @@ class PostureAIManager:
                     env=env,
                     creationflags=creation_flags,
                 )
+                try:   # FocusDesk tắt kiểu gì thì tiến trình AI camera cũng tắt theo
+                    from services.app_shutdown import adopt
+
+                    adopt(self._sidecar_proc)
+                except Exception:
+                    pass
                 safe_log(f"[AI] Đã khởi chạy Sidecar AI Tư thế 3D (PID={self._sidecar_proc.pid}).")
                 return True
             except Exception as exc:

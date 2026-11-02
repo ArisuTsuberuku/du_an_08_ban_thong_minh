@@ -7,7 +7,7 @@
 ;  Gỡ cài đặt: trả lại Task Manager, gỡ chặn DNS, xóa tác vụ tự khởi động, hiện lại taskbar.
 ; =====================================================================
 #define AppName "FocusDesk"
-#define AppVer "1.18.3"
+#define AppVer "1.19.0"
 
 [Setup]
 AppId={{6F0B3A52-8C1E-4C5D-9E0A-1D08B4A70001}
@@ -131,4 +131,25 @@ begin
     if not FileExists(F) then
       SaveStringToFile(F, '{"cloud_url": "' + Trim(CloudPage.Values[0]) + '"}', False);
   end;
+  // Ghi nhớ cloudflared do CHÍNH bộ cài này cài -> lúc gỡ FocusDesk hỏi gỡ luôn
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('cloudflared') then
+    SaveStringToFile(ExpandConstant('{app}\cloudflared_by_focusdesk.txt'), 'winget Cloudflare.cloudflared', False);
+end;
+
+var
+  CfByUs: Boolean;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  RC: Integer;
+begin
+  // Đọc dấu TRƯỚC khi thư mục {app} bị xóa
+  if CurUninstallStep = usUninstall then
+    CfByUs := FileExists(ExpandConstant('{app}\cloudflared_by_focusdesk.txt'));
+  // go_cai_dat.bat (UninstallRun) đã tắt tiến trình cloudflared; ở đây hỏi gỡ hẳn chương trình cloudflared
+  if (CurUninstallStep = usPostUninstall) and CfByUs then
+    if UninstallSilent or (MsgBox('FocusDesk đã cài kèm cloudflared (đường truyền xem camera từ xa).' + #13#10 +
+        'Gỡ luôn cloudflared khỏi máy?', mbConfirmation, MB_YESNO) = IDYES) then
+      Exec(ExpandConstant('{cmd}'), '/c winget uninstall --id Cloudflare.cloudflared -e --silent --accept-source-agreements',
+           '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;

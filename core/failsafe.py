@@ -212,6 +212,9 @@ def generate_emergency_bat_file() -> str:
         "taskkill /f /im pythonw.exe >nul 2>&1\r\n"
         'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '
         "'*he_thong_quan_ly_3_cap*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\" >nul 2>&1\r\n"
+        'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '
+        "'*cloudflared*tunnel*127.0.0.1:*' -or $_.CommandLine -like '*posture_ai_engine*' } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\" >nul 2>&1\r\n"
         "echo [3/4] Dang khoi dong lai Windows Explorer (hien lai Taskbar/Desktop)...\r\n"
         "taskkill /f /im explorer.exe >nul 2>&1\r\n"
         "start explorer.exe\r\n"

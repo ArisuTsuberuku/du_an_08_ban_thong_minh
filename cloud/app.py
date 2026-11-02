@@ -183,7 +183,10 @@ def device_auth() -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
 
 
 def is_online(dev: Dict[str, Any]) -> bool:
-    return now() - int(dev.get("last_seen", 0) or 0) <= ONLINE_GRACE_S
+    last = int(dev.get("last_seen", 0) or 0)
+    if int(dev.get("shutdown_at", 0) or 0) >= last > 0:   # máy vừa báo "đã tắt FocusDesk"
+        return False
+    return now() - last <= ONLINE_GRACE_S
 
 
 # =====================================================================
@@ -543,7 +546,9 @@ function appIcon(app,title){const t=(app+' '+title).toLowerCase();
   ['steam','🎮'],['roblox','🎮'],['game','🎮'],['spotify','🎧'],['discord','💬'],['telegram','💬'],['explorer','📁'],['pdf','📕'],['acrobat','📕']];
  for(const [k,i] of M) if(t.includes(k)) return i; return '🖥️';}
 function statusOf(v){const s=v.status||{},p=s.posture||{},n=v.now||{};
- if(!v.online) return ['off','⚪ Máy đang tắt / mất mạng','Cập nhật lần cuối '+Math.round(v.ago/60)+' phút trước'];
+ if(!v.online){if(v.shutdown_at&&v.shutdown_at>=Date.now()/1000-v.ago-2){const tm=new Date(v.shutdown_at*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+   return ['off','⏻ FocusDesk đã được tắt lúc '+tm,v.shutdown_reason||'Thoát phần mềm'];}
+  return ['off','⚪ Máy đang tắt / mất mạng','Cập nhật lần cuối '+Math.round(v.ago/60)+' phút trước'];}
  if(p.camera&&p.state==='ABSENT') return ['warn','🟠 Học sinh đang vắng mặt','Không thấy ai trước camera'];
  const br=s.break||{};if(br.active){const ref=br.left_t||br.start;const mins=ref?Math.max(0,Math.round((Date.now()/1000-ref)/60)):0;
   return ['warn','🚻 Đang đi vệ sinh',(br.left_t?'Rời bàn lúc '+new Date(br.left_t*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'Vừa xin phép')+' · '+mins+' phút'];}
@@ -799,6 +804,8 @@ def api_parent_devices():
             "name": dev.get("name") or did,
             "online": is_online(dev),
             "ago": now() - int(dev.get("last_seen", 0) or 0),
+            "shutdown_at": int(dev.get("shutdown_at", 0) or 0),
+            "shutdown_reason": str(dev.get("shutdown_reason", ""))[:120],
             "status": dev.get("status") or {},
             "alerts": (dev.get("recent_alerts") or [])[:10],
             "events": (dev.get("events") or [])[:25],
@@ -1301,6 +1308,15 @@ def api_agent_heartbeat():
     if not did:
         return jsonify({"error": "unauthorized"}), 401
     data = request.get_json(silent=True) or {}
+    if data.get("shutdown"):
+        # FocusDesk trên máy học sinh đang thoát: giữ trạng thái cũ, đánh dấu đã tắt + báo phụ huynh ngay
+        reason = str(data.get("reason", ""))[:120]
+        alerts = [_fb_safe(a) for a in (data.get("alerts") or []) if isinstance(a, dict)][:2]
+        db.update(f"devices/{did}", {"last_seen": now(), "shutdown_at": now(), "shutdown_reason": reason,
+                                     "recent_alerts": (alerts + list(dev.get("recent_alerts") or []))[:20]})
+        if alerts:
+            _notify_alerts(did, dev, alerts)
+        return jsonify({"ok": True})
     status = data.get("status") or {}
     if not isinstance(status, dict):
         status = {}
@@ -1364,8 +1380,8 @@ def _notify_alerts(did: str, dev: Dict[str, Any], alerts: List[Dict[str, Any]]) 
     sent_types = {}
     for a in alerts:
         typ = fb_key(str(a.get("type", "GENERIC")))[:30] or "generic"
-        # Nghỉ vệ sinh luôn báo (sự kiện bắt đầu / kết thúc), các loại khác cách nhau ALERT_COOLDOWN_S
-        if typ.lower() != "break" and (now() - int(cooldowns.get(typ, 0) or 0) < ALERT_COOLDOWN_S or typ in sent_types):
+        # Nghỉ vệ sinh và bật/tắt phần mềm luôn báo (sự kiện bắt đầu / kết thúc), các loại khác cách nhau ALERT_COOLDOWN_S
+        if typ.lower() not in ("break", "power") and (now() - int(cooldowns.get(typ, 0) or 0) < ALERT_COOLDOWN_S or typ in sent_types):
             continue
         sent_types[typ] = now()
         msg = f"🚨 <b>{name}</b>\n{html.escape(str(a.get('message', '')))}\n<i>{html.escape(str(a.get('time', '')))}</i>"

@@ -498,6 +498,28 @@ def start_cloud_agent() -> bool:
     return True
 
 
+def notify_shutdown(reason: str, timeout: float = 4.0) -> Optional[bool]:
+    """Báo web phụ huynh + Telegram 'FocusDesk đã tắt' NGAY (không chờ vòng heartbeat).
+    None = chưa cấu hình cloud / chưa đăng ký máy; True = đã gửi; False = gửi lỗi (mất mạng...)."""
+    url = _cloud_url()
+    ident = _load_identity()
+    if not url or not ident.get("device_id") or not ident.get("device_token") or "--self-test" in sys.argv:
+        return None
+    _stop.set()      # vòng heartbeat không gửi thêm gì sau thông báo tắt
+    try:
+        import requests
+
+        msg = f"⏻ FocusDesk đã tắt trên máy {socket.gethostname()} — {reason}"
+        r = requests.post(url + "/api/agent/heartbeat",
+                          json={"shutdown": True, "reason": reason,
+                                "alerts": [{"time": time.strftime("%H:%M:%S"), "type": "POWER", "message": msg}]},
+                          headers={"Authorization": f"Device {ident['device_id']}:{ident['device_token']}"},
+                          timeout=timeout)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 def stop_cloud_agent() -> None:
     _stop.set()
     try:

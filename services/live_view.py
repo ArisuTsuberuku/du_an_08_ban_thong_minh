@@ -77,6 +77,12 @@ def ensure_tunnel() -> str:
             _proc = subprocess.Popen([cf, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                      encoding="utf-8", errors="ignore", creationflags=flags)
+            try:   # gắn vào Job Object: FocusDesk tắt / crash / bị End task -> cloudflared tắt theo
+                from services.app_shutdown import adopt
+
+                adopt(_proc)
+            except Exception:
+                pass
             deadline = time.time() + 30
             base = ""
             while time.time() < deadline and _proc.poll() is None:

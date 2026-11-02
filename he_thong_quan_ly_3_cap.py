@@ -180,19 +180,61 @@ class PhanMemQuanLyBanHocEXE:
             self._goi_ui(lambda: self.thoat_khan_cap(ly_do, hien_thong_bao=False))
 
     def thoat_khan_cap(self, ly_do: str = "Khẩn cấp", hien_thong_bao: bool = True) -> None:
+        if getattr(self, "_dang_thoat", False):
+            return
+        self._dang_thoat = True
         self._huy_bo_dem_ui()
         self._dong_dock()
         self._tat_kiosk()
         self.bo_giam_sat.dung_lai()
-        posture_manager.stop()
-        stop_web_server_in_background()
+
+        # Cửa sổ tiến trình: hiện từng phần đang được tắt (báo phụ huynh, Cloudflare, AI camera, web nội bộ...)
+        win = lbl = None
+        try:
+            win = tk.Toplevel(self.root)
+            win.title("Đang tắt FocusDesk")
+            win.configure(bg="white", padx=22, pady=18)
+            win.attributes("-topmost", True)
+            win.resizable(False, False)
+            tk.Label(win, text="⏻  Đang tắt FocusDesk…", bg="white", fg="#0f172a",
+                     font=("Segoe UI", 13, "bold")).pack(anchor="w")
+            lbl = tk.Label(win, text="", bg="white", fg="#334155", font=("Segoe UI", 10), justify="left")
+            lbl.pack(anchor="w", pady=(8, 0))
+            win.update()
+        except Exception:
+            win = None
+        shown: list = []
+
+        def tien_trinh(line: str) -> None:
+            shown.append(line)
+            if lbl is not None:
+                try:
+                    lbl.config(text="\n".join(shown))
+                    win.update()
+                except Exception:
+                    pass
+
+        try:
+            from services.app_shutdown import shutdown_all
+
+            ket_qua = shutdown_all(ly_do, progress=tien_trinh)
+        except Exception as exc:
+            ket_qua = [f"⚠  Lỗi khi dọn dẹp: {exc}"]
+            posture_manager.stop()
+            stop_web_server_in_background()
         restore_windows_normal_state()
+        ket_qua.append("✓  Đã mở khóa Task Manager, hiện lại thanh Taskbar và Desktop")
+        tien_trinh(ket_qua[-1])
+        if win is not None:
+            try:
+                win.destroy()
+            except Exception:
+                pass
         if hien_thong_bao:
             try:
                 messagebox.showinfo(
-                    "An Toàn Hệ Thống (Fail-Safe)",
-                    f"Đã kích hoạt thoát an toàn ({ly_do}).\n"
-                    "Đã mở khóa lại Task Manager gốc, khôi phục Windows Explorer và dừng giám sát ngầm!",
+                    "Đã tắt FocusDesk",
+                    f"Lý do: {ly_do}\n\n" + "\n".join(ket_qua),
                     parent=self.root,
                 )
             except Exception:
@@ -2493,6 +2535,12 @@ def main() -> None:
     root = tk.Tk()
     app_instance = PhanMemQuanLyBanHocEXE(root)
     install_all_failsafes(on_ui_emergency=app_instance.thoat_khan_cap_tu_luong_phu)
+    try:   # cloudflared / AI camera còn sót từ lần chạy trước (bản cũ, hoặc máy bị tắt ngang)
+        from services.app_shutdown import kill_orphan_helpers
+
+        threading.Thread(target=kill_orphan_helpers, name="OrphanCleanup", daemon=True).start()
+    except Exception as exc:
+        safe_log(f"[THOÁT] Không dọn được tiến trình mồ côi: {exc}")
     start_web_server_in_background()
     try:
         from services.phone_box import start_phone_box
@@ -2500,7 +2548,18 @@ def main() -> None:
         start_phone_box()
     except Exception as exc:
         safe_log(f"[HỘP] Không khởi động được kết nối hộp điện thoại: {exc}")
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        # Cửa sổ chính đóng theo đường khác (Windows đăng xuất / tắt máy...) -> vẫn tắt sạch tiến trình phụ
+        if not getattr(app_instance, "_dang_thoat", False):
+            try:
+                from services.app_shutdown import shutdown_all
+
+                shutdown_all("Cửa sổ FocusDesk bị đóng (Windows đăng xuất / tắt máy?)")
+            except Exception:
+                pass
+            restore_windows_normal_state()
 
 
 if __name__ == "__main__":
