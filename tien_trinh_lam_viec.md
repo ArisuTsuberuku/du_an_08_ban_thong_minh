@@ -12,8 +12,8 @@
 | **Giai đoạn 2** | 5 Lớp An toàn Khẩn cấp chống kẹt máy (`core/failsafe.py`, `KHOI_PHUC_KHAN_CAP.bat`, Global Hotkeys, Crash Hooks, PIN `999999`, `UNLOCK.txt`) | ✅ Đã hoàn thành |
 | **Giai đoạn 3** | Web Server Dashboard Trung tâm (`trang_web.py` chạy `0.0.0.0:5000`, giữ nguyên `/api/nhan_canh_bao`, hỗ trợ PC & Android) | ✅ Đã hoàn thành |
 | **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ✅ Đã hoàn thành |
-| **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ⏳ Đang thực hiện |
-| **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ⏳ Chờ thực hiện |
+| **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ✅ Đã hoàn thành |
+| **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ⏳ Đang thực hiện |
 | **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ⏳ Chờ thực hiện |
 
 ---
@@ -75,3 +75,20 @@
   4. Tích hợp bộ đếm thời gian tra cứu ChatGPT / Gemini / Claude / Copilot (`ai_seconds`), cảnh báo khi vượt `max_ai_minutes`.
   5. Quét `psutil` mỗi giây để tiêu diệt tiến trình game ngầm (`BAD_APPS`) và cộng dồn chính xác thời gian mở từng ứng dụng học tập (khử trùng lặp đa tiến trình con của Chrome/Edge).
 - **Kiểm thử:** Đã vượt qua toàn bộ 7 kịch bản kiểm thử đơn vị (miễn trừ Dashboard, `olm.vn`, YouTube bài giảng Vật lý, YouTube giải trí, YouTube Shorts, Poki Games, ChatGPT quota) và chạy thử vòng lặp luồng nền thực tế.
+
+---
+
+### ✅ Giai đoạn 5: Giao diện Khóa máy 3 Cấp quyền Kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`)
+- **Thời gian hoàn thành:** 02/11/2026
+- **Các công việc đã thực hiện:**
+  1. Xây dựng ứng dụng trung tâm `he_thong_quan_ly_3_cap.py` kết nối toàn bộ các mô-đun (`core/config_manager`, `core/failsafe`, `services/giam_sat_worker`, `trang_web`).
+  2. **Màn hình Khóa Toàn màn hình (Gcafe/CSM):**
+     - Fullscreen Topmost, chặn `Alt+F4`, gắn thanh cứu hộ cố định ở đáy màn hình kèm nút `🆘 Thoát Khẩn Cấp (PIN: 999999)`.
+     - 3 nút **⚡ Chọn nhanh Tài khoản Demo** (`hocsinh/hocsinh123`, `phuhuynh/phuhuynh123`, `admin/admin123`), tự phát hiện và cảnh báo khi đăng nhập sai quyền Phụ huynh/Admin ≥ 3 lần (`WRONG_LOGIN`).
+  3. **Chế độ Học sinh & Student Task Manager:**
+     - Lưới mở ứng dụng (`allowed_apps`) và thư mục (`allowed_folders`) được phép, đồng hồ Quota AI thời gian thực, tự động kích hoạt `BoGiamSatThongMinh` và lắng nghe lệnh Khóa từ xa.
+     - **Student Task Manager:** Chỉ hiển thị tiến trình trong `allowed_apps` (kèm dung lượng RAM), ẩn và khóa cứng tuyệt đối `explorer.exe`, `python.exe`, `pythonw.exe`, `SmartDeskLauncher.exe` và các tiến trình hệ thống.
+  4. **Chế độ Phụ huynh & Admin:**
+     - Mở lại `explorer.exe` và Task Manager gốc, cung cấp Bảng điều khiển 3 Tab cho Phụ huynh (Quản lý `.exe` & Thư mục, Chính sách Web/AI/Game, Báo cáo thống kê & Lịch sử vi phạm) và Bảng Quản trị Hệ thống cho Admin (Kiosk `explorer.exe`, cổng Web/COM ESP32-S3, đổi mật khẩu 3 cấp, Thoát hoàn toàn phần mềm).
+     - Tự động khởi chạy ngầm `trang_web.py` cổng `5000` suốt vòng đời ứng dụng.
+- **Kiểm thử:** Chạy `python he_thong_quan_ly_3_cap.py --self-test` kiểm chứng toàn bộ 4 màn hình UI + Student Task Manager + Embedded Web Server thành công 100%.
