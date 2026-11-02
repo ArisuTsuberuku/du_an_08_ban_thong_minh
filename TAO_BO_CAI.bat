@@ -34,13 +34,33 @@ echo Dang tai python-3.14.0-amd64.exe ...
 powershell -NoProfile -Command "Invoke-WebRequest 'https://www.python.org/ftp/python/3.14.0/python-3.14.0-amd64.exe' -OutFile 'installer\redist\python-installer.exe' -UseBasicParsing"
 if not exist "installer\redist\python-installer.exe" echo [CANH BAO] Tai Python that bai - bo cai se dung winget tren may dich.
 
-REM ---- 3. Dong goi ------------------------------------------------------------
+REM ---- 3. Dong goi (+ ky so neu da cau hinh chung thu) -------------------------
 :dong_goi
-echo [3/3] Dang dong goi, may co the cham 1-3 phut...
+REM Ky so tuy chon: dat bien moi truong FOCUSDESK_SIGN_SHA1 = dau van tay (thumbprint) chung thu ky ma
+REM da cai trong Windows (OV cua DigiCert/Sectigo/Certum..., hoac token USB). Khong dat -> bo cai KHONG ky.
+set "SIGNTOOL="
+if not defined FOCUSDESK_SIGN_SHA1 goto :khong_ky
+for /f "delims=" %%s in ('dir /b /s "%ProgramFiles(x86)%\Windows Kits\10\bin\*signtool.exe" 2^>nul ^| findstr /i "x64"') do set "SIGNTOOL=%%s"
+if not defined SIGNTOOL goto :thieu_signtool
+echo [3/3] Dang dong goi VA KY SO bang chung thu %FOCUSDESK_SIGN_SHA1% ...
+"%ISCC%" /DSIGN "/Sfdsign=$q%SIGNTOOL%$q sign /sha1 %FOCUSDESK_SIGN_SHA1% /fd sha256 /tr http://timestamp.digicert.com /td sha256 $f" "installer\FocusDesk.iss"
+if errorlevel 1 goto :loi_dong_goi
+goto :xong
+
+:thieu_signtool
+echo [CANH BAO] Da dat FOCUSDESK_SIGN_SHA1 nhung chua co signtool.exe - can cai Windows SDK. Dong goi KHONG ky.
+:khong_ky
+echo [3/3] Dang dong goi (khong ky so), may co the cham 1-3 phut...
 "%ISCC%" "installer\FocusDesk.iss"
 if errorlevel 1 goto :loi_dong_goi
+
+:xong
+REM Bo cai tao tai may nay khong co "dau tai ve" (Mark of the Web) nen chay o day khong bi SmartScreen.
+REM May khac: chep bang USB se khong bi chan; tai qua Zalo/Drive/email -> xem muc SmartScreen trong HUONG_DAN_CAI_DAT.md.
 echo.
 echo XONG: gui file dist_installer\FocusDesk_Setup.exe sang may khac, nhay dup de cai.
+echo Neu Windows bao "Windows protected your PC": bam "More info" -^> "Run anyway" (chi 1 lan),
+echo hoac chuot phai file -^> Properties -^> tick "Unblock" -^> OK roi chay lai.
 explorer "dist_installer"
 pause
 exit /b 0

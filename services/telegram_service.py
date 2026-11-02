@@ -208,7 +208,7 @@ def handle_incoming_command(command_text: str) -> Optional[str]:
 
     if cmd in ("/start", "/help"):
         return (
-            "👋 <b>Xin chào Phụ huynh! Đây là Trợ lý Bàn Học Thông Minh (Zero-Cloud).</b>\n"
+            "👋 <b>Xin chào Phụ huynh! Đây là Trợ lý FocusDesk (Zero-Cloud).</b>\n"
             "Các lệnh điều khiển từ xa:\n"
             "• <code>/status</code> — Xem điểm tập trung CFI, thời gian dùng App/AI & vi phạm gần nhất.\n"
             "• <code>/lock</code> — Khóa màn hình máy tính của Học sinh ngay lập tức.\n"

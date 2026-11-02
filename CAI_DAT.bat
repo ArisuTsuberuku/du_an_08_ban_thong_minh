@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 >nul
-title Cai dat Ban Hoc Thong Minh (FocusDesk)
+title Cai dat FocusDesk - Ban hoc thong minh
 cd /d "%~dp0"
 set "SILENT="
 if /i "%~1"=="/tu_bo_cai" set "SILENT=1"
 echo ==============================================================
-echo   CAI DAT BAN HOC THONG MINH - chay 1 lan tren may hoc sinh
+echo   CAI DAT FOCUSDESK - chay 1 lan tren may hoc sinh
 echo ==============================================================
 echo.
 
@@ -45,14 +45,15 @@ if defined SILENT (
 )
 
 REM ---- 4. Loi tat tren Desktop -------------------------------------------------
-echo [4/5] Tao loi tat "Ban Hoc Thong Minh" tren Desktop...
-powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Ban Hoc Thong Minh.lnk');$s.TargetPath='%~dp0MO_FOCUSDESK.bat';$s.WorkingDirectory='%~dp0';$s.IconLocation='%SystemRoot%\System32\imageres.dll,109';$s.Save()"
+echo [4/5] Tao loi tat "FocusDesk" tren Desktop...
+powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\FocusDesk.lnk');$s.TargetPath='%~dp0MO_FOCUSDESK.bat';$s.WorkingDirectory='%~dp0';$s.IconLocation='%SystemRoot%\System32\imageres.dll,109';$s.Save()"
 
 REM ---- 5. Tuy chon -------------------------------------------------------------
 echo [5/5] Tuy chon:
 choice /c YN /m "Tu mo FocusDesk khi dang nhap Windows (quyen Admin, khong hoi UAC)"
 if errorlevel 2 goto :skipauto
-schtasks /create /tn "FocusDesk Ban Hoc Thong Minh" /tr "\"%~dp0MO_FOCUSDESK.bat\"" /sc onlogon /rl highest /f
+schtasks /delete /tn "SmartDesk Ban Hoc Thong Minh" /f >nul 2>&1
+schtasks /create /tn "FocusDesk" /tr "\"%~dp0MO_FOCUSDESK.bat\"" /sc onlogon /rl highest /f
 :skipauto
 where cloudflared >nul 2>&1
 if errorlevel 1 (
@@ -60,7 +61,7 @@ if errorlevel 1 (
   if not errorlevel 2 winget install --id Cloudflare.cloudflared -e --accept-source-agreements --accept-package-agreements
 )
 echo.
-echo HOAN TAT. Mo "Ban Hoc Thong Minh" tren Desktop.
+echo HOAN TAT. Mo "FocusDesk" tren Desktop.
 echo Lan dau: dang nhap Admin -^> doi mat khau; Phu huynh -^> Camera AI -^> "Tu nhan dien camera";
 echo          Phu huynh -^> Dien thoai phu huynh -^> lay ma ghep 6 so nhap tren web phu huynh.
 pause

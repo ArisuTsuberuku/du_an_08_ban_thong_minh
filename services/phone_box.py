@@ -28,14 +28,42 @@ import queue
 import secrets
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from collections import deque
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from core.config_manager import load_config, safe_log, save_config, update_runtime_state
 
-BAUD = 115200
+BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware đời đầu, vẫn chấp nhận
+
+BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
 PING_S = 2.0
 LOST_S = 6.0                # không nghe hộp > 6s = mất kết nối
 PREFERRED_VIDS = (0x303A, 0x1A86, 0x10C4, 0x0403)   # Espressif, CH340, CP210x, FTDI
+
+
+# ---------------------------------------------------------------------- nhật ký serial (cho Serial monitor của Admin)
+# Mỗi phần tử: (seq, thời_điểm, chiều "TX"|"RX"|"SYS", nội_dung, cổng). seq tăng dần để giao diện chỉ lấy dòng mới.
+TRAFFIC: Deque[Tuple[int, float, str, str, str]] = deque(maxlen=1500)
+_traffic_seq = [0]
+_traffic_lock = threading.Lock()
+
+
+def log_traffic(direction: str, text: str, port: str = "") -> None:
+    with _traffic_lock:
+        _traffic_seq[0] += 1
+        TRAFFIC.append((_traffic_seq[0], time.time(), direction, text.rstrip("\r\n"), port))
+
+
+def traffic_since(seq: int) -> List[Tuple[int, float, str, str, str]]:
+    with _traffic_lock:
+        return [row for row in TRAFFIC if row[0] > seq]
+
+
+def configured_baud() -> int:
+    try:
+        return int(load_config().get("esp32_baud", BAUD) or BAUD)
+    except Exception:
+        return BAUD
 
 
 def make_mac(key: str, t: str, msg_id: int, nonce: str, sec: int = 0) -> str:
@@ -58,12 +86,27 @@ def find_box_ports() -> List[Dict[str, Any]]:
     return sorted(out, key=lambda d: d["rank"])
 
 
+def list_all_ports() -> List[Dict[str, Any]]:
+    """Mọi cổng COM (kể cả Bluetooth) cho Serial monitor; đánh dấu cổng nghi là hộp."""
+    try:
+        from serial.tools import list_ports
+    except Exception:
+        return []
+    out = []
+    for p in list_ports.comports():
+        hwid = (p.hwid or "").upper()
+        bt = "BTHENUM" in hwid or "BLUETOOTH" in (p.description or "").upper()
+        out.append({"port": p.device, "desc": p.description or "", "vid": p.vid, "pid": p.pid, "bluetooth": bt,
+                    "likely_box": (p.vid in PREFERRED_VIDS) and not bt})
+    return sorted(out, key=lambda d: (not d["likely_box"], d["bluetooth"], d["port"]))
+
+
 class _SerialTransport:
-    def __init__(self, port: str):
+    def __init__(self, port: str, baud: Optional[int] = None):
         import serial
 
         self.port = port
-        self.ser = serial.Serial(port, BAUD, timeout=0.2, write_timeout=1.0)
+        self.ser = serial.Serial(port, baud or configured_baud(), timeout=0.2, write_timeout=1.0)
         try:
             self.ser.dtr = True   # USB CDC của ESP32-S3 cần DTR để gửi dữ liệu
         except Exception:
@@ -99,6 +142,7 @@ class PhoneBoxLink:
         self._stop = threading.Event()
         self._last_rx = 0.0
         self._thread: Optional[threading.Thread] = None
+        self._suspended = threading.Event()   # Serial monitor mượn cổng ở chế độ thô -> tạm ngừng tự kết nối
 
     # ------------------------------------------------------------------ vòng đời
     def start(self) -> None:
@@ -113,6 +157,24 @@ class PhoneBoxLink:
         if self.tr:
             self.tr.close()
 
+    def suspend(self) -> None:
+        """Nhả cổng COM cho Serial monitor (chế độ cổng thô). Gọi resume() để tự kết nối lại."""
+        self._suspended.set()
+        if self.tr:
+            self.tr.close()
+            self.tr = None
+        if self.state.get("connected"):
+            self.state = {"connected": False}
+        self.state["suspended"] = True
+        log_traffic("SYS", "Tạm ngừng kết nối tự động (Serial monitor đang dùng cổng)", self.port)
+        self._publish()
+
+    def resume(self) -> None:
+        self._suspended.clear()
+        self.state.pop("suspended", None)
+        log_traffic("SYS", "Bật lại kết nối tự động")
+        self._publish()
+
     def _publish(self) -> None:
         try:
             update_runtime_state(phone_box={**self.state, "port": self.port, "t": int(time.time())})
@@ -124,19 +186,25 @@ class PhoneBoxLink:
         want = str(cfg.get("esp32_com_port", "auto") or "auto").strip()
         ports = [want] if want.lower() not in ("auto", "", "com3") else [p["port"] for p in find_box_ports()]
         for port in ports:
+            if self._suspended.is_set():
+                return False
             try:
                 tr = self._factory(port)
-            except Exception:
+            except Exception as exc:
+                log_traffic("SYS", f"Không mở được {port}: {exc}", port)
                 continue
             self.tr, self.port = tr, port
             self._send_raw({"t": "hello", "id": self._next_id()})
             t0 = time.time()
             while time.time() - t0 < 2.5:
                 msg = self._read_one()
-                if msg and msg.get("t") == "hello" and msg.get("dev") == "focusdesk-box":
+                if msg and msg.get("t") == "hello" and msg.get("dev") in BOX_DEV_IDS:
+                    if self._suspended.is_set():          # Serial monitor vừa xin cổng -> nhả ra
+                        break
                     self._on_msg(msg)
                     safe_log(f"[HỘP] Đã kết nối hộp điện thoại {msg.get('box_id')} ở {port} (fw {msg.get('fw')})")
                     return True
+            log_traffic("SYS", f"{port}: không thấy hello hợp lệ (dev phải là {BOX_DEV_IDS[0]}) trong 2,5 giây", port)
             tr.close()
             self.tr, self.port = None, ""
         return False
@@ -144,6 +212,9 @@ class PhoneBoxLink:
     def _run(self) -> None:
         last_ping = 0.0
         while not self._stop.is_set():
+            if self._suspended.is_set():
+                self._stop.wait(0.5)
+                continue
             if self.tr is None:
                 if not self._open():
                     if self.state.get("connected"):
@@ -161,8 +232,9 @@ class PhoneBoxLink:
             if msg:
                 self._last_rx = time.time()
                 self._on_msg(msg)
-            elif time.time() - self._last_rx > LOST_S:
+            elif time.time() - self._last_rx > LOST_S and self.tr is not None:
                 safe_log("[HỘP] Mất tín hiệu hộp điện thoại — dò lại cổng…")
+                log_traffic("SYS", f"Không nghe hộp > {LOST_S:.0f}s -> mất kết nối, dò lại cổng", self.port)
                 self.tr.close()
                 self.tr = None
                 self.state = {"connected": False}
@@ -178,8 +250,19 @@ class PhoneBoxLink:
     def _send_raw(self, msg: Dict[str, Any]) -> None:
         if self.tr is None:
             raise ConnectionError("Chưa kết nối hộp")
+        line = json.dumps(msg, separators=(",", ":"), ensure_ascii=False)
+        log_traffic("TX", line, self.port)          # ghi trước khi gửi để nhật ký đúng thứ tự TX -> RX
         with self._wlock:
-            self.tr.write((json.dumps(msg, separators=(",", ":")) + "\n").encode())
+            self.tr.write((line + "\n").encode())
+
+    def send_text(self, line: str) -> None:
+        """Serial monitor: gửi nguyên văn 1 dòng (không ký) qua kết nối đang mở."""
+        if self.tr is None:
+            raise ConnectionError("Chưa kết nối hộp")
+        line = line.strip()
+        log_traffic("TX", line, self.port)
+        with self._wlock:
+            self.tr.write((line + "\n").encode())
 
     def _read_one(self) -> Optional[Dict[str, Any]]:
         try:
@@ -189,8 +272,11 @@ class PhoneBoxLink:
             return None
         if not line:
             return None
+        text = line.decode("utf-8", "ignore").strip()
+        if text:
+            log_traffic("RX", text, self.port)
         try:
-            msg = json.loads(line.decode("utf-8", "ignore").strip())
+            msg = json.loads(text)
             return msg if isinstance(msg, dict) else None
         except Exception:
             return None   # dòng log / rác từ ESP32 khi khởi động -> bỏ qua
@@ -268,6 +354,77 @@ class PhoneBoxLink:
             cfg["phone_box_key"] = key
             save_config(cfg)
         return res
+
+
+class RawSerialMonitor:
+    """Serial monitor chế độ CỔNG THÔ: mở bất kỳ cổng/baud nào, ghi mọi dòng nhận được (kể cả log không phải JSON).
+    Dùng khi hộp chưa kết nối được (sai baud, sai "dev", firmware in rác...) để người làm phần cứng gỡ lỗi."""
+
+    def __init__(self, port: str, baud: int = BAUD, factory: Optional[Callable[..., Any]] = None):
+        self.port, self.baud = port, int(baud)
+        self.tr = (factory or _SerialTransport)(port, self.baud)
+        self.last_nonce = ""
+        self._id = 900000          # id riêng, không trùng id của kết nối tự động
+        self._stop = threading.Event()
+        log_traffic("SYS", f"Mở cổng thô {port} @ {self.baud} baud", port)
+        threading.Thread(target=self._loop, name="RawSerialMonitor", daemon=True).start()
+
+    def _loop(self) -> None:
+        buf = b""
+        while not self._stop.is_set():
+            try:
+                chunk = self.tr.readline()
+            except Exception as exc:
+                log_traffic("SYS", f"Lỗi đọc cổng: {exc}", self.port)
+                break
+            if not chunk:
+                continue
+            buf += chunk
+            if not buf.endswith(b"\n") and len(buf) < 4096:
+                continue
+            text = buf.decode("utf-8", "replace").strip()
+            buf = b""
+            if not text:
+                continue
+            log_traffic("RX", text, self.port)
+            try:
+                msg = json.loads(text)
+                if isinstance(msg, dict) and msg.get("nonce"):
+                    self.last_nonce = str(msg["nonce"])
+            except Exception:
+                pass
+
+    def send_text(self, line: str) -> None:
+        line = line.strip()
+        log_traffic("TX", line, self.port)
+        self.tr.write((line + "\n").encode())
+
+    def send_signed(self, t: str, sec: int = 0) -> str:
+        """Gửi lock/unlock có ký bằng khóa đã ghép + nonce mới nhất vừa nhận (gửi "get" trước để có nonce)."""
+        key = str(load_config().get("phone_box_key", "") or "")
+        if not key:
+            raise ValueError("Chưa có khóa ghép (phone_box_key) — ghép hộp trước")
+        if not self.last_nonce:                      # chưa có nonce -> tự hỏi trạng thái rồi chờ tối đa 2 giây
+            self._id += 1
+            self.send_text(json.dumps({"t": "get", "id": self._id}, separators=(",", ":")))
+            t0 = time.time()
+            while not self.last_nonce and time.time() - t0 < 2.0:
+                time.sleep(0.05)
+        if not self.last_nonce:
+            raise ValueError("Hộp không trả nonce (không có phản hồi state cho lệnh get)")
+        self._id += 1
+        msg: Dict[str, Any] = {"t": t, "id": self._id}
+        if t == "unlock":
+            msg["sec"] = int(sec)
+        msg["mac"] = make_mac(key, t, self._id, self.last_nonce, int(sec))
+        line = json.dumps(msg, separators=(",", ":"))
+        self.send_text(line)
+        return line
+
+    def close(self) -> None:
+        self._stop.set()
+        self.tr.close()
+        log_traffic("SYS", f"Đóng cổng thô {self.port}", self.port)
 
 
 # ---------------------------------------------------------------------- singleton + chính sách

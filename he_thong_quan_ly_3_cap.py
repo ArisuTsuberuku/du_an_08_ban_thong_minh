@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Phần Mềm Trung Tâm Quản Lý Bàn Học Thông Minh 3 Cấp Quyền (he_thong_quan_ly_3_cap.py)
+Phần Mềm Trung Tâm Quản Lý FocusDesk 3 Cấp Quyền (he_thong_quan_ly_3_cap.py)
 Đóng gói thành FocusDeskLauncher.exe (--uac-admin):
   - Giao diện Khóa Toàn màn hình kiểu Gcafe / CSM + 3 Tài khoản Demo nhanh.
   - Phân quyền 3 cấp: Admin (Quản trị hệ thống), Phụ huynh (Quản lý Whitelist/Web/AI & Báo cáo), Học sinh (Custom Shell).
@@ -73,6 +73,7 @@ FORBIDDEN_STUDENT_PROCESSES: Set[str] = {
 # Bảng màu giao diện nền sáng (đồng bộ với web phụ huynh)
 UI = {"bg": "#f4f6fb", "card": "#ffffff", "line": "#e2e8f0", "txt": "#0f172a", "mut": "#64748b",
       "acc": "#2563eb", "ok": "#16a34a", "warn": "#d97706", "bad": "#dc2626"}
+SERIAL_BAUDS = (9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600)
 
 
 class PhanMemQuanLyBanHocEXE:
@@ -80,7 +81,7 @@ class PhanMemQuanLyBanHocEXE:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Hệ Thống Quản Lý Bàn Học Thông Minh - 3 Cấp Quyền")
+        self.root.title("FocusDesk – Hệ thống quản lý bàn học thông minh 3 cấp quyền")
         self.root.configure(bg=UI["bg"])
 
         self.bo_giam_sat = BoGiamSatThongMinh(on_remote_lock=self._nhan_lenh_khoa_tu_xa)
@@ -264,6 +265,7 @@ class PhanMemQuanLyBanHocEXE:
 
     def hien_man_hinh_dang_nhap(self) -> None:
         self._current_mode = "locked"
+        self._dong_serial_monitor()
         self._hop_dt(False)
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
@@ -455,6 +457,7 @@ class PhanMemQuanLyBanHocEXE:
     # =====================================================================
     def vao_che_do_hoc_sinh(self) -> None:
         self._current_mode = "student"
+        self._dong_serial_monitor()
         self._hop_dt(True)
         cfg = load_config()
         update_runtime_state(current_role="student", remote_lock_requested=False)
@@ -1742,7 +1745,7 @@ class PhanMemQuanLyBanHocEXE:
             if test:
                 from services.telegram_service import trigger_parent_alert
 
-                ok = trigger_parent_alert("SYSTEM_TEST", "Kết nối từ Bàn Học Thông Minh thành công!", sync=True)
+                ok = trigger_parent_alert("SYSTEM_TEST", "Kết nối từ FocusDesk thành công!", sync=True)
                 (messagebox.showinfo if ok else messagebox.showwarning)(
                     "Telegram", "📨 Đã gửi tin thử!" if ok else "Đã lưu, nhưng chưa gửi được — kiểm tra Token / Chat ID.",
                     parent=self.root)
@@ -1859,6 +1862,9 @@ class PhanMemQuanLyBanHocEXE:
         ttk.Combobox(c1, textvariable=v_port, values=ports, state="readonly", width=20).pack(anchor="w", pady=(2, 6))
         tk.Label(c1, text="“auto” = tự tìm cổng USB của ESP32 (bỏ qua cổng COM Bluetooth).", bg=UI["card"],
                  fg=UI["mut"], font=("Segoe UI", 9)).pack(anchor="w")
+        self._label(c1, "Tốc độ (baud) — phải trùng Serial.begin() trong firmware", size=9)
+        v_baud = tk.StringVar(value=str(cfg.get("esp32_baud", phone_box.BAUD)))
+        ttk.Combobox(c1, textvariable=v_baud, values=[str(b) for b in SERIAL_BAUDS], width=20).pack(anchor="w", pady=(2, 6))
 
         c2 = self._card(row, "📡  Trạng thái", side="left", padx=(8, 0))
         lbl = tk.Label(c2, text="—", bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 11), justify="left", anchor="w")
@@ -1910,6 +1916,10 @@ class PhanMemQuanLyBanHocEXE:
             cfg["phone_box_required"] = bool(v_req.get())
             cfg["phone_box_auto_lock"] = bool(v_auto.get())
             cfg["esp32_com_port"] = v_port.get()
+            try:
+                cfg["esp32_baud"] = int(v_baud.get().strip() or phone_box.BAUD)
+            except ValueError:
+                cfg["esp32_baud"] = phone_box.BAUD
             save_config(cfg)
             if cfg["phone_box_enabled"]:
                 phone_box.start_phone_box()
@@ -1917,12 +1927,247 @@ class PhanMemQuanLyBanHocEXE:
                 phone_box.get_box().stop()
             messagebox.showinfo("Đã lưu", "Đã lưu cài đặt hộp điện thoại.", parent=self.root)
 
+        dbg = self._card(page, "🛠️  Gỡ lỗi giao tiếp (Serial monitor)", pady=(12, 0))
+        self._label(dbg, "Xem từng dòng máy tính gửi (TX) và hộp trả về (RX), gửi lệnh tay, mở cổng thô với baud tùy chọn "
+                         "khi hộp chưa kết nối được. Chỉ dùng trong trang Admin.", bold=False, size=9)
+        self._ui_button(dbg, "🛠️  Mở Serial monitor", self._serial_monitor, kind="ghost").pack(anchor="w", pady=(6, 0))
+
         tip = self._card(page, "🧰  Cách lắp & ghép", pady=(12, 0))
         self._label(tip, "1. Nạp firmware firmware/hop_dien_thoai_esp32s3 cho ESP32-S3 (Arduino IDE, USB CDC On Boot = "
                          "Enabled). 2. Cắm hộp vào máy bằng cáp USB. 3. Bật “Bật hộp khóa điện thoại”, Lưu. "
                          "4. Mở nắp hộp, giữ nút trên hộp 5 giây (kêu 1 tiếng dài), bấm “Ghép hộp”. "
-                         "5. Nên có chìa khóa cơ dự phòng phòng khi mất điện.", bold=False, size=9)
+                         "5. Nên có chìa khóa cơ dự phòng phòng khi mất điện. Chuẩn giao tiếp cho người làm mạch: "
+                         "firmware/GIAO_THUC.md.", bold=False, size=9)
         self._ui_button(page, "💾  Lưu", luu).pack(anchor="e", pady=(12, 0))
+
+    # ---------- Serial monitor cho hộp điện thoại (chỉ Admin) ----------
+    def _dong_serial_monitor(self) -> None:
+        win = getattr(self, "_serial_win", None)
+        if win is not None:
+            try:
+                win.event_generate("<<DongMonitor>>")
+            except Exception:
+                pass
+            self._serial_win = None
+
+    def _serial_monitor(self) -> None:
+        """Cửa sổ Serial monitor: theo dõi TX/RX của kết nối hộp, gửi lệnh tay, hoặc mở cổng thô (tạm dừng kết nối tự động)."""
+        import json as _json
+
+        from services import phone_box
+
+        old = getattr(self, "_serial_win", None)
+        if old is not None and old.winfo_exists():
+            old.lift()
+            return
+        box = phone_box.get_box()
+        win = tk.Toplevel(self.root)
+        self._serial_win = win
+        win.title("Serial monitor — hộp điện thoại")
+        win.configure(bg=UI["bg"])
+        win.geometry("980x640")
+        win.attributes("-topmost", True)
+        st: Dict[str, Any] = {"raw": None, "seq": 0, "id": 800000}
+
+        top = tk.Frame(win, bg=UI["bg"])
+        top.pack(fill="x", padx=12, pady=(10, 4))
+        tk.Label(top, text="Cổng", bg=UI["bg"], fg=UI["txt"], font=("Segoe UI", 9, "bold")).pack(side="left")
+        ports = phone_box.list_all_ports()
+        labels = [f"{p['port']} — {p['desc'][:38]}" + (" ★" if p["likely_box"] else "") + (" (Bluetooth)" if p["bluetooth"] else "")
+                  for p in ports]
+        v_port = tk.StringVar(value=labels[0] if labels else "")
+        cb_port = ttk.Combobox(top, textvariable=v_port, values=labels, width=46)
+        cb_port.pack(side="left", padx=(4, 10))
+        tk.Label(top, text="Baud", bg=UI["bg"], fg=UI["txt"], font=("Segoe UI", 9, "bold")).pack(side="left")
+        v_baud = tk.StringVar(value=str(phone_box.configured_baud()))
+        ttk.Combobox(top, textvariable=v_baud, values=[str(b) for b in SERIAL_BAUDS], width=9).pack(side="left", padx=(4, 10))
+        mode_lbl = tk.Label(top, text="", bg=UI["bg"], fg=UI["acc"], font=("Segoe UI", 9, "bold"))
+        mode_lbl.pack(side="right")
+
+        def cap_nhat_mode() -> None:
+            if st["raw"] is not None:
+                mode_lbl.config(text=f"● Cổng thô {st['raw'].port} @ {st['raw'].baud}", fg=UI["warn"])
+                btn_raw.config(text="⏹ Đóng cổng thô")
+            else:
+                s2 = box.state
+                mode_lbl.config(text=(f"● Theo dõi kết nối tự động: {box.port}" if s2.get("connected")
+                                      else "○ Kết nối tự động: chưa thấy hộp"),
+                                fg=UI["ok"] if s2.get("connected") else UI["mut"])
+                btn_raw.config(text="▶ Mở cổng thô")
+
+        def mo_dong_raw() -> None:
+            if st["raw"] is not None:
+                st["raw"].close()
+                st["raw"] = None
+                box.resume()
+                cap_nhat_mode()
+                return
+            port = v_port.get().split(" — ")[0].strip()
+            if not port:
+                messagebox.showwarning("Serial monitor", "Chưa chọn cổng COM.", parent=win)
+                return
+            box.suspend()
+            time.sleep(0.3)
+            try:
+                st["raw"] = phone_box.RawSerialMonitor(port, int(v_baud.get() or phone_box.BAUD))
+            except Exception as exc:
+                box.resume()
+                messagebox.showerror("Serial monitor", f"Không mở được {port}: {exc}\n(Cổng đang bị chương trình khác "
+                                     "như Arduino IDE giữ?)", parent=win)
+            cap_nhat_mode()
+
+        btn_raw = self._ui_button(top, "▶ Mở cổng thô", mo_dong_raw, kind="ghost")
+        btn_raw.pack(side="left")
+
+        opts = tk.Frame(win, bg=UI["bg"])
+        opts.pack(fill="x", padx=12)
+        v_hide_ping = tk.BooleanVar(value=True)
+        v_auto = tk.BooleanVar(value=True)
+        v_time = tk.BooleanVar(value=True)
+        for text, var in (("Ẩn ping/state định kỳ", v_hide_ping), ("Tự cuộn", v_auto), ("Hiện giờ", v_time)):
+            tk.Checkbutton(opts, text=text, variable=var, bg=UI["bg"], activebackground=UI["bg"],
+                           font=("Segoe UI", 9)).pack(side="left", padx=(0, 10))
+
+        body = tk.Frame(win, bg=UI["bg"])
+        body.pack(fill="both", expand=True, padx=12, pady=6)
+        txt = tk.Text(body, bg="#0b1220", fg="#e2e8f0", insertbackground="white", font=("Consolas", 10),
+                      relief="flat", wrap="none", state="disabled")
+        sb = ttk.Scrollbar(body, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        txt.pack(side="left", fill="both", expand=True)
+        txt.tag_configure("TX", foreground="#60a5fa")
+        txt.tag_configure("RX", foreground="#4ade80")
+        txt.tag_configure("RXRAW", foreground="#94a3b8")
+        txt.tag_configure("ERR", foreground="#f87171")
+        txt.tag_configure("SYS", foreground="#fbbf24")
+
+        def them_dong(ts: float, d: str, line: str) -> None:
+            tag = d
+            if d == "RX":
+                try:
+                    m = _json.loads(line)
+                    if isinstance(m, dict) and (m.get("ok") is False or m.get("e") == "tamper"):
+                        tag = "ERR"
+                except Exception:
+                    tag = "RXRAW"
+            prefix = (time.strftime("%H:%M:%S", time.localtime(ts)) + f".{int(ts * 1000) % 1000:03d} " if v_time.get() else "")
+            arrow = {"TX": "→ ", "RX": "← ", "SYS": "• "}.get(d, "  ")
+            txt.configure(state="normal")
+            txt.insert("end", f"{prefix}{arrow}{line}\n", tag)
+            if int(txt.index("end-1c").split(".")[0]) > 4000:
+                txt.delete("1.0", "500.0")
+            txt.configure(state="disabled")
+            if v_auto.get():
+                txt.see("end")
+
+        def poll() -> None:
+            if not win.winfo_exists():
+                return
+            rows = phone_box.traffic_since(st["seq"])
+            for seq, ts, d, line, _port in rows:
+                st["seq"] = seq
+                compact = line.replace(" ", "")
+                if v_hide_ping.get():
+                    # Ẩn ping tự động 2s/lần và đúng câu trả lời state của nó; state trả cho lệnh "get" bấm tay vẫn hiện
+                    if d == "TX" and '"t":"ping"' in compact:
+                        st["ping_cho"] = st.get("ping_cho", 0) + 1
+                        continue
+                    if d == "RX" and '"t":"state"' in compact and st.get("ping_cho", 0) > 0:
+                        st["ping_cho"] -= 1
+                        continue
+                them_dong(ts, d, line)
+            cap_nhat_mode()
+            win.after(250, poll)
+
+        send = tk.Frame(win, bg=UI["bg"])
+        send.pack(fill="x", padx=12, pady=(0, 6))
+        e_cmd = tk.Entry(send, font=("Consolas", 10), relief="flat", highlightthickness=1,
+                         highlightbackground=UI["line"], highlightcolor=UI["acc"])
+        e_cmd.pack(side="left", fill="x", expand=True, ipady=6)
+
+        def gui_dong(line: str) -> None:
+            line = line.strip()
+            if not line:
+                return
+            try:
+                if st["raw"] is not None:
+                    st["raw"].send_text(line)
+                else:
+                    box.send_text(line)
+            except Exception as exc:
+                phone_box.log_traffic("SYS", f"Không gửi được: {exc}")
+
+        def gui_tu_o_nhap(_e=None) -> None:
+            gui_dong(e_cmd.get())
+            e_cmd.delete(0, "end")
+
+        def gui_json(t: str, **extra: Any) -> None:
+            st["id"] += 1
+            gui_dong(_json.dumps({"t": t, "id": st["id"], **extra}, separators=(",", ":")))
+
+        def gui_ky(t: str, sec: int = 0) -> None:
+            def work():
+                try:
+                    if st["raw"] is not None:
+                        st["raw"].send_signed(t, sec)
+                    else:
+                        r = box.lock() if t == "lock" else box.unlock(sec)
+                        phone_box.log_traffic("SYS", f"Kết quả {t}: {'OK' if r.get('ok') else r.get('err')}")
+                except Exception as exc:
+                    phone_box.log_traffic("SYS", f"{t}: {exc}")
+            threading.Thread(target=work, daemon=True).start()
+
+        e_cmd.bind("<Return>", gui_tu_o_nhap)
+        self._ui_button(send, "Gửi ↵", gui_tu_o_nhap).pack(side="left", padx=(8, 0))
+
+        quick = tk.Frame(win, bg=UI["bg"])
+        quick.pack(fill="x", padx=12, pady=(0, 10))
+        tk.Label(quick, text="Lệnh nhanh:", bg=UI["bg"], fg=UI["mut"], font=("Segoe UI", 9)).pack(side="left")
+        for text, fn in (("hello", lambda: gui_json("hello")), ("get", lambda: gui_json("get")),
+                         ("ping", lambda: gui_json("ping", ts=int(time.time()))), ("beep 2", lambda: gui_json("beep", n=2)),
+                         ("🔒 lock (ký)", lambda: gui_ky("lock")), ("🔓 unlock 60s (ký)", lambda: gui_ky("unlock", 60))):
+            self._ui_button(quick, text, fn, kind="ghost").pack(side="left", padx=(6, 0))
+
+        def xoa() -> None:
+            txt.configure(state="normal")
+            txt.delete("1.0", "end")
+            txt.configure(state="disabled")
+
+        def luu_log() -> None:
+            os.makedirs(os.path.join(get_app_dir(), "logs"), exist_ok=True)
+            path = os.path.join(get_app_dir(), "logs", time.strftime("serial_%Y%m%d_%H%M%S.txt"))
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(txt.get("1.0", "end"))
+            phone_box.log_traffic("SYS", f"Đã lưu nhật ký: {path}")
+
+        self._ui_button(quick, "💾 Lưu log", luu_log, kind="ghost").pack(side="right")
+        self._ui_button(quick, "🧹 Xóa", xoa, kind="ghost").pack(side="right", padx=6)
+
+        def dong(_e=None) -> None:
+            if st["raw"] is not None:
+                try:
+                    st["raw"].close()
+                except Exception:
+                    pass
+                st["raw"] = None
+                box.resume()
+            try:
+                win.destroy()
+            except Exception:
+                pass
+
+        win.protocol("WM_DELETE_WINDOW", dong)
+        win.bind("<<DongMonitor>>", dong)
+        st["seq"] = max(0, (phone_box.traffic_since(0) or [(0,)])[-1][0] - 200)   # hiện 200 dòng gần nhất
+        try:
+            import serial  # noqa: F401
+        except Exception:
+            phone_box.log_traffic("SYS", "Chưa cài thư viện pyserial nên chưa đọc được cổng COM. Chạy KIEM_TRA.bat "
+                                         "(hoặc: python -m pip install pyserial) rồi mở lại Serial monitor.")
+        cap_nhat_mode()
+        poll()
+        e_cmd.focus_set()
 
     def _trang_he_thong(self, page) -> None:
         cfg = load_config()
@@ -1941,8 +2186,8 @@ class PhanMemQuanLyBanHocEXE:
         c2 = self._card(row, "⚙️  Kết nối", side="left", padx=(8, 0))
         self._label(c2, "Cổng web nội bộ")
         e_port = self._entry(c2, str(cfg.get("web_port", 5000)))
-        self._label(c2, "Cổng COM hộp khóa điện thoại (ESP32-S3)")
-        e_com = self._entry(c2, str(cfg.get("esp32_com_port", "COM3")))
+        tk.Label(c2, text="Cổng COM / baud của hộp điện thoại: xem trang “📦 Hộp điện thoại”.", bg=UI["card"],
+                 fg=UI["mut"], font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
         tools = tk.Frame(c2, bg=UI["card"])
         tools.pack(fill="x", pady=(6, 0))
         self._ui_button(tools, "🧰 Task Manager", lambda: subprocess.Popen(["taskmgr.exe"]), kind="ghost").pack(side="left")
@@ -1956,7 +2201,6 @@ class PhanMemQuanLyBanHocEXE:
                 cfg["web_port"] = int(e_port.get().strip() or 5000)
             except ValueError:
                 cfg["web_port"] = 5000
-            cfg["esp32_com_port"] = e_com.get().strip() or "COM3"
             save_config(cfg)
             messagebox.showinfo("Đã lưu", "Đã lưu cấu hình hệ thống.", parent=self.root)
 

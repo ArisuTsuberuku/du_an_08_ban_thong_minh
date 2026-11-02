@@ -1,5 +1,5 @@
 /*
-  HOP KHOA DIEN THOAI - ESP32-S3 (firmware cho Ban Hoc Thong Minh / FocusDesk)
+  HOP KHOA DIEN THOAI - ESP32-S3 (firmware cho FocusDesk - ban hoc thong minh)
   ---------------------------------------------------------------------------
   Ket noi may tinh: cap USB vao cong "USB" (native USB-CDC) cua ESP32-S3, 115200 baud.
   Arduino IDE: Board "ESP32S3 Dev Module", USB CDC On Boot = Enabled. Thu vien: ArduinoJson (v7).

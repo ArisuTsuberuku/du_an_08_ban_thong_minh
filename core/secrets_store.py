@@ -40,8 +40,10 @@ def _load_file() -> Dict[str, Any]:
 
 def get_secret(key: str, default: Optional[str] = None) -> Optional[str]:
     env_name = _ENV_MAP.get(key, "FOCUSDESK_" + key.upper())
-    val = os.environ.get(env_name, "").strip()
-    if val:
-        return val
+    # Đọc cả tên biến cũ SMARTDESK_* (trước khi đổi thương hiệu) để máy đã cấu hình không bị mất kết nối
+    for name in (env_name, env_name.replace("FOCUSDESK_", "SMARTDESK_", 1)):
+        val = os.environ.get(name, "").strip()
+        if val:
+            return val
     val = str(_load_file().get(key, "") or "").strip()
     return val or default

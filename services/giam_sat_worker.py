@@ -245,6 +245,7 @@ def phan_loai_truy_cap_web(
     if (
         "bảng điều khiển bàn học" in title_l
         or "hệ thống quản lý bàn học thông minh" in title_l
+        or "focusdesk" in title_l
         or f"127.0.0.1:{port}" in url_l
         or f"localhost:{port}" in url_l
         or url_l.endswith(f":{port}/")

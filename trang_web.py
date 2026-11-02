@@ -212,7 +212,7 @@ def luu_cau_hinh_web():
 
     if data.get("send_test"):
         sent = _dispatch_telegram_hook(
-            "✅ Tin nhắn kiểm tra kết nối từ Bảng Điều Khiển Bàn Học Thông Minh!",
+            "✅ Tin nhắn kiểm tra kết nối từ Bảng Điều Khiển FocusDesk!",
             "SYSTEM_TEST",
         )
         if sent:
@@ -331,7 +331,7 @@ def _guard_remote_access():
 
 
 LIVE_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Xem trực tiếp - Bàn Học Thông Minh</title>
+<title>Xem trực tiếp - FocusDesk</title>
 <body style="margin:0;font-family:system-ui;background:#f4f6fb;color:#0f172a">
 <div style="max-width:720px;margin:0 auto;padding:12px">
 <h3 style="margin:8px 0">📺 Camera bàn học (trực tiếp, không qua cloud)</h3>
@@ -391,7 +391,7 @@ DASHBOARD_HTML = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- BẮT BUỘC giữ cụm "Bảng Điều Khiển Bàn Học" để giam_sat.pyw miễn trừ không đóng nhầm -->
-    <title>Bảng Điều Khiển Bàn Học Thông Minh (STEM Dashboard)</title>
+    <title>Bảng Điều Khiển Bàn Học FocusDesk (STEM Dashboard)</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #090d16; color: #f8fafc; margin: 0; padding: 18px; }
@@ -721,7 +721,7 @@ def api_telegram_config_compat():
 def api_telegram_test_compat():
     """Route tương thích Tài liệu số 02: gửi tin nhắn kiểm tra kết nối Bot Telegram."""
     ok = _dispatch_telegram_hook(
-        "Cấu hình Bot Telegram từ Website Bàn Học Thông Minh đã hoạt động chính xác!",
+        "Cấu hình Bot Telegram từ Website FocusDesk đã hoạt động chính xác!",
         "SYSTEM_TEST",
     )
     if ok:

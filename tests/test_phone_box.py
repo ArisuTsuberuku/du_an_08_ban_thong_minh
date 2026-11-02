@@ -90,6 +90,51 @@ def test_disconnect_detected():
     link.stop()
 
 
+def test_traffic_log_records_tx_rx():
+    box, link = make()
+    rows = pb.traffic_since(0)
+    assert any(r[2] == "TX" and '"t":"hello"' in r[3] for r in rows), rows[-5:]
+    assert any(r[2] == "RX" and "focusdesk-box" in r[3] for r in rows), rows[-5:]
+    link.stop()
+
+
+def test_old_firmware_hello_accepted():
+    box = FakeBox(KEY)
+    orig = box.feed
+
+    def feed_old(line):
+        if b'"hello"' in line:
+            box._send({"t": "hello", "dev": "smartdesk-box", "fw": "old", "box_id": "OLD1", "nonce": box.nonce})
+        else:
+            orig(line)
+    box.feed = feed_old
+    link = pb.PhoneBoxLink(transport_factory=lambda port: FakeTransport(box))
+    link.start()
+    assert wait(lambda: link.state.get("connected")), "firmware cũ (smartdesk-box) phải vẫn kết nối được"
+    link.stop()
+
+
+def test_serial_monitor_raw_mode():
+    box, link = make()
+    link.suspend()
+    assert wait(lambda: not link.state.get("connected")) and link.tr is None
+    mon = pb.RawSerialMonitor("SIM", 115200, factory=lambda port, baud: FakeTransport(box))
+    seq0 = pb.traffic_since(0)[-1][0]
+    box.to_pc.put(b"ESP-ROM:esp32s3-20210327 boot log\n")           # dòng rác khi ESP32 khởi động
+    mon.send_text('{"t":"get","id":1}')
+    assert wait(lambda: mon.last_nonce == box.nonce), "phải đọc được nonce từ state"
+    assert any(r[2] == "RX" and "boot log" in r[3] for r in pb.traffic_since(seq0)), "dòng không phải JSON vẫn phải hiện"
+    mon.send_signed("unlock", 30)
+    assert wait(lambda: box.lock == "unlocked")
+    assert wait(lambda: mon.last_nonce == box.nonce), "nonce mới sau lệnh phải được cập nhật"
+    mon.send_signed("lock")
+    assert wait(lambda: box.lock == "locked"), "lệnh ký từ Serial monitor phải được hộp chấp nhận"
+    mon.close()
+    link.resume()
+    assert wait(lambda: link.state.get("connected"), 8), "resume phải tự kết nối lại"
+    link.stop()
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):

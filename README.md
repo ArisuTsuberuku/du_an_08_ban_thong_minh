@@ -1,4 +1,6 @@
-# Hệ Thống Bàn Học Thông Minh Hợp Nhất Không Gian Mạng - Vật Lý (Cyber-Physical Smart Study Desk)
+# FocusDesk — Hệ Thống Bàn Học Thông Minh Hợp Nhất Không Gian Mạng - Vật Lý (Cyber-Physical Smart Study Desk)
+
+> Tài liệu mới: [HUONG_DAN_CAI_DAT.md](HUONG_DAN_CAI_DAT.md) (bộ cài, SmartScreen, VAPID, Gemini) · [DANH_MUC_FILE.md](DANH_MUC_FILE.md) (ý nghĩa từng file) · [firmware/GIAO_THUC.md](firmware/GIAO_THUC.md) (chuẩn giao tiếp hộp điện thoại)
 
 Phần mềm trung tâm quản lý kỷ luật số 3 cấp quyền kiểu Gcafe/CSM trên Windows kết hợp kiểm soát trình duyệt theo Link Address (URL), đếm thời gian Chatbot AI, Thị giác Máy tính nhận diện tư thế 3D tại biên (MediaPipe Holistic + `cv2.solvePnP`), Bảng điều khiển Web LAN (`0.0.0.0:5000`) cho PC & Điện thoại Android và Trợ lý cảnh báo hai chiều qua Bot Telegram (Local-first, Zero-Cloud).
 

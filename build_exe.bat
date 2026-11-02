@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo =====================================================================
-echo   DONG GOI PHAN MEM BAN HOC THONG MINH (dist\FocusDeskLauncher.exe)
+echo   DONG GOI PHAN MEM FOCUSDESK (dist\FocusDeskLauncher.exe)
 echo   Che do: --onefile --noconsole --uac-admin (Quyen Administrator)
 echo   Camera AI (mediapipe) chay rieng bang Python he thong -> chay CAI_DAT.bat truoc
 echo =====================================================================

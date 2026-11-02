@@ -6,14 +6,14 @@
 ;  cài thư viện (CAI_DAT.bat /tu_bo_cai), tạo lối tắt, tùy chọn tự khởi động + cloudflared.
 ;  Gỡ cài đặt: trả lại Task Manager, gỡ chặn DNS, xóa tác vụ tự khởi động, hiện lại taskbar.
 ; =====================================================================
-#define AppName "Bàn Học Thông Minh"
-#define AppVer "1.15.0"
+#define AppName "FocusDesk"
+#define AppVer "1.17.0"
 
 [Setup]
 AppId={{6F0B3A52-8C1E-4C5D-9E0A-1D08B4A70001}
 AppName={#AppName}
 AppVersion={#AppVer}
-AppPublisher=Dự án D08
+AppPublisher=Dự án D08 - FocusDesk
 DefaultDirName={sd}\FocusDesk
 DefaultGroupName={#AppName}
 PrivilegesRequired=admin
@@ -27,6 +27,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={sys}\imageres.dll,109
 DisableProgramGroupPage=yes
+#ifdef SIGN
+; Bat khi TAO_BO_CAI.bat goi ISCC voi /DSIGN /Sfdsign=... (xem bien FOCUSDESK_SIGN_SHA1)
+SignTool=fdsign
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
@@ -53,6 +58,8 @@ Source: "..\KHOI_PHUC_KHAN_CAP.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\secrets.local.example.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\HUONG_DAN_CAI_DAT.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\DANH_MUC_FILE.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "KIEM_TRA.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "go_cai_dat.bat"; DestDir: "{app}"; Flags: ignoreversion
 ; Tùy chọn: TAO_BO_CAI.bat có thể tải sẵn bộ cài Python vào installer\redist\ để cài được cả khi máy đích chưa có Python
@@ -68,7 +75,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\MO_FOCUSDESK.bat"; WorkingDir
 [Run]
 Filename: "{tmp}\python-installer.exe"; Parameters: "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1"; StatusMsg: "Đang cài Python..."; Check: NeedPython and HasBundledPython; Flags: waituntilterminated
 Filename: "{app}\CAI_DAT.bat"; Parameters: "/tu_bo_cai"; WorkingDir: "{app}"; StatusMsg: "Đang cài thư viện Python và mô hình AI (lần đầu 3-10 phút, cần Internet)..."; Flags: waituntilterminated
-Filename: "{sys}\schtasks.exe"; Parameters: "/create /tn ""FocusDesk Ban Hoc Thong Minh"" /tr ""\""{app}\MO_FOCUSDESK.bat\"""" /sc onlogon /rl highest /f"; Tasks: autostart; Flags: runhidden waituntilterminated
+Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""SmartDesk Ban Hoc Thong Minh"" /f"; Flags: runhidden waituntilterminated
+Filename: "{sys}\schtasks.exe"; Parameters: "/create /tn ""FocusDesk"" /tr ""\""{app}\MO_FOCUSDESK.bat\"""" /sc onlogon /rl highest /f"; Tasks: autostart; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/c winget install --id Cloudflare.cloudflared -e --accept-source-agreements --accept-package-agreements"; Tasks: cloudflared; StatusMsg: "Đang cài cloudflared..."; Flags: runhidden waituntilterminated
 Filename: "{app}\MO_FOCUSDESK.bat"; Description: "Mở {#AppName} ngay"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent shellexec unchecked
 

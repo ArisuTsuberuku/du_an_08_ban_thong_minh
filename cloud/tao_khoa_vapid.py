@@ -10,9 +10,13 @@ Sau đó Redeploy. Đổi khóa = mọi điện thoại phải bấm "Bật thô
 """
 
 import base64
+import sys
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+try:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+except ImportError:
+    sys.exit("Thiếu thư viện cryptography. Chạy:  python -m pip install cryptography   rồi chạy lại file này.")
 
 
 def b64u(b: bytes) -> str:
@@ -23,8 +27,11 @@ def main() -> None:
     key = ec.generate_private_key(ec.SECP256R1())
     priv = key.private_numbers().private_value.to_bytes(32, "big")
     pub = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    print("Dán 3 biến sau vào Vercel → Project → Settings → Environment Variables (Production), rồi Redeploy:\n")
     print("VAPID_PUBLIC_KEY=" + b64u(pub))
-    print("VAPID_PRIVATE_KEY=" + b64u(priv))
+    print("VAPID_PRIVATE_KEY=" + b64u(priv) + "    <- BÍ MẬT, đánh dấu Sensitive, không gửi cho ai")
+    print("VAPID_SUBJECT=mailto:email-cua-ban@gmail.com    <- thay bằng email thật của bạn")
+    print("\nKiểm tra sau khi Redeploy: mở https://banhocthongminh.vercel.app/api/health -> \"web_push\": true")
 
 
 if __name__ == "__main__":

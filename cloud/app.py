@@ -281,14 +281,14 @@ img.snap{width:100%;border-radius:10px;margin-top:8px}
 </style>"""
 
 AUTH_HTML = BASE_CSS + """
-<title>Bàn Học Thông Minh - Đăng nhập</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FocusDesk - Đăng nhập</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#2563eb"><link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
 <div style="text-align:center;margin-top:6vh"><img src="/static/icon-192.png" width="72" style="border-radius:18px" alt=""></div>
 <div class="wrap" style="max-width:420px;margin-top:2vh">
  <div class="row" style="justify-content:flex-end"><button id="themeBtn" onclick="toggleTheme()">🌙 Nền tối</button></div>
- <div class="card"><h2>🛡️ Bàn Học Thông Minh</h2><p class="mut">Đăng nhập dành cho phụ huynh</p>
+ <div class="card"><h2>🛡️ FocusDesk</h2><p class="mut">Bàn học thông minh · Đăng nhập dành cho phụ huynh</p>
  <p id="err" class="err">{{ error }}</p>
  {% if google_client_id %}
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -319,7 +319,7 @@ AUTH_HTML = BASE_CSS + """
 <script>document.getElementById('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối'</script>"""
 
 DASH_HTML = BASE_CSS + """
-<title>Bàn Học Thông Minh</title>
+<title>FocusDesk</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2563eb"><link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png"><meta name="mobile-web-app-capable" content="yes">
@@ -403,7 +403,7 @@ h3{margin:4px 0 10px}
   <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="settings"><i>⚙️</i>Cài đặt</a>
  </nav>
  <div class="main">
-  <div class="top"><div class="brand"><img src="/static/icon-192.png" alt="" class="m-only">Bàn Học Thông Minh</div>
+  <div class="top"><div class="brand"><img src="/static/icon-192.png" alt="" class="m-only">FocusDesk</div>
    <div class="row">{% if picture %}<img class="avatar" src="{{ picture }}" alt="" referrerpolicy="no-referrer">{% endif %}</div></div>
   <div class="chips" id="devchips"></div>
 
@@ -1353,7 +1353,7 @@ def api_parent_push():
 @app.route("/api/parent/push/test", methods=["POST"])
 @login_required
 def api_parent_push_test():
-    n = web_push_owners([current_uid()], "🔔 Bàn Học Thông Minh", "Thông báo thử: điện thoại này sẽ nhận cảnh báo.",
+    n = web_push_owners([current_uid()], "🔔 FocusDesk", "Thông báo thử: điện thoại này sẽ nhận cảnh báo.",
                         tag="test")
     return jsonify({"ok": True, "sent": n, "message": f"Đã gửi tới {n} thiết bị." if n else
                     "Chưa gửi được (máy chủ chưa có khóa VAPID hoặc thiết bị chưa bật)."})
@@ -1390,7 +1390,7 @@ def api_agent_snapshot():
 # Telegram webhook
 # =====================================================================
 HELP_TG = (
-    "🤖 <b>Bot Bàn Học Thông Minh</b>\n"
+    "🤖 <b>Bot FocusDesk</b>\n"
     "/may — Danh sách máy bạn quản lý\n"
     "/status [số] — Tình trạng học tập\n"
     "/lock [số] — Khóa màn hình\n"
@@ -1497,7 +1497,7 @@ def telegram_setup():
 # Web App cài trên Android (PWA): manifest + service worker + trang ngoại tuyến
 # =====================================================================
 MANIFEST = {
-    "name": "Bàn Học Thông Minh - Phụ huynh", "short_name": "Bàn Học", "lang": "vi",
+    "name": "FocusDesk - Phụ huynh", "short_name": "FocusDesk", "lang": "vi",
     "description": "Theo dõi việc học, xem camera, khóa máy và nhận cảnh báo từ máy học sinh.",
     "start_url": "/dashboard?src=pwa", "scope": "/", "display": "standalone", "orientation": "portrait",
     "background_color": "#f4f6fb", "theme_color": "#2563eb",
@@ -1519,7 +1519,7 @@ self.addEventListener('fetch',e=>{
   if(r.mode==='navigate'){e.respondWith(fetch(r).catch(()=>caches.match('/offline')));}
 });
 self.addEventListener('push',e=>{let d={};try{d=e.data.json();}catch(_){d={body:e.data?e.data.text():''};}
-  e.waitUntil(self.registration.showNotification(d.title||'Bàn Học Thông Minh',{body:d.body||'',icon:'/static/icon-192.png',
+  e.waitUntil(self.registration.showNotification(d.title||'FocusDesk',{body:d.body||'',icon:'/static/icon-192.png',
    badge:'/static/icon-192.png',tag:d.tag||'sd',renotify:true,vibrate:[200,100,200],data:{url:d.url||'/dashboard'}}));});
 self.addEventListener('notificationclick',e=>{e.notification.close();const url=(e.notification.data||{}).url||'/dashboard';
   e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{for(const c of cs){if(c.url.includes('/dashboard'))return c.focus();}
@@ -1554,7 +1554,9 @@ def offline_page():
 def health():
     return jsonify({"ok": True, "db": "firebase" if os.environ.get("FIREBASE_DB_URL") else "local-json",
                     "telegram": bool(TG_TOKEN), "google_login": bool(GOOGLE_CLIENT_ID),
-                    "password_login": ALLOW_PASSWORD_LOGIN})
+                    "password_login": ALLOW_PASSWORD_LOGIN,
+                    # chỉ báo CÓ/KHÔNG để tự kiểm tra cấu hình — không bao giờ trả giá trị khóa
+                    "web_push": bool(VAPID_PUBLIC and VAPID_PRIVATE), "gemini": bool(GEMINI_API_KEY)})
 
 
 if __name__ == "__main__":

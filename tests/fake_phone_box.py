@@ -36,7 +36,7 @@ class FakeBox:
         if t == "hello":
             self._send({"t": "hello", "dev": "focusdesk-box", "fw": "sim-1.0", "box_id": "SIM01", "nonce": self.nonce,
                         "paired": bool(self.key), "phone": self.phone, "lid": self.lid, "lock": self.lock})
-        elif t == "ping":
+        elif t in ("ping", "get"):
             self._send({"t": "state", "phone": self.phone, "lid": self.lid, "lock": self.lock, "nonce": self.nonce})
         elif t in ("lock", "unlock"):
             if not self._mac_ok(m):

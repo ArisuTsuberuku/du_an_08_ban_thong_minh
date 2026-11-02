@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiểm tra cài đặt Bàn Học Thông Minh (kiem_tra_cai_dat.py)
+Kiểm tra cài đặt FocusDesk (kiem_tra_cai_dat.py)
 
     python kiem_tra_cai_dat.py          -> chỉ kiểm tra, in bảng ✅ / ⚠️ / ❌
     python kiem_tra_cai_dat.py --sua    -> kiểm tra + tự sửa được gì thì sửa (cài gói thiếu, tải mô hình thiếu)
@@ -284,7 +284,7 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
-    print("Đang kiểm tra cài đặt Bàn Học Thông Minh" + (" (chế độ tự sửa)" if FIX else "") + "…\n")
+    print("Đang kiểm tra cài đặt FocusDesk" + (" (chế độ tự sửa)" if FIX else "") + "…\n")
     for fn in (check_python, check_packages, check_models, check_admin, check_camera, check_cloud, check_port,
                check_cloudflared, check_phone_box, check_config):
         try:

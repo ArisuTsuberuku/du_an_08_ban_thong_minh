@@ -16,6 +16,7 @@ from typing import Iterable, List, Tuple
 
 HOSTS_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "drivers", "etc", "hosts")
 MARKER = "# FOCUSDESK-BLOCK"
+LEGACY_MARKERS = ("# SMARTDESK-BLOCK",)   # tên cũ trước khi đổi thương hiệu -> vẫn gỡ sạch
 # Không bao giờ chặn các miền hệ thống / dịch vụ của chính FocusDesk
 SAFE_DOMAINS = ("vercel.app", "trycloudflare.com", "cloudflare.com", "firebasedatabase.app", "googleapis.com",
                 "gstatic.com", "google.com", "telegram.org", "microsoft.com", "windowsupdate.com", "localhost")
@@ -42,7 +43,7 @@ def apply_hosts_block(domains: Iterable[str]) -> Tuple[bool, str]:
     try:
         with open(HOSTS_PATH, "r", encoding="utf-8", errors="ignore") as fh:
             lines = fh.readlines()
-        keep = [ln for ln in lines if MARKER not in ln]
+        keep = [ln for ln in lines if MARKER not in ln and not any(m in ln for m in LEGACY_MARKERS)]
         if keep and not keep[-1].endswith("\n"):
             keep[-1] += "\n"
         for d in doms:
