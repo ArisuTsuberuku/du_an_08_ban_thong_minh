@@ -14,7 +14,9 @@
 | **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ✅ Đã hoàn thành |
 | **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ✅ Đã hoàn thành |
 | **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ✅ Đã hoàn thành |
-| **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ✅ Đã hoàn thành |
+| **Giai đoạn 7** | Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ✅ Đã hoàn thành |
+| **Giai đoạn 8** | Lõi AI Nhận diện Tư thế 3D tại Biên (`services/posture_ai_engine.py`, `posture_ai_engine.py`, MediaPipe Holistic + `EAR`/`PERCLOS`/`MAR`/`solvePnP`) | ✅ Đã hoàn thành |
+| **Giai đoạn 9** | Hợp nhất luồng MJPEG `/video_feed` & điều khiển AI Tư thế vào `trang_web.py`, `he_thong_quan_ly_3_cap.py` & đóng gói lại `.EXE` | 🔄 Đang triển khai |
 
 ---
 
@@ -118,5 +120,20 @@
      - Xây dựng `start_telegram_command_poller()` nhận lệnh 2 chiều xác thực theo đúng `chat_id` Phụ huynh: `/help`, `/status` (báo cáo điểm `CFI`, thời gian dùng App & AI, vi phạm gần nhất), `/lock` (khóa màn hình máy tính học sinh từ xa trong ~1 giây), `/reset_ai` (cấp lại thời gian AI).
   2. Tích hợp Tab **4. Cấu hình Bot Telegram 2 Chiều** trực tiếp trên Bảng điều khiển Phụ huynh trong App `.exe` và kích hoạt đầy đủ khu vực cấu hình + nút Test Telegram trên `trang_web.py` (kèm các route tương thích `/bot-settings`, `/api/telegram-config`, `/api/telegram-test`).
   3. Tối ưu `build_exe.bat` sử dụng `--workpath "%TEMP%\SmartDeskLauncher_pyi_build"` để triệt tiêu xung đột khóa file tạm của OneDrive khi đóng gói lại `dist/SmartDeskLauncher.exe`.
-- **Hướng dẫn bàn giao tiếp theo (Nếu phát triển mở rộng Gói 3 AI Camera MediaPipe):**
-  - Mọi cổng dữ liệu (`runtime_state.json` trường `posture_telemetry` và API `POST http://127.0.0.1:5000/api/posture_telemetry`) cùng cảnh báo `POSTURE_OR_HW` qua Bot Telegram đã được mở sẵn, chỉ cần chạy độc lập `posture_ai_engine.py` đẩy JSON vào cổng này là hợp nhất trọn vẹn 4 phân hệ.
+- **Hướng dẫn bàn giao tiếp theo:**
+  - Mọi cổng dữ liệu (`runtime_state.json` trường `posture_telemetry` và API `POST http://127.0.0.1:5000/api/posture_telemetry`) cùng cảnh báo `POSTURE_OR_HW` qua Bot Telegram đã được mở sẵn để kết nối sang Giai đoạn 8 & 9.
+
+---
+
+### ✅ Giai đoạn 8: Lõi AI Nhận diện Tư thế Ngồi học 3D tại Biên (`services/posture_ai_engine.py` & `posture_ai_engine.py`)
+- **Thời gian hoàn thành:** 02/11/2026
+- **Các công việc đã thực hiện:**
+  1. Cài đặt `opencv-python`, `opencv-contrib-python`, `mediapipe 1.2.0` trên Python 3.14.6 và lưu trữ cục bộ mô hình ngoại tuyến `models/holistic_landmarker.task` (13.05 MB), nạp qua `model_asset_buffer` để tương thích tuyệt đối với đường dẫn tiếng Việt có dấu trên Windows.
+  2. Xây dựng bộ máy `PostureAIEngine` (`services/posture_ai_engine.py`) tương thích kép giữa MediaPipe Tasks API (`>=1.0`) và Legacy Solutions API (`0.10.x`), kèm ghép nối tùy chọn `models/keras_model.h5` (70% Hình học 3D + 30% Teachable Machine):
+     - **Tỷ lệ mở mắt 6 điểm (`EAR_t`) & `PERCLOS` cửa sổ 100 khung hình** + Chống giả mạo ảnh tĩnh **PAD** (cảnh báo nếu không chớp mắt > 25 giây).
+     - **Tỷ lệ mở miệng 8 điểm (`MAR_t > 0.60` duy trì >= 1.5s)** & Bộ đếm tần suất ngáp (`yawn_count`).
+     - **Giải bài toán `cv2.solvePnP` 3D** chiếu 6 điểm mốc nhân trắc học suy ra đủ 3 góc Euler (`Pitch`, `Yaw`, `Roll`) và phát hiện **sự kiện ngủ gật `E_nod`** (`ΔPitch > 15°` trong `1.5s`).
+     - **Hiệu chỉnh Gốc Tư thế Cá nhân hóa tự động trong 5 giây đầu** (Baseline Auto-Calibration) và hỗ trợ đặt lại gốc từ xa.
+     - **Phát hiện 5 lỗi công thái học + Theo dõi 2 bàn tay trên mặt bàn (>15s)** + **Chặn Camera ảo** (`obs64.exe`, `manycam.exe`, `vcam.exe`...).
+  3. Xây dựng `PostureAIServiceWorker` (~12 FPS, tự giãn cách dò phần cứng 5s khi máy chưa cắm Webcam, bắn cảnh báo `POSTURE_OR_HW` về Web & Bot Telegram khi `CFI < 50%` liên tục > 15s) và tệp chạy độc lập `posture_ai_engine.py` (hỗ trợ cả chế độ cửa sổ trực quan và `--daemon --parent-pid`).
+- **Kiểm thử:** Chạy kiểm thử đơn vị toàn bộ công thức Toán học (`EAR=0.300`, `MAR=0.833`, `Euler solvePnP`) và luồng xử lý ảnh thành công 100%.

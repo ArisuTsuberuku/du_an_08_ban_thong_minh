@@ -42,6 +42,9 @@ def safe_log(message: str) -> None:
 
 def get_app_dir() -> str:
     """Trả về thư mục gốc chứa file .exe (khi đã đóng gói) hoặc thư mục gốc dự án (khi chạy .py)."""
+    env_dir = os.environ.get("SMARTDESK_APP_DIR", "").strip()
+    if env_dir and os.path.isdir(env_dir):
+        return os.path.abspath(env_dir)
     if getattr(sys, "frozen", False):
         return os.path.dirname(os.path.abspath(sys.executable))
     # core/config_manager.py nằm trong thư mục con core/, nên lấy dirname 2 lần ra gốc dự án
@@ -90,6 +93,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "kiosk_hide_explorer": False,
     "enforce_app_whitelist": False,
+    "enable_posture_ai": True,
+    "camera_index": 0,
     "web_port": 5000,
     "esp32_com_port": "COM3",
     "allowed_apps": [
@@ -206,6 +211,7 @@ DEFAULT_RUNTIME_STATE: Dict[str, Any] = {
     "current_role": "locked",
     "monitoring_active": False,
     "remote_lock_requested": False,
+    "recalibrate_posture_requested": False,
     "ai_seconds": 0,
     "app_usage": {},
     "alerts": [],
