@@ -353,13 +353,15 @@ class CloudAgent:
         if rules.get("ai_game_action") in ("block", "warn", "off"):
             cfg["ai_game_action"] = rules["ai_game_action"]
         dns_on = bool(rules.get("dns_block", True))
-        from services.hosts_blocker import apply_hosts_block
+        from services.hosts_blocker import sync_hosts_for_role
 
         # Chặn DNS tận gốc KHÔNG áp cho YouTube khi đang ở chế độ "chặn theo từ khóa" (để bài giảng vẫn vào được)
         yt_doms = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com")
         dns_list = [d for d in cfg["bad_urls"] if cfg.get("youtube_mode", "keyword") == "block" or d not in yt_doms]
         cfg["dns_block_enabled"] = dns_on
-        ok_dns, dns_msg = apply_hosts_block(dns_list if dns_on else [])
+        ok_dns, dns_msg = sync_hosts_for_role(cfg=cfg)      # chỉ chặn DNS khi học sinh đang dùng máy
+        if dns_on and dns_list and "Đã trả" in dns_msg:
+            dns_msg = f"{len(dns_list)} tên miền — chặn DNS khi vào chế độ học sinh"
         cfg["dns_block_status"] = dns_msg
         save_config(cfg)
         self._last_monitor_check = 0.0

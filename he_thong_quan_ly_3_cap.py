@@ -343,6 +343,7 @@ class PhanMemQuanLyBanHocEXE:
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
         update_runtime_state(current_role="locked", monitoring_active=False)
+        threading.Thread(target=_dong_bo_dns, args=("locked",), daemon=True).start()   # chặn DNS chỉ khi học sinh dùng
 
         cfg = load_config()
         set_windows_task_manager_lock(True)
@@ -545,6 +546,7 @@ class PhanMemQuanLyBanHocEXE:
         self._hop_dt(True)
         cfg = load_config()
         update_runtime_state(current_role="student", remote_lock_requested=False)
+        threading.Thread(target=_dong_bo_dns, args=("student",), daemon=True).start()   # chặn DNS chỉ khi học sinh dùng
 
         self.xoa_man_hinh()
         set_windows_task_manager_lock(True)
@@ -1502,6 +1504,7 @@ class PhanMemQuanLyBanHocEXE:
         posture_manager.stop()
         restore_windows_normal_state()
         update_runtime_state(current_role="parent", monitoring_active=False)
+        threading.Thread(target=_dong_bo_dns, args=("parent",), daemon=True).start()   # chặn DNS chỉ khi học sinh dùng
         port = int(load_config().get("web_port", 5000))
         self._khung_quan_tri(
             "👪", "Bảng điều khiển Phụ huynh", "Cài đặt góc học tập, camera AI và xem báo cáo",
@@ -1995,6 +1998,7 @@ class PhanMemQuanLyBanHocEXE:
         posture_manager.stop()
         restore_windows_normal_state()
         update_runtime_state(current_role="admin", monitoring_active=False)
+        threading.Thread(target=_dong_bo_dns, args=("admin",), daemon=True).start()   # chặn DNS chỉ khi học sinh dùng
         self._khung_quan_tri(
             "🛠️", "Quản trị hệ thống", "Quyền cao nhất: bảo mật Windows, camera, mật khẩu, thoát phần mềm",
             [("system", "🛡️", "Hệ thống & kiosk", self._trang_he_thong),
@@ -2594,6 +2598,17 @@ def run_self_test() -> int:
     return 0
 
 
+def _dong_bo_dns(role: str) -> None:
+    """Đổi chế độ -> bật/gỡ chặn DNS (file hosts): chỉ chặn khi HỌC SINH đang dùng máy, phụ huynh/admin dùng tự do."""
+    try:
+        from services.hosts_blocker import sync_hosts_for_role
+
+        ok, msg = sync_hosts_for_role(role)
+        safe_log(f"[HOSTS] Chế độ {role}: {msg}")
+    except Exception as exc:
+        safe_log(f"[HOSTS] Lỗi đồng bộ chặn DNS: {exc}")
+
+
 def main() -> None:
     if "--self-test" in sys.argv:
         sys.exit(run_self_test())
@@ -2607,13 +2622,6 @@ def main() -> None:
 
         threading.Thread(target=kill_orphan_helpers, name="OrphanCleanup", daemon=True).start()
 
-        def _chan_lai_dns() -> None:   # lần thoát trước đã trả hosts về gốc -> mở lại thì áp lại luật chặn DNS
-            from services.hosts_blocker import apply_hosts_block, rules_dns_list
-
-            ok, msg = apply_hosts_block(rules_dns_list(load_config()))
-            safe_log(f"[HOSTS] Khởi động: {msg}")
-
-        threading.Thread(target=_chan_lai_dns, name="HostsReapply", daemon=True).start()
     except Exception as exc:
         safe_log(f"[THOÁT] Không dọn được tiến trình mồ côi: {exc}")
     start_web_server_in_background()

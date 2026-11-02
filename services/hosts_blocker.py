@@ -12,10 +12,12 @@ Chặn tên miền ở mức hệ điều hành bằng file hosts (port từ DuA
 import os
 import subprocess
 import sys
+import threading
 from typing import Iterable, List, Tuple
 
 HOSTS_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "drivers", "etc", "hosts")
 MARKER = "# FOCUSDESK-BLOCK"
+_hosts_lock = threading.RLock()     # đổi chế độ nhanh (Khóa -> Học sinh) không để 2 luồng cùng ghi hosts
 LEGACY_MARKERS = ("# SMARTDESK-BLOCK",)   # tên cũ trước khi đổi thương hiệu -> vẫn gỡ sạch
 # Không bao giờ chặn các miền hệ thống / dịch vụ của chính FocusDesk
 SAFE_DOMAINS = ("vercel.app", "trycloudflare.com", "cloudflare.com", "firebasedatabase.app", "googleapis.com",
@@ -55,6 +57,24 @@ def rules_dns_list(cfg) -> List[str]:
             if cfg.get("youtube_mode", "keyword") == "block" or d not in yt_doms]
 
 
+def sync_hosts_for_role(role: str = "", cfg=None) -> Tuple[bool, str]:
+    """Chặn DNS CHỈ khi học sinh đang dùng máy:
+       - chế độ Học sinh: áp luật chặn + khóa AI (nếu hết giờ);
+       - màn hình Khóa: chỉ áp khi phụ huynh bật "Giám sát cả khi học sinh chưa đăng nhập";
+       - Phụ huynh / Admin / đã thoát: trả file hosts về nguyên bản."""
+    try:
+        from core.config_manager import load_config, load_runtime_state
+
+        cfg = cfg if cfg is not None else load_config()
+        role = role or str(load_runtime_state().get("current_role", "locked"))
+    except Exception:
+        cfg = cfg or {}
+    active = role == "student" or (role == "locked" and bool(cfg.get("monitor_always")))
+    if not active:
+        return clear_hosts_block()
+    return apply_hosts_block(rules_dns_list(cfg))
+
+
 def _normalize(domains: Iterable[str]) -> List[str]:
     out = []
     for d in domains:
@@ -69,7 +89,12 @@ def _normalize(domains: Iterable[str]) -> List[str]:
     return out[:300]
 
 
-def apply_hosts_block(domains: Iterable[str]) -> Tuple[bool, str]:
+def apply_hosts_block(*args, **kwargs) -> Tuple[bool, str]:
+    with _hosts_lock:
+        return _apply_hosts_block(*args, **kwargs)
+
+
+def _apply_hosts_block(domains: Iterable[str]) -> Tuple[bool, str]:
     """Ghi lại khối chặn trong hosts. Trả về (thành_công, mô_tả)."""
     if not sys.platform.startswith("win"):
         return False, "Không phải Windows"
@@ -127,7 +152,12 @@ def _save_original_once(raw: bytes) -> None:
         pass
 
 
-def clear_hosts_block() -> Tuple[bool, str]:
+def clear_hosts_block(*args, **kwargs) -> Tuple[bool, str]:
+    with _hosts_lock:
+        return _clear_hosts_block(*args, **kwargs)
+
+
+def _clear_hosts_block() -> Tuple[bool, str]:
     """Tắt FocusDesk: gỡ MỌI dòng FocusDesk (kể cả khóa AI) và trả file hosts về ĐÚNG như trước khi FocusDesk sửa.
     Nếu trong lúc chạy người dùng tự sửa hosts thì giữ phần họ sửa, chỉ gỡ dòng của FocusDesk."""
     if not sys.platform.startswith("win"):

@@ -42,6 +42,20 @@ def test_user_edit_kept():
     assert b"nas.local" in data and b"FOCUSDESK" not in data
 
 
+def test_only_student_mode_blocks():
+    _setup()
+    cfg = {"bad_urls": ["poki.com"], "dns_block_enabled": True}
+    hb.sync_hosts_for_role("student", cfg)
+    assert b"poki.com" in open(hb.HOSTS_PATH, "rb").read()
+    for role in ("parent", "admin", "locked"):
+        hb.sync_hosts_for_role("student", cfg)
+        hb.sync_hosts_for_role(role, cfg)
+        assert open(hb.HOSTS_PATH, "rb").read() == ORIG, role
+    hb.sync_hosts_for_role("locked", {**cfg, "monitor_always": True})
+    assert b"poki.com" in open(hb.HOSTS_PATH, "rb").read()
+    hb.clear_hosts_block()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

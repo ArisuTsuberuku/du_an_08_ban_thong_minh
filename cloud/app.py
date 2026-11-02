@@ -997,8 +997,8 @@ def api_parent_block(did):
     dev = db.get(f"devices/{did}") or {}
     st = dev.get("status") or {}
     if not st.get("monitoring") and not rules.get("monitor_always"):
-        note += (" Lưu ý: máy đang KHÔNG ở chế độ học sinh nên chưa tự đóng tab đang mở; trang đã bị chặn tận gốc"
-                 " (tải lại sẽ không vào được). Muốn đóng tab mọi lúc: bật “Giám sát cả khi học sinh chưa đăng nhập”.")
+        note += (" Lưu ý: máy đang KHÔNG ở chế độ học sinh (phụ huynh/admin dùng máy tự do) — luật sẽ áp dụng ngay khi"
+                 " học sinh vào học.")
     return jsonify({"ok": True, "message": f"Đã chặn {dom}. Máy áp dụng trong vài giây.{note}"})
 
 
@@ -1113,7 +1113,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.4"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.5"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")

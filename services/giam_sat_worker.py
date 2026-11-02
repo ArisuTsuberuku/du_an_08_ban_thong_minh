@@ -496,10 +496,10 @@ class BoGiamSatThongMinh:
         try:
             lock = load_runtime_state().get("ai_dns_lock") or {}
             if lock and lock.get("day") != time.strftime("%Y-%m-%d"):
-                from services.hosts_blocker import apply_hosts_block, rules_dns_list
+                from services.hosts_blocker import sync_hosts_for_role
 
                 update_runtime_state(ai_dns_lock={})
-                apply_hosts_block(rules_dns_list(load_config()))
+                sync_hosts_for_role()
         except Exception:
             pass
         self._worker_thread = threading.Thread(
@@ -540,10 +540,10 @@ class BoGiamSatThongMinh:
         self._ai_locked = lock
         today = time.strftime("%Y-%m-%d")
         try:
-            from services.hosts_blocker import AI_LOCK_DOMAINS, apply_hosts_block, rules_dns_list
+            from services.hosts_blocker import AI_LOCK_DOMAINS, sync_hosts_for_role
 
             update_runtime_state(ai_dns_lock={"day": today, "domains": list(AI_LOCK_DOMAINS)} if lock else {})
-            apply_hosts_block(rules_dns_list(cfg))
+            sync_hosts_for_role(cfg=cfg)
         except Exception as exc:
             safe_log(f"[AI] Không cập nhật được chặn DNS web AI: {exc}")
         if lock:
