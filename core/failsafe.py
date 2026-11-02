@@ -446,15 +446,27 @@ def attach_tkinter_failsafe(root, on_emergency_exit: Callable[[str], None]) -> N
       - Gắn phím tắt dự phòng trực tiếp trên cửa sổ Tkinter.
     """
 
+    errors: list = []
+
     def _tk_exception_handler(exc_type, exc_value, exc_tb):
+        """Lỗi trong 1 thao tác giao diện KHÔNG làm treo phần mềm -> chỉ ghi nhật ký, không mở khóa Windows
+        (nếu mở khóa, học sinh có thể cố tình gây lỗi để thoát chế độ khóa). Chỉ khi lỗi dồn dập (>= 15 lỗi
+        trong 60 giây, giao diện coi như hỏng) mới khôi phục Windows và báo một lần."""
         _log_crash(exc_type, exc_value, exc_tb)
+        safe_log(f"[UI] Lỗi giao diện (đã bỏ qua): {exc_type.__name__}: {exc_value}")
+        now = time.time()
+        errors.append(now)
+        del errors[:-50]
+        if sum(1 for t in errors if now - t < 60) < 15:
+            return
+        errors.clear()
         restore_windows_normal_state()
         try:
             from tkinter import messagebox
 
             messagebox.showerror(
                 "Khôi phục An toàn (Fail-Safe)",
-                f"Phát hiện lỗi bất ngờ: {exc_value}\n"
+                f"Giao diện gặp lỗi liên tục: {exc_value}\n"
                 "Hệ thống đã tự động mở khóa lại Task Manager gốc và Windows Explorer!",
             )
         except Exception:

@@ -64,6 +64,9 @@ HARDWARE_VENDOR = {
     "syntp*.exe", "etdctrl*.exe", "etd*.exe", "elan*.exe", "asus*.exe", "armourycrate*.exe", "msi*.exe",
     "mysticlight*.exe", "lenovo*.exe", "hp*.exe", "dell*.exe", "acer*.exe", "razer*.exe", "logi*.exe",
     "btservice*.exe", "ibtsiva.exe", "bluetooth*.exe",
+    # Chuột / bàn phím / tai nghe gaming (giữ cấu hình DPI, macro, đèn), bút vẽ / bảng vẽ cho môn Mỹ thuật
+    "ngenuity*.exe", "hyperx*.exe", "icue*.exe", "corsair*.exe", "steelseries*.exe", "lghub*.exe", "wacom*.exe",
+    "wtablet*.exe", "pentablet*.exe", "xppen*.exe", "huion*.exe", "tablet*.exe",
 }
 ANTIVIRUS = {
     "avp*.exe", "avast*.exe", "avg*.exe", "afwserv.exe", "bkav*.exe", "egui.exe", "ekrn.exe", "mcshield.exe",
@@ -78,6 +81,7 @@ PROTECTED_PATH_HINTS = (
     "\\huawei\\pcmanager", "\\lghub", "\\logitech", "\\razer", "\\synaptics", "\\elantech",
     "\\kaspersky", "\\avast", "\\avg\\", "\\eset", "\\bkav", "\\mcafee", "\\norton", "\\bitdefender",
     "\\malwarebytes", "\\microsoft onedrive", "\\evkey", "\\unikey",
+    "\\hyperx", "\\ngenuity", "\\corsair", "\\steelseries", "\\wacom", "\\tablet", "\\xp-pen", "\\huion",
 )
 FOCUSDESK_OWN = {"focusdesklauncher.exe", "smartdesklauncher.exe", "cloudflared.exe"}
 

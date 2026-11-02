@@ -235,6 +235,11 @@ class PhanMemQuanLyBanHocEXE:
             self._student_clock_job = None
 
     def xoa_man_hinh(self) -> None:
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):   # bỏ ràng buộc cuộn của trang cũ
+            try:
+                self.root.unbind_all(seq)
+            except Exception:
+                pass
         self._huy_bo_dem_ui()
         self._dong_dock()
         self._dong_man_nghi()
@@ -1317,11 +1322,21 @@ class PhanMemQuanLyBanHocEXE:
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
 
         def wheel(e) -> None:
-            if page.winfo_height() > canvas.winfo_height():
-                canvas.yview_scroll(int(-e.delta / 120) if e.delta else (-1 if e.num == 4 else 1), "units")
-        canvas.bind_all("<MouseWheel>", wheel)
-        canvas.bind_all("<Button-4>", wheel)
-        canvas.bind_all("<Button-5>", wheel)
+            # bind_all là ràng buộc TOÀN CỤC: trang này có thể đã bị xóa (chuyển sang chế độ học sinh) hoặc chuột
+            # đang ở cửa sổ khác (Task Manager học sinh) -> chỉ cuộn khi trang còn tồn tại VÀ chuột nằm trên nó.
+            try:
+                if not (canvas.winfo_exists() and page.winfo_exists()):
+                    return
+                under = canvas.winfo_containing(e.x_root, e.y_root)
+                if under is None or not str(under).startswith(str(canvas)):
+                    return
+                if page.winfo_height() > canvas.winfo_height():
+                    canvas.yview_scroll(int(-e.delta / 120) if e.delta else (-1 if e.num == 4 else 1), "units")
+            except tk.TclError:
+                return
+        canvas.bind_all("<MouseWheel>", wheel, add="+")
+        canvas.bind_all("<Button-4>", wheel, add="+")
+        canvas.bind_all("<Button-5>", wheel, add="+")
         return page
 
     def _page_header(self, page, title: str, desc: str = "") -> None:
@@ -2248,8 +2263,10 @@ class PhanMemQuanLyBanHocEXE:
 
                     tg = find_targets(extra)
                     txt = (f"Nếu vào học lúc này sẽ tắt {len(tg)} ứng dụng:\n" +
-                           "\n".join(f"  • {g['name']}" + (f"  ({g['windows']} cửa sổ)" if g["windows"] else "  (chạy ngầm)")
-                                     for g in tg[:40])) if tg else "Không có ứng dụng nào bị tắt."
+                           "\n".join(f"  • {g['name']:<34}" + (f"{g['windows']} cửa sổ" if g["windows"] else "chạy ngầm").ljust(11)
+                                     + f"  {os.path.dirname(g.get('exe') or '')[-70:]}" for g in tg[:60])
+                           + "\nThấy ứng dụng cần giữ (driver chuột/bàn phím, bút vẽ…)? Gõ tên .exe vào ô Giữ thêm rồi Lưu."
+                           ) if tg else "Không có ứng dụng nào bị tắt."
                 except Exception as exc:
                     txt = f"Lỗi khi quét: {exc}"
                 self._goi_ui(lambda: out_bg.winfo_exists() and out_bg.config(text=txt))
