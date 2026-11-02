@@ -344,6 +344,10 @@ class CloudAgent:
                 cfg["max_ai_minutes"] = max(0, min(240, int(rules["max_ai_minutes"])))
             except (TypeError, ValueError):
                 pass
+        if isinstance(rules.get("blocked_pages"), list):
+            cfg["blocked_pages"] = [{"d": str(r.get("d", ""))[:80].lower(), "t": str(r.get("t", ""))[:100],
+                                     "u": str(r.get("u", ""))[:120], "why": str(r.get("why", ""))[:60]}
+                                    for r in rules["blocked_pages"] if isinstance(r, dict)][:300]
         if rules.get("ai_over_action") in ("block", "warn"):
             cfg["ai_over_action"] = rules["ai_over_action"]
         if rules.get("ai_game_action") in ("block", "warn", "off"):
@@ -361,7 +365,7 @@ class CloudAgent:
         safe_log(f"[CLOUD] Đã áp dụng cấu hình chặn mới (ver {cfg['rules_ver']}).")
         self._acks.append({"id": "", "type": "rules", "ok": True, "time": time.strftime("%H:%M:%S"),
                            "msg": f"Đã áp dụng: {len(cfg['bad_apps'])} app, {len(cfg['bad_urls'])} trang web, "
-                                  f"{len(cfg['bad_tabs'])} từ khóa · AI {cfg.get('max_ai_minutes', 15)} phút/ngày · "
+                                  f"{len(cfg['bad_tabs'])} từ khóa · {len(cfg.get('blocked_pages') or [])} link · AI {cfg.get('max_ai_minutes', 15)} phút/ngày · "
                                   f"{dns_msg} · giám sát "
                                   f"{'luôn bật' if cfg.get('monitor_always') else 'khi học sinh đăng nhập'}"})
         self._urgent = True

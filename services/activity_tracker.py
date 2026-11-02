@@ -261,10 +261,29 @@ class ActivityTracker:
     def _check_web(self, exe: str, title: str, hwnd: int) -> None:
         if exe.lower() not in BROWSERS or not hwnd or _private(title):
             return
-        dom = domain_of(_browser_url(hwnd))
+        url = _browser_url(hwnd)
+        dom = domain_of(url)
         if not dom:
             return
         now = time.time()
+        try:
+            from services.page_rules import is_content_domain, norm_title, page_key
+        except Exception:
+            is_content_domain = None
+        if is_content_domain and is_content_domain(dom):
+            # YouTube / Google tìm kiếm...: báo theo TỪNG trang (video, từ khóa tìm) để web phân loại học / giải trí
+            # theo tiêu đề và phụ huynh chặn đúng link đó. Cùng 1 trang chỉ báo lại sau 30 phút.
+            nt = norm_title(title)
+            pkey = page_key(url)
+            k = f"{dom}|{pkey or nt}"
+            if not (pkey or nt) or now - self._seen_domains.get(k, 0.0) < NEW_DOMAIN_REPEAT_S:
+                if pkey or nt:
+                    self._seen_domains[k] = now
+                return
+            self._seen_domains[k] = now
+            self._add_event({"t": int(now), "kind": "web", "exe": exe, "domain": dom, "title": title[:TITLE_MAX],
+                             "page": pkey})
+            return
         if now - self._seen_domains.get(dom, 0.0) < NEW_DOMAIN_REPEAT_S:
             self._seen_domains[dom] = now
             return

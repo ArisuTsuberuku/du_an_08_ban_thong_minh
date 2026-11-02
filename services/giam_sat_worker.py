@@ -348,6 +348,18 @@ def phan_loai_truy_cap_web(
     ):
         return {"exempt": True, "is_ai": False, "should_block": False, "reason": ""}
 
+    # 0a. Link / trang cụ thể phụ huynh chặn (hoặc Gemini đánh giá là giải trí) — chỉ trang đó, không cả tên miền
+    if cfg.get("blocked_pages"):
+        try:
+            from services.page_rules import match_blocked_page
+
+            hit = match_blocked_page(current_url, window_title, cfg.get("blocked_pages"))
+        except Exception:
+            hit = None
+        if hit:
+            return {"exempt": False, "is_ai": False, "should_block": True,
+                    "reason": f"Link bị chặn: {title_orig[:70]}" + (f" ({hit.get('why')})" if hit.get("why") else "")}
+
     ai_domains = [d.lower() for d in (cfg.get("ai_domains") or DEFAULT_AI_DOMAINS)]
     allowed_urls = [u.lower() for u in cfg.get("allowed_urls", [])]
     bad_urls = [u.lower() for u in cfg.get("bad_urls", [])]

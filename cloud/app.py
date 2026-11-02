@@ -18,6 +18,7 @@ import base64
 import hashlib
 import hmac
 import html
+import re
 import os
 import secrets
 import time
@@ -467,6 +468,7 @@ h3{margin:4px 0 10px}
      <label class="mut">Ứng dụng / game (tên .exe, cách nhau dấu phẩy)</label><textarea id="x-apps"></textarea>
      <label class="mut">Trang web (tên miền)</label><textarea id="x-dom"></textarea>
      <label class="mut">Từ khóa tiêu đề cửa sổ</label><textarea id="x-kw"></textarea></details></div>
+   <div class="card"><h3>🔗 Link đã chặn riêng</h3><p class="mut">Chỉ đúng video / trang này bị chặn, các trang khác cùng web vẫn vào được. Tự thêm khi bạn bấm “Chặn link”, hoặc khi AI xét tiêu đề thấy video/trang thuộc loại bạn chọn tự chặn.</p><div id="pagebox"></div></div>
    <div class="card"><h3>▶️ YouTube</h3><p class="mut">Bài giảng vẫn xem bình thường. Máy chỉ đóng tab khi <b>từ khóa tìm kiếm</b> hoặc <b>tên video</b> chứa từ khóa giải trí.</p>
     <div class="seg" id="yt-mode"><button type="button" data-m="keyword" onclick="ytMode(this)">🔎 Chặn theo từ khóa</button><button type="button" data-m="block" onclick="ytMode(this)">⛔ Chặn toàn bộ</button><button type="button" data-m="allow" onclick="ytMode(this)">✅ Cho phép hết</button></div>
     <div id="yt-kw-box"><label class="mut">Từ khóa cấm khi tìm / xem (cách nhau dấu phẩy)</label><textarea id="yt-kw" oninput="rulesTouched=true"></textarea>
@@ -475,7 +477,7 @@ h3{margin:4px 0 10px}
    <div class="card"><h3>🔔 Báo khi học sinh đổi việc</h3><p class="mut">Mỗi lần mở ứng dụng mới / vào trang web mới, hệ thống tự phân tích trang đó là học tập, game, mạng xã hội...</p>
     <div class="seg" id="nv-mode"><button type="button" data-m="risky" onclick="nvMode(this)">⚠️ Chỉ trang đáng ngờ</button><button type="button" data-m="all" onclick="nvMode(this)">📣 Mọi thay đổi</button><button type="button" data-m="off" onclick="nvMode(this)">🔕 Tắt</button></div>
     <div class="t" style="margin:12px 0 4px">Tự chặn theo phân loại</div>
-    <div class="d mut" style="margin-bottom:6px">Trang mới vào được nhận ra thuộc loại đã chọn sẽ tự thêm vào luật chặn (chặn tận gốc + đóng tab khi học sinh đang mở). Trang đã vào gần đây cũng bị chặn luôn khi Lưu. YouTube theo cài đặt YouTube riêng.</div>
+    <div class="d mut" style="margin-bottom:6px">Web chỉ có 1 loại nội dung (web game, mạng xã hội…) thuộc loại đã chọn: chặn cả web. YouTube, Google tìm kiếm: AI xét <b>tiêu đề từng video / từ khóa tìm</b> — chỉ chặn đúng video giải trí đó, video bài giảng vẫn xem được. Trang đã vào gần đây cũng được xét lại khi Lưu.</div>
     <div id="bk" style="display:flex;flex-wrap:wrap;gap:8px">
      <label class="pill"><input type="checkbox" data-k="game" onchange="rulesTouched=true"> 🎮 Web game</label>
      <label class="pill"><input type="checkbox" data-k="social" onchange="rulesTouched=true"> 💬 Mạng xã hội</label>
@@ -677,17 +679,24 @@ function renderAI(v){const s=v.status||{},src=s.ai_sources||[],run=s.ai_running|
  const rows=ent.sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,sec])=>`<div class="app-row"><div class="nm"><b>${esc(k)}</b></div><span class="tag" style="background:${k.endsWith('(web)')?'#2563eb':'#7c3aed'}">${Math.max(1,Math.round(sec/60))}′</span></div>`).join('');
  $('aibox').innerHTML=`<div><b>${tot}</b> / ${s.max_ai_minutes||'?'} phút cho phép</div>`+(rows||'<div class="mut">Chưa dùng AI hôm nay.</div>')+
   (run.length?`<div class="mut" style="margin-top:6px">Ứng dụng AI đang chạy trên máy: ${run.map(esc).join(', ')}</div>`:'');}
-function renderEvents(v){const ev=v.events||[];if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
+let EVS=[];
+function renderEvents(v){const ev=v.events||[];EVS=ev;if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
  $('evbox').innerHTML=ev.slice(0,15).map(e=>{const tm=new Date((e.t||0)*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
   const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖',ai_game:'🎮'}[e.cls]||'🌐'):'🪟';
   const risky=['game','social','video','shopping','comics'].includes(e.cls);
-  const btn=e.kind==='web'&&!e.blocked&&e.cls!=='study'&&e.cls!=='ai'?`<button class="${risky?'danger':''}" style="padding:4px 10px;font-size:12px" onclick="blockDom('${esc(e.domain)}')">Chặn</button>`:(e.blocked?'<span class="pill">đã chặn</span>':'');
+  const i=ev.indexOf(e);
+  const btn=e.kind==='web'&&!e.blocked&&e.cls!=='study'?`<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><button class="${risky?'danger':''}" style="padding:4px 10px;font-size:12px" onclick="blockPage(${i})" title="Chỉ chặn đúng trang/video này">Chặn link</button><a href="#" class="mut" style="font-size:11px;white-space:nowrap" onclick="event.preventDefault();blockDom('${esc(e.domain)}')">chặn cả web</a></div>`:(e.blocked?'<span class="pill">đã chặn</span>':'');
   return `<div class="app-row"><div class="ic">${ic}</div><div class="nm"><div><b>${esc(name||'')}</b> <span class="tag" style="background:${KCOL[e.cls]||KCOL.other}">${esc(e.vi||'')}</span></div>
    <div class="mut">${tm}${e.title?' · '+esc(e.title):''}${e.why?' · '+esc(e.why):''}</div></div>${btn}</div>`;}).join('');}
-async function blockDom(d){const v=cur();if(!v||!confirm('Chặn trang '+d+' trên máy này?'))return;const r=await api(`/api/parent/devices/${v.id}/block`,{domain:d});toast(r.message||r.error);load();}
+async function blockPage(i){const v=cur(),e=EVS[i];if(!v||!e)return;if(!confirm('Chỉ chặn link này: '+(e.title||e.domain)+' ?'))return;
+ const r=await api(`/api/parent/devices/${v.id}/block`,{domain:e.domain,scope:'page',title:e.title||'',page:e.page||''});toast(r.message||r.error);load();}
+async function unblockPage(i){const v=cur();if(!v)return;const r=await api(`/api/parent/devices/${v.id}/unblock_page`,{index:i});toast(r.message||r.error);load();}
+function renderPages(v){const ps=((v.rules||{}).blocked_pages)||[];const el=$('pagebox');if(!el)return;
+ el.innerHTML=ps.length?ps.slice(0,50).map((p,i)=>`<div class="app-row"><div class="ic">🔗</div><div class="nm"><div><b>${esc(p.title||p.t||p.u||'')}</b></div><div class="mut">${esc(p.d||'')}${p.why?' · '+esc(p.why):''}</div></div><button style="padding:4px 10px;font-size:12px" onclick="unblockPage(${i})">Bỏ chặn</button></div>`).join(''):'<span class="mut">Chưa chặn link riêng nào. Bấm “Chặn link” ở mục Thay đổi gần đây.</span>';}
+async function blockDom(d){const v=cur();if(!v||!confirm('Chặn TOÀN BỘ trang web '+d+' (mọi link của trang này)?'))return;const r=await api(`/api/parent/devices/${v.id}/block`,{domain:d});toast(r.message||r.error);load();}
 function ytMode(b){document.querySelectorAll('#yt-mode button').forEach(x=>x.classList.toggle('act',x===b));$('yt-kw-box').style.display=b.dataset.m==='keyword'?'block':'none';rulesTouched=true;}
 function ytSet(m){const b=document.querySelector(`#yt-mode button[data-m="${m}"]`)||document.querySelector('#yt-mode button');ytMode(b);}
-function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;const st=(v.status||{}),r=st.rules||{},srv=(v.rules||{});
+function fillRules(force){const v=cur();if(v)renderPages(v);if(!v||(rulesTouched&&!force))return;const st=(v.status||{}),r=st.rules||{},srv=(v.rules||{});
  const sel=new Set(srv.groups||[]);const all=new Set([...(r.domains||[]),...(r.apps||[]),...(r.keywords||[])]);
  if(!srv.groups){for(const [k,g] of Object.entries(GROUPS)){if([...g.dom,...g.apps].some(x=>all.has(x)))sel.add(k);}}
  $('groups').innerHTML=Object.entries(GROUPS).map(([k,g])=>`<div class="sw"><div><div class="t">${g.n}</div><div class="d">${g.d}</div></div>
@@ -921,13 +930,20 @@ def api_parent_rules(did):
     # Chặn hồi tố: trang đã vào gần đây thuộc loại vừa chọn chặn -> thêm vào luật luôn
     kinds = _block_kinds(rules)
     retro = []
+    rules["blocked_pages"] = [p for p in (prev.get("blocked_pages") or []) if isinstance(p, dict)]
     if kinds:
         evs = db.get(f"devices/{did}/events") or []
         for ev in (list(evs.values()) if isinstance(evs, dict) else list(evs))[:40]:
             dom = str((ev or {}).get("domain", ""))
-            if dom and ev.get("cls") in kinds and not _is_youtube(dom) and dom not in rules["domains"]:
+            if not dom or ev.get("cls") not in kinds:
+                continue
+            if is_content_domain(dom):      # YouTube / Google…: chỉ chặn đúng video / trang đó
+                if _add_page_rule(rules, dom, ev.get("title", ""), ev.get("page", ""), ev.get("why") or ev.get("vi", "")):
+                    retro.append(norm_title(ev.get("title", ""))[:40] or dom)
+            elif dom not in rules["domains"]:
+                rules["domains"].append(dom)
                 retro.append(dom)
-        rules["domains"] = sorted(set(rules["domains"]) | set(retro))[:200]
+        rules["domains"] = sorted(set(rules["domains"]))[:200]
     db.set(f"devices/{did}/rules", rules)
     mark_watching(did, force=True)
     extra = f" Đã chặn thêm {len(retro)} trang vừa vào: {', '.join(retro[:5])}." if retro else ""
@@ -941,10 +957,22 @@ def api_parent_block(did):
     uid, did = current_uid(), fb_key(did)
     if not parent_owns(uid, did):
         return jsonify({"error": "Không có quyền với máy này."}), 403
-    dom = str((request.get_json(silent=True) or {}).get("domain", "")).strip().lower()[:80]
+    body = request.get_json(silent=True) or {}
+    dom = str(body.get("domain", "")).strip().lower()[:80]
     if not dom or "." not in dom or "/" in dom or " " in dom:
         return jsonify({"error": "Tên miền không hợp lệ"}), 400
     rules = dict(db.get(f"devices/{did}/rules") or {})
+    if body.get("scope") == "page":
+        title = str(body.get("title", ""))[:160]
+        if not (norm_title(title) or body.get("page")):
+            return jsonify({"error": "Trang này không có tiêu đề để chặn riêng — hãy chặn cả trang web."}), 400
+        _add_page_rule(rules, dom, title, str(body.get("page", "")), "phụ huynh chặn")
+        rules["ver"] = int(time.time() * 1000)
+        rules["by"] = uid
+        db.set(f"devices/{did}/rules", rules)
+        mark_watching(did, force=True)
+        return jsonify({"ok": True, "message": f"Đã chặn riêng link này (các trang khác của {dom} vẫn vào được). "
+                                               "Máy đóng tab khi học sinh đang mở / mở lại link này."})
     rules["domains"] = sorted(set(rules.get("domains") or []) | {dom})[:200]
     note = ""
     if _is_youtube(dom):
@@ -962,6 +990,26 @@ def api_parent_block(did):
         note += (" Lưu ý: máy đang KHÔNG ở chế độ học sinh nên chưa tự đóng tab đang mở; trang đã bị chặn tận gốc"
                  " (tải lại sẽ không vào được). Muốn đóng tab mọi lúc: bật “Giám sát cả khi học sinh chưa đăng nhập”.")
     return jsonify({"ok": True, "message": f"Đã chặn {dom}. Máy áp dụng trong vài giây.{note}"})
+
+
+@app.route("/api/parent/devices/<did>/unblock_page", methods=["POST"])
+@login_required
+def api_parent_unblock_page(did):
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    i = (request.get_json(silent=True) or {}).get("index")
+    rules = dict(db.get(f"devices/{did}/rules") or {})
+    pages = [p for p in (rules.get("blocked_pages") or []) if isinstance(p, dict)]
+    try:
+        removed = pages.pop(int(i))
+    except (TypeError, ValueError, IndexError):
+        return jsonify({"error": "Không tìm thấy link."}), 400
+    rules["blocked_pages"] = pages
+    rules["ver"] = int(time.time() * 1000)
+    db.set(f"devices/{did}/rules", rules)
+    mark_watching(did, force=True)
+    return jsonify({"ok": True, "message": f"Đã bỏ chặn: {removed.get('title') or removed.get('t') or removed.get('u')}"})
 
 
 @app.route("/api/parent/devices/<did>/activity")
@@ -1055,7 +1103,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.2"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.3"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1124,6 +1172,115 @@ def _gemini_domain_kind(domain: str, title: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+# ---- Chặn theo TỪNG LINK (bản sao services/page_rules.py: sửa bên kia thì sửa cả ở đây) ----
+CONTENT_DOMAINS = ("youtube.com", "youtu.be", "google.com", "google.com.vn", "bing.com", "coccoc.com",
+                   "vimeo.com", "dailymotion.com")
+_BROWSER_SUFFIX = (" - microsoft edge", " - google chrome", " - cốc cốc", " - coc coc", " - mozilla firefox",
+                   " — mozilla firefox", " - brave", " - opera", " - vivaldi")
+STUDY_TITLE_HINTS = ("bài giảng", "bài ", "toán", "vật lý", "vật lí", "hóa học", "hoá học", "sinh học", "ngữ văn",
+                     "tiếng anh", "lịch sử", "địa lý", "địa lí", "tin học", "lập trình", "khtn", "lớp ", "ôn thi",
+                     "giải ", "luyện thi", "thpt", "thcs", "lesson", "lecture", "tutorial", "how to", "khan academy",
+                     "math", "physics", "chemistry", "biology", "grammar", "học ", "kiến thức", "đề thi")
+FUN_TITLE_HINTS = ("official music video", " mv", "lyric", "remix", "nhạc", "vlog", "funny", "hài", "trailer",
+                   "tập ", "phim", "gameplay", "highlight", "reaction", "prank", "tiktok", "shorts", "livestream",
+                   "stream", "anime", "liên quân", "free fire", "minecraft", "roblox")
+
+
+def norm_title(title: str) -> str:
+    t = str(title or "")
+    for ch in ("\u200b", "\u200e", "\u200f", "\u202a", "\u202c"):
+        t = t.replace(ch, "")
+    t = t.lower().strip()
+    t = re.sub(r"^\(\d+\+?\)\s*", "", t)
+    t = re.sub(r"\s+and \d+ more pages?\b", "", t)
+    t = re.sub(r"\s+và \d+ trang khác\b", "", t)
+    for suf in _BROWSER_SUFFIX:
+        i = t.find(suf)
+        if i > 0:
+            t = t[:i]
+    return re.sub(r"\s+", " ", t).strip()[:100]
+
+
+def is_content_domain(dom: str) -> bool:
+    d = (dom or "").lower()
+    return any(d == c or d.endswith("." + c) for c in CONTENT_DOMAINS)
+
+
+def classify_page(domain: str, title: str) -> Dict[str, str]:
+    """Trang trên tên miền "nhiều nội dung" (YouTube, Google tìm kiếm…): phân loại THEO TIÊU ĐỀ trang (Gemini nếu có
+    khóa, không thì dấu hiệu từ khóa). Lưu cache theo (miền, tiêu đề) nên mỗi video/từ khóa chỉ hỏi Gemini 1 lần."""
+    d = (domain or "").lower()
+    nt = norm_title(title)
+    base = classify_domain(d, title)
+    if not nt:
+        return base
+    key = fb_key(d)[:60] + "|" + hashlib.sha1(nt.encode("utf-8")).hexdigest()[:16]
+    cached = db.get(f"page_cat/{key}")
+    if isinstance(cached, dict) and cached.get("kind") in KIND_VI:
+        return {**cached, "vi": KIND_VI[cached["kind"]], "category": KIND_CAT[cached["kind"]]}
+    kind, why = "", ""
+    if GEMINI_API_KEY:
+        got = _gemini_page_kind(d, title)
+        if got:
+            kind, why = got
+    if not kind:
+        if any(h in nt for h in STUDY_TITLE_HINTS):
+            kind, why = "study", "tiêu đề giống bài học"
+        elif any(h in nt for h in FUN_TITLE_HINTS):
+            kind, why = ("game" if any(g in nt for g in ("gameplay", "liên quân", "free fire", "minecraft", "roblox"))
+                         else "video"), "tiêu đề giống giải trí"
+        else:
+            kind, why = base["kind"], base.get("why", "")
+    rec = {"kind": kind, "why": why[:80], "t": now()}
+    try:
+        db.set(f"page_cat/{key}", rec)
+    except Exception:
+        pass
+    return {**rec, "vi": KIND_VI[kind], "category": KIND_CAT[kind]}
+
+
+def _gemini_page_kind(domain: str, title: str) -> Optional[Tuple[str, str]]:
+    import json as _json
+
+    prompt = ("Một HỌC SINH đang mở 1 trang trên " + domain + ". Dựa vào TIÊU ĐỀ trang (tên video / từ khóa tìm kiếm), "
+              "xếp NỘI DUNG trang vào đúng 1 loại: study (bài giảng, kiến thức, tài liệu, hướng dẫn học), "
+              "video (ca nhạc, phim, giải trí, vlog, hài), game (chơi game, gameplay, stream game), social, shopping, "
+              "comics, ai, other. Chỉ chọn study khi tiêu đề rõ ràng là học. Lý do tiếng Việt ≤10 từ.\n"
+              f"Tiêu đề: {str(title)[:160]}")
+    schema = {"type": "OBJECT", "properties": {"kind": {"type": "STRING", "enum": [k for k in KIND_VI if k != "ai_game"]},
+                                               "reason": {"type": "STRING"}}, "required": ["kind", "reason"]}
+    body = {"contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json", "responseSchema": schema}}
+    for model in GEMINI_MODELS:
+        try:
+            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                              json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=6)
+            if r.status_code == 404:
+                continue
+            r.raise_for_status()
+            out = _json.loads(r.json()["candidates"][0]["content"]["parts"][0]["text"])
+            if out.get("kind") in KIND_VI:
+                return out["kind"], "🤖 " + str(out.get("reason", ""))[:70]
+        except Exception as exc:
+            app.logger.warning("Gemini phân loại trang lỗi (%s): %s", model, exc)
+            return None
+    return None
+
+
+def _add_page_rule(rules: Dict[str, Any], dom: str, title: str, page: str, why: str) -> bool:
+    """Thêm luật chặn 1 link vào rules['blocked_pages'] (không trùng). True nếu là luật mới."""
+    pages = [p for p in (rules.get("blocked_pages") or []) if isinstance(p, dict)]
+    nt, pk = norm_title(title), str(page or "")[:120]
+    if not nt and not pk:
+        return False
+    for p in pages:
+        if p.get("d") == dom and ((pk and p.get("u") == pk) or (not pk and nt and p.get("t") == nt)):
+            return False
+    pages.insert(0, {"d": dom[:80], "t": nt, "u": pk, "why": str(why)[:60], "title": str(title)[:100], "at": now()})
+    rules["blocked_pages"] = pages[:300]
+    return True
+
+
 def _block_kinds(rules: Dict[str, Any]) -> set:
     """Các loại trang phụ huynh chọn TỰ CHẶN (bản cũ chỉ có công tắc auto_block_games)."""
     kinds = {k for k in (rules.get("block_kinds") or []) if k in BLOCKABLE_KINDS}
@@ -1142,18 +1299,27 @@ def _handle_events(did: str, dev: Dict[str, Any], events: List[Dict[str, Any]]) 
     mode = rules.get("notify_env", "risky")          # risky | all | off
     out, notify = [], []
     blocked_new: List[str] = []
+    pages_changed = False
     for ev in events[:30]:
         kind = str(ev.get("kind", ""))
         title = str(ev.get("title", ""))[:120]
         rec = {"t": int(ev.get("t", 0) or now()), "kind": kind, "exe": str(ev.get("exe", ""))[:60], "title": title}
         if kind == "web":
             dom = str(ev.get("domain", ""))[:80].lower()
-            c = classify_domain(dom, title)
-            rec.update(domain=dom, cls=c["kind"], vi=c["vi"], category=c["category"], why=c.get("why", ""))
+            page = str(ev.get("page", ""))[:120]
+            content = is_content_domain(dom)
+            c = classify_page(dom, title) if content else classify_domain(dom, title)
+            rec.update(domain=dom, cls=c["kind"], vi=c["vi"], category=c["category"], why=c.get("why", ""),
+                       page=page, scope="page" if content else "domain")
             already = any(dom.endswith(x) for x in (rules.get("domains") or []))
             rec["blocked"] = already
-            if c["kind"] in _block_kinds(rules) and not already and not _is_youtube(dom):
-                blocked_new.append(dom)
+            if c["kind"] in _block_kinds(rules) and not already:
+                if content:
+                    # YouTube / Google…: chỉ chặn ĐÚNG video / trang này, video bài giảng vẫn xem được
+                    if _add_page_rule(rules, dom, title, page, c.get("why") or c["vi"]):
+                        pages_changed = True
+                else:
+                    blocked_new.append(dom)
                 rec["blocked"] = True
                 rec["auto"] = True
         elif kind == "app":
@@ -1169,7 +1335,7 @@ def _handle_events(did: str, dev: Dict[str, Any], events: List[Dict[str, Any]]) 
         return
     log = (list(reversed(out)) + list(dev.get("events") or []))[:40]
     upd: Dict[str, Any] = {"events": log}
-    if blocked_new:
+    if blocked_new or pages_changed:
         rules["domains"] = sorted(set(rules.get("domains") or []) | set(blocked_new))[:200]
         rules["ver"] = int(time.time() * 1000)
         upd["rules"] = rules
