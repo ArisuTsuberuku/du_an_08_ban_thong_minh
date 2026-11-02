@@ -44,6 +44,8 @@ WINDOWS_CORE = {
     "narrator.exe", "magnify.exe", "atbroker.exe", "utilman.exe", "wlanext.exe", "midisrv.exe", "lsm.exe",
     "ngciso.exe", "vmmem", "vmmemws", "vmcompute.exe", "wsl.exe", "wslhost.exe", "wslservice.exe", "cmd.exe",
     "powershell.exe", "pwsh.exe", "windowsterminal.exe",
+    # Công cụ chụp màn hình có sẵn của Windows (Win+Shift+S, Snipping Tool)
+    "screenclippinghost.exe", "snippingtool.exe", "screensketch.exe",
 }
 INPUT_SYNC = {
     "evkey*.exe", "unikey*.exe", "openkey*.exe", "gotiengviet*.exe", "vietkey*.exe", "laban*key*.exe",

@@ -485,7 +485,8 @@ class PhanMemQuanLyBanHocEXE:
 
         kiosk_guard.start_kiosk(allowed_exes, on_violation=vi_pham if self._current_mode == "student" else None,
                                 on_refocus=lambda: kiosk_guard.focus_window(hwnd),
-                                allowed_folders=cfg.get("allowed_folders", []))
+                                allowed_folders=cfg.get("allowed_folders", []),
+                                allow_win_tools=cfg.get("kiosk_allow_win_tools", True))
 
     @staticmethod
     def _tat_kiosk() -> None:
@@ -2350,6 +2351,10 @@ class PhanMemQuanLyBanHocEXE:
                                    "(khuyên dùng)", cfg.get("kiosk_strict", True))
         v_exp = self._check(c1, "Tắt hẳn explorer.exe (Desktop) khi học sinh học — chặn mạnh nhất, máy khởi lại "
                                 "Desktop khi thoát", cfg.get("kiosk_hide_explorer", False))
+        from services.kiosk_guard import WIN_TOOL_COMBOS
+
+        v_tools = self._check(c1, "Cho dùng công cụ có sẵn của Windows khi khóa máy: chụp màn hình, clipboard, emoji, "
+                                  f"đổi bàn phím ({WIN_TOOL_COMBOS})", cfg.get("kiosk_allow_win_tools", True))
         v_always = self._check(c1, "Giám sát web/game luôn bật, kể cả khi chưa đăng nhập học sinh",
                                cfg.get("monitor_always", False))
         tk.Label(c1, text="Thoát khẩn cấp: phím cứu hộ + PIN (đặt ở trang “🆘 Cứu hộ”) · file UNLOCK.txt · "
@@ -2406,6 +2411,7 @@ class PhanMemQuanLyBanHocEXE:
         def luu() -> None:
             cfg["kiosk_strict"] = bool(v_strict.get())
             cfg["kiosk_hide_explorer"] = bool(v_exp.get())
+            cfg["kiosk_allow_win_tools"] = bool(v_tools.get())
             cfg["monitor_always"] = bool(v_always.get())
             cfg["student_close_background"] = bool(v_bg.get())
             cfg["student_bg_sweep"] = bool(v_sweep.get())

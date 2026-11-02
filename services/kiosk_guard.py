@@ -31,6 +31,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 IS_WINDOWS = sys.platform.startswith("win")
 
 # Tiến trình hệ thống luôn được phép có cửa sổ focus (hộp thoại UAC, IME, chuyển ngôn ngữ...)
+# Công cụ có sẵn của Windows (không phải ứng dụng .exe riêng) vẫn cho dùng khi khóa máy — xem WIN_TOOL_COMBOS
+WIN_TOOLS_OK = {"screenclippinghost.exe", "snippingtool.exe", "screensketch.exe"}
 SYSTEM_OK = {"textinputhost.exe", "ctfmon.exe", "consent.exe", "lockapp.exe", "logonui.exe",
              "credentialuibroker.exe", "applicationframehost.exe", "dwm.exe"}
 # Cửa sổ "lối thoát" phải đóng ngay
@@ -39,7 +41,7 @@ SHELL_ESCAPES = {"startmenuexperiencehost.exe", "searchhost.exe", "searchapp.exe
 DESKTOP_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
 
 _state = {"active": False, "allowed": set(), "own_pids": set(), "on_violation": None, "on_refocus": None,
-          "allow_explorer_windows": True, "allowed_folders": []}
+          "allow_explorer_windows": True, "allowed_folders": [], "allow_win_tools": True}
 _lock = threading.Lock()
 _threads: Dict[str, threading.Thread] = {}
 _stop = threading.Event()
@@ -99,6 +101,28 @@ if IS_WINDOWS:
     user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
 
 WH_KEYBOARD_LL = 13
+VK_SHIFT, VK_SPACE, VK_SNAPSHOT, VK_V, VK_S, VK_OEM_1, VK_OEM_PERIOD = 0x10, 0x20, 0x2C, 0x56, 0x53, 0xBA, 0xBE
+MODIFIER_VKS = {0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5}
+LLKHF_INJECTED = 0x10
+# Phím Windows được phép khi khóa máy (công cụ có sẵn của Windows, không mở được ứng dụng / Start / Explorer):
+#   Win+Shift+S chụp vùng màn hình · Win+PrtSc chụp cả màn hình (lưu Pictures\Screenshots) · Win+V lịch sử clipboard
+#   Win+. / Win+; bảng emoji, ký hiệu · Win+Space đổi bàn phím / ngôn ngữ nhập
+WIN_TOOL_COMBOS = "Win+Shift+S, Win+PrtSc, Win+V, Win+. , Win+Space"
+_win = {"down": False, "injecting": 0}
+
+
+def _win_combo_allowed(vk: int) -> bool:
+    if vk in MODIFIER_VKS or vk in (VK_SNAPSHOT, VK_V, VK_OEM_1, VK_OEM_PERIOD, VK_SPACE):
+        return True
+    return vk == VK_S and bool(user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
+
+
+def _release_win_without_start(vk: int) -> None:
+    """Thả phím Windows mà KHÔNG mở Start: chèn 1 phím 'rỗng' (0xFF) trước khi thả Win (mẹo chuẩn của Windows)."""
+    _win["injecting"] += 3
+    user32.keybd_event(0xFF, 0, 0, 0)
+    user32.keybd_event(0xFF, 0, 2, 0)
+    user32.keybd_event(vk, 0, 2 | 1, 0)        # KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY
 WM_KEYDOWN, WM_SYSKEYDOWN, WM_QUIT = 0x0100, 0x0104, 0x0012
 VK_LWIN, VK_RWIN, VK_ESCAPE, VK_TAB, VK_CONTROL, VK_MENU, VK_F4 = 0x5B, 0x5C, 0x1B, 0x09, 0x11, 0x12, 0x73
 SW_HIDE, SW_SHOWNA, SW_MINIMIZE = 0, 8, 6
@@ -250,8 +274,21 @@ def _keyboard_thread() -> None:
                     _keys.append((time.time(), 1 if vk in _GAME_VK else 0))
                 ctrl = user32.GetAsyncKeyState(VK_CONTROL) & 0x8000
                 alt = bool(kb.flags & 0x20)
+                key_up = w_param in (0x0101, 0x0105)
+                if kb.flags & LLKHF_INJECTED and _win["injecting"] > 0:
+                    _win["injecting"] -= 1                 # phím do chính FocusDesk chèn -> cho qua
+                    return user32.CallNextHookEx(None, n_code, w_param, l_param)
                 if vk in (VK_LWIN, VK_RWIN):
+                    if not _state.get("allow_win_tools", True):
+                        return 1                           # chặn hẳn phím Windows
+                    if not key_up:
+                        _win["down"] = True                # cho Windows biết Win đang giữ -> tổ hợp được phép chạy
+                        return user32.CallNextHookEx(None, n_code, w_param, l_param)
+                    _win["down"] = False
+                    _release_win_without_start(vk)         # nuốt lần thả thật, thả lại kèm phím rỗng -> không mở Start
                     return 1
+                if _win["down"] and not _win_combo_allowed(vk):
+                    return 1                               # Win+R, Win+E, Win+D, Win+Tab, Win+S… -> nuốt phím
                 if vk == VK_ESCAPE and (ctrl or alt):
                     return 1                       # Ctrl+Esc (Start), Alt+Esc
         except Exception:
@@ -282,6 +319,8 @@ def _is_allowed_window(hwnd) -> Tuple[bool, str, str]:
         return False, exe or cls, cls
     if not exe or exe in SYSTEM_OK:
         return True, exe, cls
+    if exe in WIN_TOOLS_OK and _state.get("allow_win_tools", True):
+        return True, exe, cls     # khung chụp màn hình / Snipping Tool có sẵn của Windows
     if exe in _state["allowed"]:
         return True, exe, cls
     if exe == "explorer.exe" and cls == "CabinetWClass" and _state["allow_explorer_windows"] \
@@ -422,13 +461,13 @@ def _folder_thread() -> None:
 # ----------------------------------------------------------------------------- API
 def start_kiosk(allowed_exes: Iterable[str], on_violation: Optional[Callable[[str, str], None]] = None,
                 on_refocus: Optional[Callable[[], None]] = None, allow_explorer_windows: bool = True,
-                allowed_folders: Iterable[str] = ()) -> None:
+                allowed_folders: Iterable[str] = (), allow_win_tools: bool = True) -> None:
     """Bật (hoặc cập nhật danh sách) kiosk. Gọi lại nhiều lần an toàn."""
     with _lock:
         _state.update(active=True, allowed={a.lower() for a in allowed_exes if a},
                       own_pids={os.getpid()} | _child_pids(), on_violation=on_violation, on_refocus=on_refocus,
                       allow_explorer_windows=allow_explorer_windows,
-                      allowed_folders=[str(f) for f in allowed_folders if f])
+                      allowed_folders=[str(f) for f in allowed_folders if f], allow_win_tools=bool(allow_win_tools))
         if not IS_WINDOWS:
             return
         _stop.clear()

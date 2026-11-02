@@ -92,6 +92,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "student": "hocsinh123",
     },
     "kiosk_hide_explorer": False,
+    # Khi khóa máy vẫn cho dùng công cụ có sẵn của Windows: chụp màn hình, clipboard, emoji, đổi bàn phím
+    "kiosk_allow_win_tools": True,
     "enforce_app_whitelist": False,
     "enable_posture_ai": True,
     "camera_index": 0,
