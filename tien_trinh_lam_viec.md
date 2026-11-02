@@ -10,8 +10,8 @@
 | :--- | :--- | :--- |
 | **Giai đoạn 1** | Chuẩn bị môi trường, đồng bộ Git Repo & Giao ước dữ liệu (`core/config_manager.py`, `shared_config.json`, `runtime_state.json`) | ✅ Đã hoàn thành |
 | **Giai đoạn 2** | 5 Lớp An toàn Khẩn cấp chống kẹt máy (`core/failsafe.py`, `KHOI_PHUC_KHAN_CAP.bat`, Global Hotkeys, Crash Hooks, PIN `999999`, `UNLOCK.txt`) | ✅ Đã hoàn thành |
-| **Giai đoạn 3** | Web Server Dashboard Trung tâm (`trang_web.py` chạy `0.0.0.0:5000`, giữ nguyên `/api/nhan_canh_bao`, hỗ trợ PC & Android) | ⏳ Đang thực hiện |
-| **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ⏳ Chờ thực hiện |
+| **Giai đoạn 3** | Web Server Dashboard Trung tâm (`trang_web.py` chạy `0.0.0.0:5000`, giữ nguyên `/api/nhan_canh_bao`, hỗ trợ PC & Android) | ✅ Đã hoàn thành |
+| **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ⏳ Đang thực hiện |
 | **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ⏳ Chờ thực hiện |
 | **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ⏳ Chờ thực hiện |
 | **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ⏳ Chờ thực hiện |
@@ -45,3 +45,19 @@
      - **Lớp 5 (Tự động sinh `KHOI_PHUC_KHAN_CAP.bat`):** Tự sinh ngay khi khởi động phần mềm, cho phép khôi phục Registry + `explorer.exe` chỉ bằng 1 cú nhấp đúp bên ngoài.
   2. Khắc phục triệt để lỗi bảng mã Windows `cp1252` (`UnicodeEncodeError` khi in tiếng Việt) và lỗi `sys.stdout = None` khi đóng gói PyInstaller `--noconsole` thông qua hàm `configure_utf8_stdio()` và `safe_log()`.
 - **Kiểm thử:** Đã chạy script kiểm thử tự động xác nhận cả 5 lớp (`KHOI_PHUC_KHAN_CAP.bat`, Registry handler khi có/không có quyền Admin, mã PIN `999999`, thu hồi cờ `UNLOCK.txt`, đăng ký/hủy đăng ký Win32 `RegisterHotKey`) đều vượt qua 100%.
+
+---
+
+### ✅ Giai đoạn 3: Web Server Dashboard Trung tâm (`trang_web.py`)
+- **Thời gian hoàn thành:** 02/11/2026
+- **Các công việc đã thực hiện:**
+  1. Xây dựng `trang_web.py` chạy trên `0.0.0.0:5000`, tự động nhận diện địa chỉ IP LAN (ví dụ `http://10.10.1.169:5000`) để Phụ huynh mở Bảng điều khiển trực tiếp từ trình duyệt trên điện thoại Android cùng mạng Wi-Fi.
+  2. Bảo toàn 100% giao thức gốc của nhóm: cổng `POST /api/nhan_canh_bao` nhận `{'message': noi_dung}` và giữ nguyên cụm từ `"Bảng Điều Khiển Bàn Học"` trong `<title>` để bộ quét `giam_sat` miễn trừ không đóng nhầm.
+  3. Cung cấp các API mở rộng đồng bộ với `shared_config.json` & `runtime_state.json`:
+     - `POST /api/cap_nhat_thong_ke`, `GET /api/du_lieu_dashboard`
+     - `POST /api/luu_cau_hinh_web` (chỉnh sửa trực tiếp `max_ai_minutes`, `bad_urls`, `allowed_urls`, `bad_tabs`, `academic_keywords`, `bad_apps`)
+     - `POST /api/khoa_may_tu_xa` (nút khóa màn hình máy tính học sinh ngay trên trình duyệt điện thoại)
+     - `POST /api/posture_telemetry` (cổng chờ cho AI Camera MediaPipe 3D)
+     - Cổng Hook `_dispatch_telegram_hook()` chờ sẵn để tự động kích hoạt khi lắp Dịch vụ Bot Telegram ở **Giai đoạn 7**.
+  4. Xây dựng hàm `start_web_server_in_background()` bằng `werkzeug.serving.make_server(..., threaded=True)` để nhúng êm ái vào trong `SmartDeskLauncher.exe` mà không xung đột nếu cổng `5000` đã mở sẵn bên ngoài.
+- **Kiểm thử:** Đã chạy kiểm thử thực tế khởi chạy luồng nền cổng `5000`, gọi `POST /api/nhan_canh_bao`, `GET /api/du_lieu_dashboard`, `POST /api/xoa_lich_su_canh_bao` và tắt server an toàn.
