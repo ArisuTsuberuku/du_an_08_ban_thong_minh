@@ -37,6 +37,17 @@ def test_title_match_without_url_needs_long_title():
     assert not match_blocked_page("", "youtube", [{"d": "youtube.com", "t": "youtube", "u": ""}])
 
 
+def test_homepage_rule_never_blocks_youtube():
+    bad = [{"d": "youtube.com", "t": norm_title("(50) YouTube and 1 more page - Personal - Microsoft Edge"), "u": ""}]
+    assert not match_blocked_page("https://www.youtube.com/", "YouTube - Personal - Microsoft Edge", bad)
+    assert not match_blocked_page("https://www.youtube.com/watch?v=x1", "Bài 1 - YouTube - Personal - Microsoft Edge", bad)
+
+
+def test_tab_title_rule_matches_window_title():
+    rule = [{"d": "", "t": norm_title("Zalo - Vũ Hoàng Linh"), "u": ""}]
+    assert match_blocked_page("https://chat.zalo.me/", "Zalo - Vũ Hoàng Linh and 2 more pages - Personal - Microsoft Edge", rule)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

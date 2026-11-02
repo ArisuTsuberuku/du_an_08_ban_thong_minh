@@ -259,12 +259,19 @@ class ActivityTracker:
         self._known_apps = set(exes)
 
     def _check_web(self, exe: str, title: str, hwnd: int) -> None:
+        self._cur_web = ("", "")
         if exe.lower() not in BROWSERS or not hwnd or _private(title):
             return
         url = _browser_url(hwnd)
         dom = domain_of(url)
         if not dom:
             return
+        try:
+            from services.page_rules import page_key as _pk
+
+            self._cur_web = (dom, _pk(url))      # cho thẻ "Đang dùng gì": phụ huynh chặn đúng link đang mở
+        except Exception:
+            self._cur_web = (dom, "")
         now = time.time()
         try:
             from services.page_rules import is_content_domain, norm_title, page_key
@@ -326,6 +333,9 @@ class ActivityTracker:
                         title = "Nội dung riêng tư (không ghi)"
                     key = (exe, (title or exe)[:TITLE_MAX])
                     self.current = {"exe": exe, "title": key[1], "t": int(time.time())}
+                    dom, pkey = getattr(self, "_cur_web", ("", ""))
+                    if dom and not title.startswith("Nội dung riêng tư"):
+                        self.current.update(domain=dom, page=pkey)
                     with self._lock:
                         self._buf[key] = self._buf.get(key, 0.0) + POLL_S
             self._stop.wait(POLL_S)

@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, urlparse
 # Trang "nhiều nội dung" — cùng tên miền có cả học tập lẫn giải trí -> theo dõi & phân loại theo TỪNG trang
 CONTENT_DOMAINS = ("youtube.com", "youtu.be", "google.com", "google.com.vn", "bing.com", "coccoc.com",
                    "vimeo.com", "dailymotion.com")
+# Tên trang chủ: chặn "link" trang chủ = chặn cả web (mọi video đều đi qua trang chủ) -> không cho chặn riêng
+GENERIC_PAGE_NAMES = ("youtube", "google", "google tìm kiếm", "bing", "cốc cốc", "coc coc", "vimeo", "dailymotion", "")
 _BROWSER_SUFFIX = (" - microsoft edge", " - google chrome", " - cốc cốc", " - coc coc", " - mozilla firefox",
                    " — mozilla firefox", " - brave", " - opera", " - vivaldi")
 
@@ -61,6 +63,9 @@ def page_key(url: str) -> str:
         v = (parse_qs(p.query).get("v") or [""])[0]
         if v:
             return f"v={v[:20]}"
+        q = (parse_qs(p.query).get("search_query") or [""])[0].strip().lower()
+        if q:
+            return f"search={q[:80]}"
         m = re.match(r"^/(shorts|live)/([\w-]{6,20})", path)
         return f"{m.group(1)}/{m.group(2)}" if m else ""
     if domain_matches(host, "youtu.be"):
@@ -69,6 +74,14 @@ def page_key(url: str) -> str:
         q = (parse_qs(p.query).get("q") or [""])[0].strip().lower()
         return f"q={q[:80]}" if q else ""
     return path[:120] if len(path) > 1 else ""
+
+
+def is_generic_page(dom: str, title: str, page: str = "") -> bool:
+    """Trang chủ / trang chung của web nhiều nội dung (vd tiêu đề chỉ là "YouTube") -> KHÔNG phải 1 link riêng."""
+    if page or not is_content_domain(dom):
+        return False
+    first = norm_title(title).split(" - ")[0].strip()
+    return first in GENERIC_PAGE_NAMES
 
 
 def match_blocked_page(url: str, title: str, rules: Optional[Iterable[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
@@ -93,7 +106,11 @@ def match_blocked_page(url: str, title: str, rules: Optional[Iterable[Dict[str, 
         rk, rt = str(r.get("u", "")).lower(), str(r.get("t", ""))
         if rk and key and rk == key.lower():
             return r
-        if rt and nt and rt == nt:
+        if not rk and is_generic_page(d or host, rt):
+            continue    # luật "trang chủ YouTube / Google" tạo nhầm = chặn cả web -> bỏ qua
+        # Tiêu đề khớp: bằng nhau, hoặc 1 bên là tiêu đề TAB ("X - youtube"), bên kia là tiêu đề CỬA SỔ
+        # ("X - youtube - personal": thêm tên hồ sơ trình duyệt ở cuối)
+        if rt and nt and (rt == nt or nt.startswith(rt + " - ") or rt.startswith(nt + " - ")):
             # Không có URL (UIA đọc lỗi) thì chỉ tin tiêu đề khi tiêu đề đủ dài để không trùng nhầm
             if host or len(rt) >= 12:
                 return r
