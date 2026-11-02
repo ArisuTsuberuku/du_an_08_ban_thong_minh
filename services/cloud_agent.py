@@ -79,6 +79,11 @@ class CloudAgent:
         self.heartbeat_s = 30
         self._sent_alert_keys: List[str] = []
         self._session = requests.Session()
+        self._acks: List[Dict[str, Any]] = []
+        self._urgent = False
+        from services.activity_tracker import ActivityTracker
+
+        self.tracker = ActivityTracker(batch_s=60.0)
 
     # ---------------- HTTP ----------------
     def _auth(self) -> Dict[str, str]:
@@ -114,7 +119,17 @@ class CloudAgent:
         pt = st.get("posture_telemetry") or {}
         usage = st.get("app_usage") or {}
         top_apps = sorted(usage.items(), key=lambda kv: -float(kv[1] or 0))[:5]
+        try:
+            from services.live_view import live_info
+
+            lv = live_info()
+        except Exception:
+            lv = {}
         return {
+            "live": {k: lv.get(k) for k in ("active", "lan_url", "public_url", "expires", "note")},
+            "rules": {"apps": cfg.get("bad_apps", []), "domains": cfg.get("bad_urls", []),
+                      "keywords": cfg.get("bad_tabs", [])},
+            "rules_ver": int(cfg.get("rules_ver", 0) or 0),
             "hostname": socket.gethostname(),
             "version": AGENT_VERSION,
             "role": st.get("current_role", "?"),
@@ -147,7 +162,18 @@ class CloudAgent:
         alerts = self._new_alerts()
         if first:
             alerts = []  # không bắn lại cảnh báo cũ khi vừa khởi động
-        res = self._post("/api/agent/heartbeat", {"status": self._collect_status(), "alerts": alerts})
+        batch = self.tracker.drain_if_due()
+        acks, self._acks = self._acks, []
+        try:
+            res = self._post("/api/agent/heartbeat", {"status": self._collect_status(), "alerts": alerts,
+                                                      "activity": batch, "acks": acks})
+        except Exception:
+            if batch:
+                self.tracker.requeue(batch)  # gửi lỗi -> giữ lại số liệu cho lần sau
+            self._acks = acks + self._acks
+            raise
+        if res.get("rules"):
+            self._apply_rules(res["rules"])
         self.heartbeat_s = int(res.get("heartbeat_s", self.heartbeat_s) or 30)
         paired = bool(res.get("paired"))
         if paired != bool(self.ident.get("paired")):
@@ -163,26 +189,76 @@ class CloudAgent:
     def execute(self, cmd: Dict[str, Any]) -> None:
         ctype = cmd.get("type")
         safe_log(f"[CLOUD] Nhận lệnh từ phụ huynh: {ctype}")
+        ok, msg = True, ""
         try:
             if ctype == "lock":
                 update_runtime_state(remote_lock_requested=True)
+                if _launcher_running():
+                    msg = "Đã chuyển máy về Màn hình Khóa SmartDesk"
+                else:
+                    import ctypes
+
+                    ctypes.windll.user32.LockWorkStation()
+                    msg = "Đã khóa Windows (app SmartDesk không chạy nên dùng khóa của Windows)"
             elif ctype == "reset_ai":
                 update_runtime_state(ai_seconds=0)
+                msg = "Đã đặt lại giờ dùng AI về 0"
             elif ctype in ("ai_on", "ai_off"):
                 from services.posture_controller import posture_manager
 
                 cfg = load_config()
                 cfg["enable_posture_ai"] = ctype == "ai_on"
                 save_config(cfg)
-                posture_manager.start(force_enable=True) if ctype == "ai_on" else posture_manager.stop()
+                if ctype == "ai_on":
+                    ok = posture_manager.start(force_enable=True)
+                    msg = "Camera AI đã bật" if ok else "Không bật được Camera AI (thiếu webcam/thư viện?)"
+                else:
+                    posture_manager.stop()
+                    msg = "Camera AI đã tắt"
             elif ctype == "recalibrate":
                 from services.posture_controller import posture_manager
 
                 posture_manager.recalibrate()
+                msg = "Đang hiệu chỉnh lại tư thế 5 giây (ngồi thẳng, nhìn màn hình)"
+            elif ctype == "live_on":
+                from services.live_view import start_live
+                from services.posture_controller import posture_manager
+
+                posture_manager.start(force_enable=True)
+                info = start_live(_lan_ip())
+                msg = "Đã bật xem trực tiếp" + ("" if info.get("public_url") else f" (chỉ trong Wi-Fi nhà: {info.get('note')})")
+            elif ctype == "live_off":
+                from services.live_view import stop_live
+
+                stop_live()
+                msg = "Đã tắt xem trực tiếp"
             elif ctype == "snapshot":
-                self._send_snapshot(cmd.get("chat_id") or "")
+                ok, msg = self._send_snapshot(cmd.get("chat_id") or "")
+            else:
+                ok, msg = False, "Lệnh không hỗ trợ"
         except Exception as exc:
+            ok, msg = False, f"Lỗi: {exc}"
             safe_log(f"[CLOUD] Lỗi thực thi lệnh {ctype}: {exc}")
+        self._acks.append({"id": cmd.get("id", ""), "type": ctype, "ok": bool(ok), "msg": msg[:200],
+                           "time": time.strftime("%H:%M:%S")})
+        self._urgent = True  # báo kết quả ngay cho phụ huynh
+
+    def _apply_rules(self, rules: Dict[str, Any]) -> None:
+        """Cấu hình chặn từ xa -> shared_config (giam_sat_worker đọc lại mỗi vòng quét)."""
+        def clean(v):
+            return [str(x).strip().lower() for x in (v or []) if str(x).strip()][:200]
+
+        cfg = load_config()
+        cfg["bad_apps"] = clean(rules.get("apps"))
+        cfg["bad_urls"] = [d.replace("https://", "").replace("http://", "").split("/")[0] for d in clean(rules.get("domains"))]
+        cfg["bad_tabs"] = clean(rules.get("keywords"))
+        cfg["rules_ver"] = int(rules.get("ver", 0) or 0)
+        save_config(cfg)
+        safe_log(f"[CLOUD] Đã áp dụng cấu hình chặn mới (ver {cfg['rules_ver']}).")
+        self._acks.append({"id": "", "type": "rules", "ok": True, "time": time.strftime("%H:%M:%S"),
+                           "msg": f"Đã áp dụng: {len(cfg['bad_apps'])} app, {len(cfg['bad_urls'])} trang web, "
+                                  f"{len(cfg['bad_tabs'])} từ khóa"})
+        self._urgent = True
 
     def _send_snapshot(self, chat_id: str) -> None:
         from services.posture_controller import get_latest_posture_frame, has_live_posture_stream, posture_manager
@@ -200,9 +276,11 @@ class CloudAgent:
             posture_manager.stop()
         if not jpg:
             safe_log("[CLOUD] Không có khung hình camera để gửi.")
-            return
+            return False, "Không có khung hình camera (webcam bận/không có?)"
+        # Ảnh đi qua Vercel chuyển thẳng sang Telegram, KHÔNG lưu vào Firebase
         self._post("/api/agent/snapshot", {"jpg_b64": base64.b64encode(jpg).decode("ascii"), "chat_id": chat_id},
                    timeout=20.0)
+        return True, f"Đã gửi ảnh ({len(jpg) // 1024} KB) qua Telegram"
 
     # ---------------- Vòng lặp ----------------
     def _has_pending_event(self) -> bool:
@@ -218,12 +296,14 @@ class CloudAgent:
         first = True
         backoff = 5
         last_sent = 0.0
+        self.tracker.start()
         while not _stop.is_set():
             try:
                 due = time.time() - last_sent >= self.heartbeat_s
-                urgent = (not first) and time.time() - last_sent >= 3.0 and self._has_pending_event()
+                urgent = (not first) and time.time() - last_sent >= 3.0 and (self._urgent or self._has_pending_event())
                 if first or due or urgent:
                     self.ensure_registered()
+                    self._urgent = False
                     self.heartbeat(first=first)
                     if urgent:
                         safe_log("[CLOUD] Có cảnh báo mới -> đã báo ngay cho phụ huynh.")
@@ -243,6 +323,32 @@ class CloudAgent:
                 _publish_local(self.ident, error=str(exc)[:200])
                 _stop.wait(backoff)
                 backoff = min(120, backoff * 2)
+
+
+def _launcher_running() -> bool:
+    """App khóa máy SmartDesk (exe hoặc he_thong_quan_ly_3_cap.py) có đang chạy để xử lý lệnh khóa không."""
+    try:
+        import psutil
+
+        for p in psutil.process_iter(["name", "cmdline"]):
+            name = (p.info.get("name") or "").lower()
+            cmd = " ".join(p.info.get("cmdline") or []).lower()
+            if name == "smartdesklauncher.exe" or "he_thong_quan_ly_3_cap" in cmd:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _lan_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 
 def start_cloud_agent() -> bool:

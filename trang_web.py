@@ -305,17 +305,64 @@ def api_posture_toggle():
         return jsonify({"status": "ok", "enabled": False, "message": "⏸️ Đã tạm dừng Camera AI Nhận diện Tư thế 3D."})
 
 
+LIVE_PATHS = ("/live", "/video_feed", "/snapshot.jpg")
+
+
+def _is_remote_request() -> bool:
+    """Request đi qua Cloudflare Tunnel (Internet) thay vì máy này / Wi-Fi nhà."""
+    return bool(request.headers.get("Cf-Connecting-Ip")) or (request.host or "").endswith("trycloudflare.com")
+
+
+@app.before_request
+def _guard_remote_access():
+    """Qua Internet CHỈ được xem camera bằng token; mọi API điều khiển nội bộ bị chặn."""
+    if not _is_remote_request():
+        return None
+    from services.live_view import token_valid
+
+    if request.path not in LIVE_PATHS or not token_valid(request.args.get("t", "")):
+        return Response("403 Forbidden", status=403)
+    return None
+
+
+LIVE_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Xem trực tiếp - Bàn Học Thông Minh</title>
+<body style="margin:0;font-family:system-ui;background:#f4f6fb;color:#0f172a">
+<div style="max-width:720px;margin:0 auto;padding:12px">
+<h3 style="margin:8px 0">📺 Camera bàn học (trực tiếp, không qua cloud)</h3>
+<img id="v" src="/video_feed?t={{ t }}&fps={{ fps }}" style="width:100%;border-radius:12px;background:#000">
+<p><a href="/snapshot.jpg?t={{ t }}" download="anh_ban_hoc.jpg">📸 Tải ảnh chụp</a> ·
+<span style="color:#64748b">Link tự hết hạn sau 15 phút.</span></p></div></body>"""
+
+
+@app.route("/live")
+def live_page():
+    fps = max(1, min(12, int(request.args.get("fps", "5") or 5)))
+    return render_template_string(LIVE_PAGE, t=request.args.get("t", ""), fps=fps)
+
+
+@app.route("/snapshot.jpg")
+def snapshot_jpg():
+    return Response(get_latest_posture_frame(), mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.route("/video_feed")
 def video_feed():
-    """Luồng truyền tải MJPEG thời gian thực trong mạng nội bộ LAN (Tuyệt đối không đẩy lên Đám mây)."""
+    """Luồng MJPEG đi thẳng từ máy học sinh tới phụ huynh (Wi-Fi nhà hoặc Cloudflare Tunnel) - không qua Firebase."""
     if request.args.get("snapshot") == "1":
         return Response(get_latest_posture_frame(), mimetype="image/jpeg")
+    try:
+        fps = max(1.0, min(12.0, float(request.args.get("fps", "12") or 12)))
+    except ValueError:
+        fps = 12.0
+    if _is_remote_request():
+        fps = min(fps, 6.0)  # qua Internet: giới hạn 6 khung/giây cho nhẹ băng thông (~200 KB/s)
 
     def _gen_mjpeg():
         while True:
             jpg = get_latest_posture_frame()
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
-            time.sleep(0.08 if has_live_posture_stream() else 0.45)
+            time.sleep(1.0 / fps if has_live_posture_stream() else 0.45)
 
     return Response(_gen_mjpeg(), mimetype="multipart/x-mixed-replace; boundary=frame")
 

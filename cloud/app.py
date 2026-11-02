@@ -41,6 +41,12 @@ app.config.update(
 )
 
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+# Đăng nhập Google (Google Identity Services): chỉ cần Client ID, không cần client secret.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+# Mật khẩu email chỉ bật khi ALLOW_PASSWORD_LOGIN=1 (mặc định TẮT nếu đã có Google) -> giảm bề mặt tấn công.
+ALLOW_PASSWORD_LOGIN = os.environ.get("ALLOW_PASSWORD_LOGIN", "0" if GOOGLE_CLIENT_ID else "1") == "1"
+# Giới hạn ai được đăng nhập (tùy chọn): "a@gmail.com,b@gmail.com" hoặc tên miền "@truong.edu.vn"
+ALLOWED_EMAILS = [e.strip().lower() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()]
 TG_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 # Tần suất gọi server LINH HOẠT (tiết kiệm lượt gọi gói Vercel Hobby):
 #  - Bình thường: máy báo 30s/lần.
@@ -59,8 +65,15 @@ COMMAND_TYPES = {
     "ai_on": "📷 Bật Camera AI",
     "ai_off": "⏸️ Tắt Camera AI",
     "recalibrate": "🔄 Hiệu chỉnh lại tư thế",
-    "snapshot": "📸 Chụp 1 ảnh camera",
+    "snapshot": "📸 Chụp 1 ảnh camera (gửi qua Telegram)",
+    "live_on": "📺 Bật xem trực tiếp",
+    "live_off": "⏹️ Tắt xem trực tiếp",
 }
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+GEMINI_MODELS = [m.strip() for m in os.environ.get(
+    "GEMINI_MODEL", "gemini-flash-lite-latest,gemini-flash-latest,gemini-2.0-flash").split(",") if m.strip()]
+ACTIVITY_AI = os.environ.get("ACTIVITY_AI", "1") == "1"
+TZ_OFFSET_S = int(float(os.environ.get("TZ_OFFSET_H", "7")) * 3600)
 
 
 # =====================================================================
@@ -80,6 +93,57 @@ def new_code(n: int = 6) -> str:
 
 def current_uid() -> Optional[str]:
     return session.get("uid")
+
+
+def email_allowed(email: str) -> bool:
+    if not ALLOWED_EMAILS:
+        return True
+    email = email.lower()
+    return any(email == a or (a.startswith("@") and email.endswith(a)) for a in ALLOWED_EMAILS)
+
+
+def start_session(uid: str, email: str, name: str = "", picture: str = "") -> None:
+    session.clear()  # chống session fixation
+    session.permanent = True
+    session.update(uid=uid, email=email, name=name, picture=picture, csrf=secrets.token_urlsafe(16))
+
+
+def find_or_create_parent(email: str, google_sub: str = "", name: str = "") -> str:
+    """Tìm phụ huynh theo Google sub (ổn định) -> theo email (liên kết tài khoản cũ) -> tạo mới."""
+    if google_sub:
+        uid = db.get(f"google_subs/{fb_key(google_sub)}")
+        if uid and db.get(f"parents/{uid}"):
+            return uid
+    uid = db.get(f"emails/{fb_key(email)}")
+    if not uid:
+        uid = "u_" + secrets.token_hex(8)
+        db.set(f"parents/{uid}", {"email": email, "name": name, "created": now()})
+        db.set(f"emails/{fb_key(email)}", uid)
+    if google_sub:
+        db.set(f"google_subs/{fb_key(google_sub)}", uid)
+        db.update(f"parents/{uid}", {"google_sub": google_sub, "name": name or "", "last_login": now()})
+    return uid
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    # Google Sign-In cần popup cùng nguồn gốc để trả kết quả
+    resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+    if os.environ.get("VERCEL"):
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
+
+
+@app.before_request
+def csrf_protect():
+    """Mọi POST /api/parent/* phải kèm header X-CSRF-Token khớp phiên (chống CSRF ngoài SameSite)."""
+    if request.method == "POST" and request.path.startswith("/api/parent/"):
+        if not session.get("csrf") or not hmac.compare_digest(request.headers.get("X-CSRF-Token", ""), session["csrf"]):
+            return jsonify({"error": "Phiên hết hạn, tải lại trang."}), 403
+    return None
 
 
 def login_required(fn):
@@ -181,80 +245,177 @@ def mark_watching(did: str, force: bool = False, dev: Optional[Dict[str, Any]] =
 # Trang web phụ huynh
 # =====================================================================
 BASE_CSS = """
+<script>/* Áp theme trước khi vẽ trang để không bị nháy */
+(function(){var t="light";try{t=localStorage.getItem("sd_theme")||t}catch(e){}document.documentElement.setAttribute("data-theme",t)})();
+function toggleTheme(){var r=document.documentElement,t=r.getAttribute("data-theme")==="dark"?"light":"dark";r.setAttribute("data-theme",t);
+try{localStorage.setItem("sd_theme",t)}catch(e){}var b=document.getElementById("themeBtn");if(b)b.textContent=t==="dark"?"☀️ Nền sáng":"🌙 Nền tối";}
+</script>
 <style>
-:root{--bg:#0b1220;--card:#131c2e;--line:#22304a;--txt:#e2e8f0;--mut:#94a3b8;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--acc:#38bdf8}
+:root,[data-theme=light]{--bg:#f4f6fb;--card:#ffffff;--line:#e2e8f0;--txt:#0f172a;--mut:#64748b;--acc:#2563eb;
+ --btn:#eef2ff;--btn-txt:#1e3a8a;--btn-line:#c7d2fe;--input:#ffffff;--danger:#fee2e2;--danger-txt:#991b1b;
+ --pill:#f1f5f9;--on:#dcfce7;--on-txt:#166534;--off:#e5e7eb;--off-txt:#374151;--err:#dc2626;--shadow:0 1px 3px rgba(15,23,42,.08)}
+[data-theme=dark]{--bg:#0b1220;--card:#131c2e;--line:#22304a;--txt:#e2e8f0;--mut:#94a3b8;--acc:#38bdf8;
+ --btn:#1e3a5f;--btn-txt:#e2e8f0;--btn-line:#22304a;--input:#0f172a;--danger:#5f1e1e;--danger-txt:#fecaca;
+ --pill:#1f2937;--on:#14532d;--on-txt:#bbf7d0;--off:#3f3f46;--off-txt:#e4e4e7;--err:#f87171;--shadow:none}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
 .wrap{max-width:1100px;margin:0 auto;padding:16px}a{color:var(--acc)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
-input,button{font:inherit;border-radius:10px;border:1px solid var(--line);padding:10px 12px;background:#0f172a;color:var(--txt)}
-button{background:#1e3a5f;cursor:pointer}button:hover{filter:brightness(1.2)}button.danger{background:#5f1e1e}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+input,button{font:inherit;border-radius:10px;border:1px solid var(--line);padding:10px 12px;background:var(--input);color:var(--txt)}
+button{background:var(--btn);color:var(--btn-txt);border-color:var(--btn-line);cursor:pointer}button:hover{filter:brightness(.96)}
+button.danger{background:var(--danger);color:var(--danger-txt)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
 .mut{color:var(--mut);font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;background:#1f2937}
-.on{background:#14532d}.off{background:#3f3f46}.big{font-size:34px;font-weight:700}
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;background:var(--pill)}
+.on{background:var(--on);color:var(--on-txt)}.off{background:var(--off);color:var(--off-txt)}.big{font-size:34px;font-weight:700}
+.err{color:var(--err)}.avatar{width:28px;height:28px;border-radius:50%}
 table{width:100%;border-collapse:collapse;font-size:13px}td{padding:4px 0;border-bottom:1px solid var(--line)}
 img.snap{width:100%;border-radius:10px;margin-top:8px}
+@media (max-width:480px){.grid{grid-template-columns:1fr}.wrap{padding:12px}}
 </style>"""
 
 AUTH_HTML = BASE_CSS + """
-<title>Bàn Học Thông Minh - {{ title }}</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bàn Học Thông Minh - Đăng nhập</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <div class="wrap" style="max-width:420px;margin-top:8vh">
- <div class="card"><h2>🛡️ Bàn Học Thông Minh</h2><p class="mut">{{ title }} tài khoản phụ huynh</p>
- {% if error %}<p style="color:#f87171">{{ error }}</p>{% endif %}
- <form method="post"><div class="row" style="flex-direction:column;align-items:stretch">
-  <input name="email" type="email" placeholder="Email" required>
-  <input name="password" type="password" placeholder="Mật khẩu (≥ 8 ký tự)" required minlength="8">
-  <button type="submit">{{ title }}</button></div></form>
- <p class="mut">{% if title == 'Đăng nhập' %}Chưa có tài khoản? <a href="/register">Đăng ký</a>{% else %}Đã có tài khoản? <a href="/login">Đăng nhập</a>{% endif %}</p>
- </div></div>"""
+ <div class="row" style="justify-content:flex-end"><button id="themeBtn" onclick="toggleTheme()">🌙 Nền tối</button></div>
+ <div class="card"><h2>🛡️ Bàn Học Thông Minh</h2><p class="mut">Đăng nhập dành cho phụ huynh</p>
+ <p id="err" class="err">{{ error }}</p>
+ {% if google_client_id %}
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <div id="g_id_onload" data-client_id="{{ google_client_id }}" data-callback="onGoogle" data-auto_prompt="false"
+       data-ux_mode="popup" data-context="signin" data-itp_support="true"></div>
+  <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="signin_with"
+       data-shape="pill" data-logo_alignment="left" data-width="300" data-locale="vi"></div>
+  <p class="mut">Đăng nhập bằng tài khoản Google — không cần tạo mật khẩu riêng. Bật xác minh 2 bước cho tài khoản Google để an toàn nhất.</p>
+  <script>
+  async function onGoogle(resp){
+    const r = await fetch('/auth/google', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({credential: resp.credential})});
+    const d = await r.json();
+    if (d.ok) location.href = '/dashboard'; else document.getElementById('err').textContent = d.error || 'Đăng nhập thất bại';
+  }
+  </script>
+ {% endif %}
+ {% if allow_password %}
+  <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+  <form method="post" action="/login"><div class="row" style="flex-direction:column;align-items:stretch">
+   <input name="email" type="email" placeholder="Email" required>
+   <input name="password" type="password" placeholder="Mật khẩu (≥ 8 ký tự)" required minlength="8">
+   <div class="row"><button type="submit" name="mode" value="login">Đăng nhập</button>
+   <button type="submit" name="mode" value="register">Đăng ký</button></div></div></form>
+ {% endif %}
+ {% if not google_client_id and not allow_password %}<p class="err">Server chưa cấu hình GOOGLE_CLIENT_ID.</p>{% endif %}
+ </div></div>
+<script>document.getElementById('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối'</script>"""
 
 DASH_HTML = BASE_CSS + """
 <title>Bàn Học Thông Minh</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf }}">
+<style>
+.btns button{flex:1 1 auto}.ack{font-size:13px;margin:6px 0}.ok{color:#16a34a}.no{color:var(--err)}
+.bar{height:12px;border-radius:6px;background:var(--pill);overflow:hidden;display:flex}
+.bar span{display:block;height:100%}.c-h{background:#22c55e}.c-g{background:#ef4444}.c-k{background:#94a3b8}
+details{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}summary{cursor:pointer;font-weight:600}
+textarea{width:100%;min-height:54px;font:inherit;border-radius:10px;border:1px solid var(--line);padding:8px;background:var(--input);color:var(--txt)}
+img.live{width:100%;border-radius:10px;background:#000;margin-top:8px;display:none}
+</style>
 <div class="wrap">
  <div class="row" style="justify-content:space-between"><h2>🛡️ Bàn Học Thông Minh</h2>
-  <div class="row"><span class="mut">{{ email }}</span><form method="post" action="/logout"><button>Đăng xuất</button></form></div></div>
+  <div class="row">{% if picture %}<img class="avatar" src="{{ picture }}" alt="" referrerpolicy="no-referrer">{% endif %}
+   <span class="mut">{{ name or email }}</span>
+   <button id="themeBtn" onclick="toggleTheme()">🌙 Nền tối</button>
+   <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Đăng xuất</button></form></div></div>
  <div class="grid">
-  <div class="card"><b>➕ Thêm máy học sinh</b><p class="mut">Mã ghép 6 số hiện trên máy học sinh (app SmartDesk / web nội bộ :5000).</p>
+  <div class="card"><b>➕ Thêm máy học sinh</b><p class="mut">Mã ghép 6 số hiện trên máy học sinh (http://127.0.0.1:5000/ket-noi-cloud).</p>
    <div class="row"><input id="pcode" placeholder="Mã 6 số" maxlength="6" style="width:110px"><input id="pname" placeholder="Tên máy (vd: Máy của Minh)">
    <button onclick="pair()">Ghép</button></div><p id="pmsg" class="mut"></p></div>
-  <div class="card"><b>💬 Telegram</b><p class="mut">Mỗi phụ huynh liên kết Telegram riêng. Bot gửi cảnh báo của <i>các máy bạn quản lý</i>.</p>
+  <div class="card"><b>💬 Telegram</b><p class="mut">Mỗi phụ huynh liên kết Telegram riêng. Bot gửi cảnh báo của <i>các máy bạn quản lý</i>; gõ /anh để nhận ảnh.</p>
    <div id="chats" class="mut"></div><button onclick="tglink()">Kết nối Telegram</button> <span id="tgmsg" class="mut"></span></div>
  </div>
- <div id="devices" class="grid"></div>
+ <div id="devices"></div>
 </div>
 <script>
-const CMDS = Object.fromEntries({{ cmds|tojson }});
-async function api(url, body){const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return r.json();}
-function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+const CSRF=document.querySelector('meta[name=csrf-token]').content;
+document.getElementById('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối';
+async function api(url, body){const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:body?JSON.stringify(body):undefined});
+ if(r.status===401){location.href='/login';return {};} return r.json();}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const $=id=>document.getElementById(id);
+const STATE={};  // trạng thái mới nhất mỗi máy
 async function pair(){const r=await api('/api/parent/pair',{code:pcode.value.trim(),name:pname.value.trim()});pmsg.textContent=r.message||r.error;load();}
 async function tglink(){const r=await api('/api/parent/telegram/link',{});if(r.url){window.open(r.url,'_blank');tgmsg.textContent='Bấm Start trong Telegram để hoàn tất.';}else tgmsg.textContent=r.error;}
-async function cmd(did,t){const r=await api(`/api/parent/devices/${did}/command`,{type:t});document.getElementById('msg-'+did).textContent=r.message||r.error;
- if(t==='snapshot'&&r.ok){waitSnap(did,Date.now());}}
-async function waitSnap(did,t0){const img=document.getElementById('snap-'+did);
- for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,2000));const r=await fetch(`/api/parent/devices/${did}/snapshot?after=${Math.floor(t0/1000)-2}`);
-  if(r.status===200){img.src=URL.createObjectURL(await r.blob());img.style.display='block';return;}}
- document.getElementById('msg-'+did).textContent='Máy chưa gửi ảnh (offline hoặc Camera AI đang tắt).';}
-async function unlink(did){if(confirm('Bỏ quản lý máy này?')){await api(`/api/parent/devices/${did}/unlink`,{});load();}}
+async function cmd(did,t){const r=await api(`/api/parent/devices/${did}/command`,{type:t});$('msg-'+did).textContent=r.message||r.error||'';}
+async function unlink(did){if(confirm('Bỏ quản lý máy này?')){await api(`/api/parent/devices/${did}/unlink`,{});location.reload();}}
+function liveUrls(v){const L=(v.status||{}).live||{};if(!L.active)return null;
+ const pub=L.public_url||'';return {pub, video: pub?pub.replace('/live?','/video_feed?')+'&fps=5':'', snap: pub?pub.replace('/live?','/snapshot.jpg?'):'', lan:L.lan_url||'', note:L.note||''};}
+function showLive(did){const v=STATE[did];const u=v&&liveUrls(v);const img=$('live-'+did);
+ if(u&&u.video){if(img.dataset.src!==u.video){img.src=u.video;img.dataset.src=u.video;}img.style.display='block';}
+ else{img.removeAttribute('src');img.dataset.src='';img.style.display='none';}}
+async function liveOn(did){await cmd(did,'live_on');$('msg-'+did).textContent+=' — đang mở đường truyền trực tiếp (5–30 giây)…';}
+async function liveOff(did){await cmd(did,'live_off');const img=$('live-'+did);img.removeAttribute('src');img.dataset.src='';img.style.display='none';}
+function snap(did){const u=STATE[did]&&liveUrls(STATE[did]);
+ if(u&&u.snap){window.open(u.snap+'&ts='+Date.now(),'_blank');}
+ else if(u&&u.lan){window.open(u.lan.replace('/live?','/snapshot.jpg?'),'_blank');$('msg-'+did).textContent='Mở ảnh qua Wi-Fi nhà (chỉ được khi điện thoại cùng mạng với máy học sinh).';}
+ else{$('msg-'+did).textContent='Bấm "📺 Xem trực tiếp" trước, hoặc gõ /anh trên Telegram để nhận ảnh.';}}
+function lanOpen(did){const u=STATE[did]&&liveUrls(STATE[did]);if(u&&u.lan)window.open(u.lan,'_blank');else $('msg-'+did).textContent='Bấm "📺 Xem trực tiếp" trước.';}
+function cardSkeleton(v){return `<div class="card" id="card-${v.id}">
+ <div class="row" style="justify-content:space-between"><b id="name-${v.id}"></b><span id="online-${v.id}" class="pill"></span></div>
+ <p class="mut" id="meta-${v.id}"></p><div id="stat-${v.id}"></div>
+ <div class="row btns" style="margin-top:10px">
+  <button onclick="cmd('${v.id}','lock')">🔒 Khóa màn hình</button>
+  <button onclick="cmd('${v.id}','reset_ai')">♻️ Đặt lại giờ AI</button>
+  <button onclick="cmd('${v.id}','ai_on')">📷 Bật Camera AI</button>
+  <button onclick="cmd('${v.id}','ai_off')">⏸️ Tắt Camera AI</button>
+  <button onclick="cmd('${v.id}','recalibrate')">🔄 Hiệu chỉnh tư thế</button></div>
+ <div class="row btns" style="margin-top:8px">
+  <button onclick="liveOn('${v.id}')">📺 Xem trực tiếp</button>
+  <button onclick="liveOff('${v.id}')">⏹️ Tắt xem</button>
+  <button onclick="snap('${v.id}')">📸 Chụp ảnh</button>
+  <button onclick="lanOpen('${v.id}')">🏠 Mở trong Wi-Fi nhà</button></div>
+ <p id="msg-${v.id}" class="mut"></p><div id="ack-${v.id}" class="ack"></div>
+ <img id="live-${v.id}" class="live" alt="Camera trực tiếp" data-src="">
+ <details id="rep-${v.id}" ontoggle="if(this.open)report('${v.id}')"><summary>📊 Báo cáo hoạt động</summary>
+  <div class="row" style="margin:8px 0"><input type="date" id="date-${v.id}" onchange="report('${v.id}')"><span class="mut" id="tot-${v.id}"></span></div>
+  <div class="bar" id="bar-${v.id}"></div><div class="mut" id="legend-${v.id}" style="margin:6px 0"></div>
+  <table id="act-${v.id}"></table></details>
+ <details><summary>🔒 Cấu hình chặn từ xa</summary>
+  <p class="mut">Mỗi mục cách nhau dấu phẩy. Máy áp dụng trong ≤30 giây.</p>
+  <label class="mut">Ứng dụng / game (tên .exe hoặc một phần tên)</label><textarea id="rapps-${v.id}"></textarea>
+  <label class="mut">Trang web (tên miền)</label><textarea id="rdom-${v.id}"></textarea>
+  <label class="mut">Từ khóa tiêu đề cửa sổ</label><textarea id="rkw-${v.id}"></textarea>
+  <p><button onclick="saveRules('${v.id}')">💾 Lưu & áp dụng</button> <span class="mut" id="rmsg-${v.id}"></span></p></details>
+ <details><summary>🚨 Cảnh báo gần đây</summary><table id="alerts-${v.id}"></table></details>
+ <p><button class="danger" onclick="unlink('${v.id}')">Bỏ quản lý máy này</button></p></div>`;}
+function todayVN(){return new Date(Date.now()+7*3600e3).toISOString().slice(0,10);}
+function fillRules(v){const r=(v.status||{}).rules||{};for(const [k,id] of [['apps','rapps'],['domains','rdom'],['keywords','rkw']]){
+ const el=$(id+'-'+v.id);if(document.activeElement!==el&&!el.dataset.touched)el.value=(r[k]||[]).join(', ');el.oninput=()=>el.dataset.touched=1;}}
+async function saveRules(did){const sp=id=>$(id+'-'+did).value.split(',').map(x=>x.trim()).filter(Boolean);
+ const r=await api(`/api/parent/devices/${did}/rules`,{apps:sp('rapps'),domains:sp('rdom'),keywords:sp('rkw')});
+ $('rmsg-'+did).textContent=r.message||r.error;['rapps','rdom','rkw'].forEach(id=>delete $(id+'-'+did).dataset.touched);}
+const CAT={Hoc_tap:['Học tập','c-h'],Giai_tri:['Giải trí','c-g'],Khac:['Khác','c-k']};
+async function report(did){const di=$('date-'+did);if(!di.value)di.value=todayVN();
+ const r=await api(`/api/parent/devices/${did}/activity?date=${di.value}`);const t=r.totals||{};const sum=Object.values(t).reduce((a,b)=>a+b,0);
+ $('tot-'+did).textContent=sum?('Tổng '+Math.round(sum/60)+' phút dùng máy'):'Chưa có dữ liệu ngày này';
+ $('bar-'+did).innerHTML=sum?Object.entries(CAT).map(([k,[n,c]])=>`<span class="${c}" style="width:${100*(t[k]||0)/sum}%"></span>`).join(''):'';
+ $('legend-'+did).innerHTML=Object.entries(CAT).map(([k,[n]])=>`${n}: <b>${Math.round((t[k]||0)/60)}</b> phút (${sum?Math.round(100*(t[k]||0)/sum):0}%)`).join(' · ');
+ $('act-'+did).innerHTML=(r.items||[]).map(i=>`<tr><td><span class="pill ${CAT[i.category]?CAT[i.category][1]:'c-k'}" style="color:#fff">${esc((CAT[i.category]||['Khác'])[0])}</span></td>
+  <td><b>${esc(i.app)}</b><div class="mut">${esc(i.title)}</div><div class="mut">${esc(i.reason||'')}</div></td><td style="text-align:right">${Math.max(1,Math.round(i.seconds/60))}′</td></tr>`).join('');}
 async function load(){
- const d=await api('/api/parent/devices');
+ const d=await api('/api/parent/devices');if(!d.devices)return;
  chats.innerHTML=(d.chats||[]).length?('Đã liên kết: '+d.chats.map(c=>'<span class="pill on">'+esc(c)+'</span>').join(' ')):'Chưa liên kết Telegram.';
- const box=document.getElementById('devices');
- if(!d.devices||!d.devices.length){box.innerHTML='<div class="card mut">Chưa có máy nào. Nhập mã ghép ở trên.</div>';return;}
- const keepImgs={};document.querySelectorAll('img.snap').forEach(i=>keepImgs[i.id]=i.src);
- box.innerHTML=d.devices.map(v=>{const s=v.status||{},p=s.posture||{};
-  const al=(v.alerts||[]).map(a=>`<tr><td class="mut">${esc(a.time)}</td><td>${esc(a.message)}</td></tr>`).join('');
-  return `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(v.name)}</b>
-   <span class="pill ${v.online?'on':'off'}">${v.online?'● Trực tuyến':'○ Ngoại tuyến'}</span></div>
-   <p class="mut">${esc(s.hostname||'')} · cập nhật ${v.ago}s trước · vai trò: ${esc(s.role||'?')}</p>
-   <div class="row"><div><div class="big">${p.cfi!=null?Math.round(p.cfi)+'%':'—'}</div><div class="mut">Điểm tập trung CFI</div></div>
-   <div style="margin-left:18px"><div>${esc(p.state_vi||'Camera AI chưa chạy')}</div>
-   <div class="mut">${p.distance_cm?('Khoảng cách '+Math.round(p.distance_cm)+'cm · '):''}AI: ${Math.round((s.ai_seconds||0)/60)}/${s.max_ai_minutes||'?'} phút</div></div></div>
-   <div class="row" style="margin-top:10px">${Object.entries(CMDS).map(([k,t])=>`<button onclick="cmd('${v.id}','${k}')">${t}</button>`).join('')}</div>
-   <p id="msg-${v.id}" class="mut"></p><img id="snap-${v.id}" class="snap" style="display:${keepImgs['snap-'+v.id]?'block':'none'}" src="${keepImgs['snap-'+v.id]||''}">
-   <table>${al||'<tr><td class="mut">Chưa có cảnh báo.</td></tr>'}</table>
-   <p><button class="danger" onclick="unlink('${v.id}')">Bỏ quản lý</button></p></div>`}).join('');
+ const box=$('devices');if(!d.devices.length){box.innerHTML='<div class="card mut">Chưa có máy nào. Nhập mã ghép ở trên.</div>';return;}
+ for(const v of d.devices){STATE[v.id]=v;if(!$('card-'+v.id)){box.insertAdjacentHTML('beforeend',cardSkeleton(v));}
+  const s=v.status||{},p=s.posture||{};
+  $('name-'+v.id).textContent=v.name;const on=$('online-'+v.id);on.className='pill '+(v.online?'on':'off');on.textContent=v.online?'● Trực tuyến':'○ Ngoại tuyến';
+  $('meta-'+v.id).textContent=`${s.hostname||''} · cập nhật ${v.ago}s trước · vai trò: ${s.role||'?'}`;
+  $('stat-'+v.id).innerHTML=`<div class="row"><div><div class="big">${p.camera&&p.cfi!=null?Math.round(p.cfi)+'%':'—'}</div><div class="mut">Điểm tập trung CFI</div></div>
+   <div style="margin-left:18px"><div>${esc(p.camera?(p.state_vi||'Đang phân tích…'):'Camera AI đang tắt')}</div>
+   <div class="mut">${p.distance_cm?('Khoảng cách '+Math.round(p.distance_cm)+'cm · '):''}AI: ${Math.round((s.ai_seconds||0)/60)}/${s.max_ai_minutes||'?'} phút</div></div></div>`;
+  $('ack-'+v.id).innerHTML=(v.acks||[]).slice(0,3).map(a=>`<div class="${a.ok?'ok':'no'}">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
+  $('alerts-'+v.id).innerHTML=(v.alerts||[]).map(a=>`<tr><td class="mut">${esc(a.time)}</td><td>${esc(a.message)}</td></tr>`).join('')||'<tr><td class="mut">Chưa có cảnh báo.</td></tr>';
+  const u=liveUrls(v);if(u&&!u.pub&&u.note)$('msg-'+v.id).textContent='📺 '+u.note;
+  showLive(v.id);fillRules(v);}
 }
-load();setInterval(load,8000);
+load();setInterval(load,6000);
 </script>"""
 
 
@@ -263,40 +424,67 @@ def index():
     return redirect("/dashboard" if current_uid() else "/login")
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    error = ""
-    if request.method == "POST":
-        email = (request.form.get("email") or "").strip().lower()
-        pw = request.form.get("password") or ""
-        if len(pw) < 8 or "@" not in email:
-            error = "Email không hợp lệ hoặc mật khẩu dưới 8 ký tự."
-        elif db.get(f"emails/{fb_key(email)}"):
-            error = "Email đã được đăng ký."
-        else:
-            uid = "u_" + secrets.token_hex(8)
-            db.set(f"parents/{uid}", {"email": email, "pw_hash": generate_password_hash(pw), "created": now()})
-            db.set(f"emails/{fb_key(email)}", uid)
-            session.permanent = True
-            session["uid"], session["email"] = uid, email
-            return redirect("/dashboard")
-    return render_template_string(AUTH_HTML, title="Đăng ký", error=error)
+def _auth_page(error: str = "", code: int = 200):
+    return render_template_string(AUTH_HTML, error=error, google_client_id=GOOGLE_CLIENT_ID,
+                                  allow_password=ALLOW_PASSWORD_LOGIN), code
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    error = ""
-    if request.method == "POST":
-        email = (request.form.get("email") or "").strip().lower()
-        uid = db.get(f"emails/{fb_key(email)}")
-        parent = db.get(f"parents/{uid}") if uid else None
-        if parent and check_password_hash(parent.get("pw_hash", ""), request.form.get("password") or ""):
-            session.permanent = True
-            session["uid"], session["email"] = uid, email
-            return redirect("/dashboard")
-        time.sleep(0.5)
-        error = "Sai email hoặc mật khẩu."
-    return render_template_string(AUTH_HTML, title="Đăng nhập", error=error)
+    if request.method == "GET":
+        return _auth_page()
+    if not ALLOW_PASSWORD_LOGIN:
+        return _auth_page("Đăng nhập bằng mật khẩu đã tắt. Hãy dùng Google.", 403)
+    email = (request.form.get("email") or "").strip().lower()
+    pw = request.form.get("password") or ""
+    if not email_allowed(email):
+        return _auth_page("Email này không được phép truy cập.", 403)
+    if request.form.get("mode") == "register":
+        if len(pw) < 8 or "@" not in email:
+            return _auth_page("Email không hợp lệ hoặc mật khẩu dưới 8 ký tự.", 400)
+        if db.get(f"emails/{fb_key(email)}"):
+            return _auth_page("Email đã được đăng ký.", 400)
+        uid = find_or_create_parent(email)
+        db.update(f"parents/{uid}", {"pw_hash": generate_password_hash(pw)})
+        start_session(uid, email)
+        return redirect("/dashboard")
+    uid = db.get(f"emails/{fb_key(email)}")
+    parent = db.get(f"parents/{uid}") if uid else None
+    if parent and parent.get("pw_hash") and check_password_hash(parent["pw_hash"], pw):
+        start_session(uid, email)
+        return redirect("/dashboard")
+    time.sleep(0.7)
+    return _auth_page("Sai email hoặc mật khẩu.", 401)
+
+
+@app.route("/register")
+def register():
+    return redirect("/login")
+
+
+@app.route("/auth/google", methods=["POST"])
+def auth_google():
+    """Xác minh ID token Google (chữ ký RSA của Google, audience = Client ID, hạn, issuer) rồi mở phiên."""
+    if not GOOGLE_CLIENT_ID:
+        return jsonify({"ok": False, "error": "Server chưa cấu hình GOOGLE_CLIENT_ID"}), 400
+    token = str((request.get_json(silent=True) or {}).get("credential", ""))
+    try:
+        from google.auth.transport import requests as g_requests
+        from google.oauth2 import id_token
+
+        info = id_token.verify_oauth2_token(token, g_requests.Request(), GOOGLE_CLIENT_ID, clock_skew_in_seconds=10)
+    except Exception:
+        return jsonify({"ok": False, "error": "Token Google không hợp lệ."}), 401
+    if info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        return jsonify({"ok": False, "error": "Nguồn token không hợp lệ."}), 401
+    email = str(info.get("email", "")).lower()
+    if not email or not info.get("email_verified"):
+        return jsonify({"ok": False, "error": "Email Google chưa được xác minh."}), 403
+    if not email_allowed(email):
+        return jsonify({"ok": False, "error": "Email này không được phép truy cập."}), 403
+    uid = find_or_create_parent(email, google_sub=str(info["sub"]), name=str(info.get("name", "")))
+    start_session(uid, email, name=str(info.get("name", "")), picture=str(info.get("picture", "")))
+    return jsonify({"ok": True})
 
 
 @app.route("/logout", methods=["POST"])
@@ -308,7 +496,11 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    return render_template_string(DASH_HTML, email=session.get("email", ""), cmds=list(COMMAND_TYPES.items()))
+    if not session.get("csrf"):
+        session["csrf"] = secrets.token_urlsafe(16)
+    return render_template_string(DASH_HTML, email=session.get("email", ""), name=session.get("name", ""),
+                                  picture=session.get("picture", ""), csrf=session["csrf"],
+                                  cmds=list(COMMAND_TYPES.items()))
 
 
 # =====================================================================
@@ -327,7 +519,8 @@ def api_parent_devices():
             "online": is_online(dev),
             "ago": now() - int(dev.get("last_seen", 0) or 0),
             "status": dev.get("status") or {},
-            "alerts": (dev.get("recent_alerts") or [])[:6],
+            "alerts": (dev.get("recent_alerts") or [])[:10],
+            "acks": (dev.get("acks") or [])[:5],
         })
     chats = list((db.get(f"parents/{uid}/chats") or {}).keys())
     return jsonify({"devices": out, "chats": chats})
@@ -369,18 +562,47 @@ def api_parent_command(did):
                                           f"(≤{FAST_HEARTBEAT_S}s khi đang mở trang này){note}"})
 
 
-@app.route("/api/parent/devices/<did>/snapshot")
+@app.route("/api/parent/devices/<did>/rules", methods=["POST"])
 @login_required
-def api_parent_snapshot(did):
+def api_parent_rules(did):
+    """Cấu hình chặn từ xa (app / tên miền / từ khóa) -> máy nhận ở heartbeat kế tiếp."""
     uid, did = current_uid(), fb_key(did)
     if not parent_owns(uid, did):
-        return Response(status=403)
-    snap = db.get(f"snapshots/{did}") or {}
-    after = int(request.args.get("after", "0") or 0)
-    ts = int(snap.get("ts", 0) or 0)
-    if not snap.get("b64") or ts < after or now() - ts > SNAPSHOT_TTL_S:
-        return Response(status=204)
-    return Response(base64.b64decode(snap["b64"]), mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    data = request.get_json(silent=True) or {}
+
+    def clean(v):
+        return [str(x).strip().lower()[:80] for x in (v or []) if str(x).strip()][:200]
+
+    rules = {"apps": clean(data.get("apps")), "domains": clean(data.get("domains")),
+             "keywords": clean(data.get("keywords")), "ver": int(time.time() * 1000), "by": uid}
+    db.set(f"devices/{did}/rules", rules)
+    mark_watching(did, force=True)
+    return jsonify({"ok": True, "message": "Đã lưu. Máy sẽ áp dụng trong ≤30 giây."})
+
+
+@app.route("/api/parent/devices/<did>/activity")
+@login_required
+def api_parent_activity(did):
+    """Báo cáo hoạt động 1 ngày: tổng giây theo nhóm + danh sách cửa sổ gộp (giống DuAnAI)."""
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    date = "".join(ch for ch in request.args.get("date", "") if ch.isdigit() or ch == "-")[:10] or vn_date()
+    batches = db.get(f"activity/{did}/{date}") or {}
+    totals: Dict[str, int] = {"Hoc_tap": 0, "Giai_tri": 0, "Khac": 0}
+    merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for b in batches.values():
+        for it in b.get("items") or []:
+            cat = it.get("category") if it.get("category") in totals else "Khac"
+            sec = int(it.get("seconds", 0) or 0)
+            totals[cat] += sec
+            key = (it.get("app", ""), it.get("title", ""))
+            m = merged.setdefault(key, {"app": key[0], "title": key[1], "category": cat, "seconds": 0,
+                                        "reason": it.get("reason", "")})
+            m["seconds"] += sec
+    items = sorted(merged.values(), key=lambda x: -x["seconds"])[:40]
+    return jsonify({"date": date, "totals": totals, "items": items})
 
 
 @app.route("/api/parent/devices/<did>/unlink", methods=["POST"])
@@ -401,6 +623,73 @@ def api_parent_tg_link():
     code = secrets.token_hex(8)
     db.set(f"tg_links/{code}", {"uid": current_uid(), "exp": now() + 600})
     return jsonify({"url": f"https://t.me/{username}?start={code}"})
+
+
+# =====================================================================
+# Phân loại hoạt động (port từ DuAnAI: Gemini + luật dự phòng). Khóa Gemini CHỈ ở env Vercel.
+# =====================================================================
+def vn_date(ts: Optional[float] = None) -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime((ts or time.time()) + TZ_OFFSET_S))
+
+
+STUDY_HINTS = ("olm", "vietjack", "hocmai", "khan", "classroom", "classin", "zoom", "teams", "meet.google",
+               "word", "excel", "powerpoint", "onenote", "acrobat", ".pdf", "docs.google", "sheets", "slides",
+               "notepad", "code", "pycharm", "geogebra", "desmos", "wikipedia", "scholar", "quizlet", "duolingo",
+               "bài", "toán", "vật lý", "vật lí", "hóa", "sinh", "tiếng anh", "ngữ văn", "lịch sử", "địa lý",
+               "bài giảng", "luyện thi", "đề thi", "homework", "lesson", "chatgpt", "gemini", "claude")
+FUN_HINTS = ("youtube", "facebook", "tiktok", "instagram", "netflix", "game", "steam", "roblox", "minecraft",
+             "valorant", "league", "genshin", "liên quân", "free fire", "phim", "truyện", "manga", "anime",
+             "shopee", "lazada", "discord", "spotify", "twitch", "poki", "zing mp3", "nhạc")
+
+
+def classify_rules(app_name: str, title: str) -> Tuple[str, str]:
+    t = f"{app_name} {title}".lower()
+    study = any(h in t for h in STUDY_HINTS)
+    fun = any(h in t for h in FUN_HINTS)
+    if fun and not study:
+        return "Giai_tri", "Luật: từ khóa giải trí"
+    if study:
+        return "Hoc_tap", "Luật: từ khóa học tập"
+    return "Khac", "Luật: không xác định"
+
+
+def classify_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out = []
+    for it in items:
+        cat, reason = classify_rules(str(it.get("exe", "")), str(it.get("title", "")))
+        out.append({"app": str(it.get("exe", ""))[:60], "title": str(it.get("title", ""))[:120],
+                    "seconds": int(it.get("seconds", 0) or 0), "category": cat, "reason": reason})
+    if not (GEMINI_API_KEY and ACTIVITY_AI and out):
+        return out
+    listing = "\n".join(f"{i}. [{o['app']}] {o['title']}" for i, o in enumerate(out))
+    prompt = ("Phân loại hoạt động máy tính của một HỌC SINH vào đúng 1 nhóm: Hoc_tap, Giai_tri hoặc Khac. "
+              "YouTube/Facebook chỉ là Hoc_tap nếu tiêu đề rõ ràng là bài học. Trả lời tiếng Việt ngắn gọn "
+              "ở trường reason (≤12 từ).\n" + listing)
+    schema = {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+        "i": {"type": "INTEGER"}, "category": {"type": "STRING", "enum": ["Hoc_tap", "Giai_tri", "Khac"]},
+        "reason": {"type": "STRING"}}, "required": ["i", "category", "reason"]}}
+    body = {"contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json", "responseSchema": schema}}
+    import json as _json
+
+    for model in GEMINI_MODELS:
+        try:
+            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                              json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=7)
+            if r.status_code == 404:
+                continue
+            r.raise_for_status()
+            text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            for row in _json.loads(text):
+                i = int(row.get("i", -1))
+                if 0 <= i < len(out) and row.get("category") in ("Hoc_tap", "Giai_tri", "Khac"):
+                    out[i]["category"] = row["category"]
+                    out[i]["reason"] = "🤖 " + str(row.get("reason", ""))[:80]
+            break
+        except Exception as exc:
+            app.logger.warning("Gemini lỗi (%s): %s", model, exc)
+            break
+    return out
 
 
 # =====================================================================
@@ -446,6 +735,14 @@ def api_agent_heartbeat():
     status = data.get("status") or {}
     new_alerts = [a for a in (data.get("alerts") or []) if isinstance(a, dict)][:10]
     updates: Dict[str, Any] = {"last_seen": now(), "status": status}
+    acks = [a for a in (data.get("acks") or []) if isinstance(a, dict)][:10]
+    if acks:
+        updates["acks"] = (list(reversed(acks)) + list(dev.get("acks") or []))[:10]
+    batch = data.get("activity")
+    if isinstance(batch, dict) and batch.get("items"):
+        items = classify_items([i for i in batch["items"] if isinstance(i, dict)][:25])
+        db.push(f"activity/{did}/{vn_date(batch.get('end'))}",
+                {"start": int(batch.get("start", 0) or 0), "end": int(batch.get("end", 0) or 0), "items": items})
     if new_alerts:
         recent = (new_alerts + list(dev.get("recent_alerts") or []))[:20]
         updates["recent_alerts"] = recent
@@ -459,8 +756,12 @@ def api_agent_heartbeat():
             out.append({"id": cid, "type": c.get("type"), "chat_id": c.get("chat_id", "")})
         db.delete(f"commands/{did}/{cid}")
     fast = int(dev.get("watch_until", 0) or 0) > now() or bool(out)
-    return jsonify({"commands": out, "heartbeat_s": FAST_HEARTBEAT_S if fast else HEARTBEAT_S,
-                    "paired": bool(dev.get("owners"))})
+    resp: Dict[str, Any] = {"commands": out, "heartbeat_s": FAST_HEARTBEAT_S if fast else HEARTBEAT_S,
+                            "paired": bool(dev.get("owners"))}
+    rules = dev.get("rules") or {}
+    if rules and int(rules.get("ver", 0) or 0) != int(status.get("rules_ver", 0) or 0):
+        resp["rules"] = rules
+    return jsonify(resp)
 
 
 def _notify_alerts(did: str, dev: Dict[str, Any], alerts: List[Dict[str, Any]]) -> None:
@@ -491,7 +792,7 @@ def api_agent_snapshot():
     b64 = str(data.get("jpg_b64", ""))
     if not b64 or len(b64) > 400_000:
         return jsonify({"error": "Ảnh trống hoặc quá lớn"}), 400
-    db.set(f"snapshots/{did}", {"b64": b64, "ts": now()})
+    # Không lưu ảnh vào Firebase: chỉ chuyển tiếp thẳng sang Telegram của phụ huynh đã yêu cầu
     chat_id = str(data.get("chat_id") or "")
     if chat_id and chat_id in chats_of_device(did):
         tg_api("sendPhoto", chat_id=chat_id, caption=f"📸 {dev.get('name') or did}", photo_bytes=base64.b64decode(b64))
@@ -606,7 +907,8 @@ def telegram_setup():
 @app.route("/api/health")
 def health():
     return jsonify({"ok": True, "db": "firebase" if os.environ.get("FIREBASE_DB_URL") else "local-json",
-                    "telegram": bool(TG_TOKEN)})
+                    "telegram": bool(TG_TOKEN), "google_login": bool(GOOGLE_CLIENT_ID),
+                    "password_login": ALLOW_PASSWORD_LOGIN})
 
 
 if __name__ == "__main__":

@@ -52,8 +52,23 @@ Trang **New Project** (import `du_an_08_ban_thong_minh`):
 | `FIREBASE_SERVICE_ACCOUNT` | toàn bộ nội dung file JSON service account |
 | `TELEGRAM_BOT_TOKEN` | token BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | chuỗi ngẫu nhiên ở bước 2 |
+| `GOOGLE_CLIENT_ID` | Client ID OAuth (mục 3b) — bật đăng nhập Google, tự TẮT đăng nhập mật khẩu |
+| `ALLOWED_EMAILS` | (tùy chọn) `a@gmail.com,b@gmail.com` hoặc `@truong.edu.vn` — chỉ những email này được vào |
+| `GEMINI_API_KEY` | (tùy chọn) khóa Gemini MỚI để phân loại hoạt động Học tập/Giải trí; trống = phân loại theo luật |
+| `GEMINI_MODEL` | (tùy chọn) mặc định `gemini-flash-lite-latest,gemini-flash-latest,gemini-2.0-flash` |
 | `AGENT_HEARTBEAT_S` | `30` (mặc định; chu kỳ báo bình thường) |
 | `AGENT_FAST_HEARTBEAT_S` | `5` (khi phụ huynh đang mở web / vừa gửi lệnh, trong `AGENT_FAST_WINDOW_S`=120s) |
+
+### 3b. Đăng nhập Google (khuyến nghị)
+
+1. console.cloud.google.com (chọn đúng project Firebase) → **APIs & Services → OAuth consent screen**:
+   User type *External*, tên app "Bàn Học Thông Minh", email hỗ trợ → Save. Khi thử: thêm email phụ huynh vào *Test users*
+   (hoặc bấm *Publish app* để ai có Gmail cũng đăng nhập được — vẫn bị giới hạn bởi `ALLOWED_EMAILS` nếu đặt).
+2. **Credentials → Create credentials → OAuth client ID → Web application**:
+   *Authorized JavaScript origins*: `https://banhocthongminh.vercel.app` (thêm `http://localhost:8000` nếu chạy thử máy).
+   Không cần Redirect URI. Copy **Client ID** (dạng `xxxx.apps.googleusercontent.com`) → biến `GOOGLE_CLIENT_ID` → Redeploy.
+3. Server tự xác minh chữ ký Google, hạn token, audience = Client ID, email đã xác minh; phiên có CSRF token,
+   cookie HttpOnly/Secure/SameSite=Lax, HSTS.
 
 Deploy xong:
 1. Mở `https://<ten>.vercel.app/api/health` → phải thấy `"db": "firebase"`, `"telegram": true`.
@@ -79,3 +94,19 @@ Deploy xong:
 cd cloud && pip install -r requirements.txt
 TELEGRAM_WEBHOOK_SECRET=test python app.py      # dùng DB JSON cục bộ %TEMP%\smartdesk_local_db.json, Telegram in ra console
 ```
+
+## Xem camera trực tiếp (không qua Firebase/Vercel)
+
+- Phụ huynh bấm **📺 Xem trực tiếp** → máy mở link có token ngẫu nhiên, hết hạn 15 phút:
+  - Cùng Wi-Fi: `http://<IP-LAN>:5000/live?t=...` (nút **🏠 Mở trong Wi-Fi nhà**)
+  - Ở ngoài: Cloudflare Quick Tunnel `https://xxx.trycloudflare.com/live?t=...` — cần cài 1 lần trên máy học sinh:
+    `winget install --id Cloudflare.cloudflared`
+- Qua Internet chỉ mở `/live`, `/video_feed`, `/snapshot.jpg` kèm token; mọi API khác của web nội bộ trả 403.
+- Firebase chỉ lưu đường link (vài chục byte). Ảnh `/anh` trên Telegram được chuyển thẳng, không lưu.
+
+## Báo cáo hoạt động (port từ DuAnAI)
+
+- Máy ghi cửa sổ đang dùng mỗi 3s (bỏ qua khi rời máy >3 phút, ẩn tiêu đề nhạy cảm), gửi kèm heartbeat ~60s/lô.
+- Server phân loại Học tập/Giải trí/Khác (Gemini nếu có `GEMINI_API_KEY`, ngược lại theo luật), lưu `activity/{máy}/{ngày}`.
+- Dashboard: **📊 Báo cáo hoạt động** (chọn ngày, thanh tỉ lệ, bảng chi tiết) và **🔒 Cấu hình chặn từ xa**
+  (app / tên miền / từ khóa → đồng bộ vào `shared_config.json` của máy).
