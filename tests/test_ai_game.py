@@ -42,6 +42,16 @@ def test_warn_and_off_modes():
     assert not v.get("ai_game") and not v["should_block"]
 
 
+def test_safe_keywords():
+    cfg = {**CFG, "safe_keywords": ["bài giảng", "olm.vn"], "bad_tabs": ["game", "phim"]}
+    assert not phan_loai_truy_cap_web("https://gemini.google.com/app", "Bài giảng tạo game giáo dục - Gemini", cfg)["should_block"]
+    assert not phan_loai_truy_cap_web("https://www.youtube.com/watch?v=1", "Phim tài liệu bài giảng lịch sử - YouTube", cfg)["should_block"]
+    assert not phan_loai_truy_cap_web("https://olm.vn/game-toan", "Game toán lớp 3", cfg)["should_block"]
+    assert phan_loai_truy_cap_web("https://www.youtube.com/watch?v=2", "Phim hành động - YouTube", cfg)["should_block"]
+    cfg["bad_urls"] = ["olm.vn"]                         # phụ huynh chặn tay -> vẫn chặn
+    assert phan_loai_truy_cap_web("https://olm.vn/x", "Olm", cfg)["should_block"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

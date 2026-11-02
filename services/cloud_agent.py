@@ -349,6 +349,8 @@ class CloudAgent:
                 cfg["max_ai_minutes"] = max(0, min(240, int(rules["max_ai_minutes"])))
             except (TypeError, ValueError):
                 pass
+        if isinstance(rules.get("safe_keywords"), list):
+            cfg["safe_keywords"] = [str(k).strip().lower()[:60] for k in rules["safe_keywords"] if str(k).strip()][:100]
         if isinstance(rules.get("blocked_pages"), list):
             cfg["blocked_pages"] = [{"d": str(r.get("d", ""))[:80].lower(), "t": str(r.get("t", ""))[:100],
                                      "u": str(r.get("u", ""))[:120], "why": str(r.get("why", ""))[:60]}

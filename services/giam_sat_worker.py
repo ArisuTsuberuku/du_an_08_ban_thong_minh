@@ -114,6 +114,8 @@ def danh_gia_youtube(url_l: str, title_l: str, cfg: Dict[str, Any]) -> Optional[
     query = _youtube_query(url_l)
     title = title_l.replace("- youtube", "").strip()
     text = f" {query} {title} "
+    if tu_khoa_an_toan(text, cfg):
+        return ok   # từ khóa an toàn của phụ huynh -> không chặn theo từ khóa
     kws = [k.lower() for k in (cfg.get("youtube_keywords") or DEFAULT_YT_KEYWORDS) if k and k.strip()]
     kws += [t.lower() for t in cfg.get("bad_tabs", []) if t and t.lower() not in ("youtube", "youtu.be")]
     hit = next((k for k in kws if k.strip() and k in text), None)
@@ -339,6 +341,17 @@ def _dong_cua_so_hien_tai(is_browser: bool) -> None:
         pass
 
 
+def tu_khoa_an_toan(text: str, cfg: Dict[str, Any]) -> str:
+    """Từ khóa an toàn phụ huynh đặt trên web (vd "bài giảng", "olm", "lớp 8") có trong tiêu đề / URL -> trả về từ đó.
+    Trang khớp KHÔNG bị chặn theo từ khóa / phân loại tự động (nhưng link / web phụ huynh chặn tay vẫn bị chặn)."""
+    t = (text or "").lower()
+    for k in cfg.get("safe_keywords") or []:
+        k = str(k).strip().lower()
+        if k and k in t:
+            return k
+    return ""
+
+
 def ai_game_reason(current_url: str, window_title: str, cfg: Dict[str, Any]) -> str:
     """Lý do nếu đang mở GAME DO AI TẠO (khung chạy Canvas/Artifact, hoặc cuộc trò chuyện AI về game), ngược lại ""."""
     url_l = (current_url or "").lower()
@@ -346,7 +359,7 @@ def ai_game_reason(current_url: str, window_title: str, cfg: Dict[str, Any]) -> 
     for d in [str(x).lower() for x in (cfg.get("ai_sandbox_domains") or AI_SANDBOX_DOMAINS)]:
         if d and d in url_l:
             return f"Mở ứng dụng/game do AI tạo ({d})"
-    if any(e in title_l for e in AI_GAME_EXCEPTIONS):
+    if any(e in title_l for e in AI_GAME_EXCEPTIONS) or tu_khoa_an_toan(title_l, cfg):
         return ""
     for k in [str(x).lower() for x in (cfg.get("ai_game_keywords") or AI_GAME_KEYWORDS)]:
         if k and k in title_l:
@@ -442,7 +455,7 @@ def phan_loai_truy_cap_web(
             }
 
     # 4. Cho phép xem bài giảng học thuật hợp lệ (VD: youtube.com/watch có từ khóa Toán, Vật lý, Lập trình...)
-    co_tu_khoa_hoc_tap = any(kw in title_l for kw in academic_kw)
+    co_tu_khoa_hoc_tap = any(kw in title_l for kw in academic_kw) or bool(tu_khoa_an_toan(f"{url_l} {title_l}", cfg))
     if co_tu_khoa_hoc_tap:
         # Chỉ miễn trừ nếu KHÔNG chứa các nền tảng mạng xã hội/game thuần túy trong tiêu đề
         strict_social_or_game = ("facebook", "tiktok", "shopee", "poki", "y8", "roblox")

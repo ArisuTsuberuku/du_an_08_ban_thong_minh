@@ -487,6 +487,9 @@ h3{margin:4px 0 10px}
      <label class="mut">Ứng dụng / game (tên .exe, cách nhau dấu phẩy)</label><textarea id="x-apps"></textarea>
      <label class="mut">Trang web (tên miền)</label><textarea id="x-dom"></textarea>
      <label class="mut">Từ khóa tiêu đề cửa sổ</label><textarea id="x-kw"></textarea></details></div>
+   <div class="card"><h3>✅ Từ khóa an toàn</h3><p class="mut">Trang có tên miền hoặc tiêu đề chứa 1 trong các từ này sẽ <b>không bị tự chặn</b>: không bị AI tự thêm vào luật chặn theo phân loại, không bị đóng vì từ khóa giải trí, YouTube theo từ khóa hay “nhờ AI làm game”. Link / web bạn tự bấm chặn thì vẫn bị chặn.</p>
+    <label class="mut">Cách nhau dấu phẩy, vd: bài giảng, toán, lớp 8, olm.vn, vietjack, hoc247, khan academy</label><textarea id="safe-kw" oninput="rulesTouched=true"></textarea>
+    <div class="row" style="margin-top:8px"><button class="pri" style="background:var(--acc);color:#fff" onclick="saveRules()">💾 Lưu</button></div></div>
    <div class="card"><h3>🔗 Link đã chặn riêng</h3><p class="mut">Chỉ đúng video / trang này bị chặn, các trang khác cùng web vẫn vào được. Thêm bằng nút “Chặn link” / “Chặn” ở thẻ <b>Đang dùng gì</b> (trang chủ), hoặc tự thêm khi AI xét tiêu đề thấy video/trang thuộc loại bạn chọn tự chặn.</p><div id="pagebox"></div></div>
    <div class="card"><h3>▶️ YouTube</h3><p class="mut">Bài giảng vẫn xem bình thường. Máy chỉ đóng tab khi <b>từ khóa tìm kiếm</b> hoặc <b>tên video</b> chứa từ khóa giải trí.</p>
     <div class="seg" id="yt-mode"><button type="button" data-m="keyword" onclick="ytMode(this)">🔎 Chặn theo từ khóa</button><button type="button" data-m="block" onclick="ytMode(this)">⛔ Chặn toàn bộ</button><button type="button" data-m="allow" onclick="ytMode(this)">✅ Cho phép hết</button></div>
@@ -731,7 +734,7 @@ function renderEvents(v){const ev=v.events||[];EVS=ev;if(!ev.length){$('evbox').
   const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖',ai_game:'🎮'}[e.cls]||'🌐'):'🪟';
   const risky=['game','social','video','shopping','comics'].includes(e.cls);
   const i=ev.indexOf(e);
-  const btn=e.kind==='web'?(e.blocked?'<span class="pill" style="background:#fee2e2;color:#991b1b">⛔ đã chặn</span>':'<span class="pill">chưa chặn</span>'):'';
+  const btn=e.kind==='web'&&e.safe&&!e.blocked?`<span class="pill" style="background:#dcfce7;color:#166534" title="Từ khóa an toàn">✅ an toàn · ${esc(e.safe)}</span>`:e.kind==='web'?(e.blocked?'<span class="pill" style="background:#fee2e2;color:#991b1b">⛔ đã chặn</span>':'<span class="pill">chưa chặn</span>'):'';
   return `<div class="app-row"><div class="ic">${ic}</div><div class="nm"><div><b>${esc(name||'')}</b> <span class="tag" style="background:${KCOL[e.cls]||KCOL.other}">${esc(e.vi||'')}</span></div>
    <div class="mut sub2">${tm}${e.title?' · '+esc(ct(e.title)):''}${e.why?' · '+esc(e.why):''}</div></div><div class="acts2">${btn}</div></div>`;}).join('')
   +(ev.length>EV_SHOW?`<div class="ev-more"><a href="#" onclick="event.preventDefault();EV_SHOW=25;renderEvents(cur())">Xem thêm ${Math.min(ev.length,25)-EV_SHOW} mục</a></div>`:'');}
@@ -767,7 +770,7 @@ function fillRules(force){const v=cur();if(v)renderPages(v);if(!v||(rulesTouched
  const ykw=(srv.youtube_keywords&&srv.youtube_keywords.length?srv.youtube_keywords:(r.youtube_keywords&&r.youtube_keywords.length?r.youtube_keywords:YT_DEFAULT));
  $('yt-kw').value=ykw.join(', ');
  const nb=document.querySelector(`#nv-mode button[data-m="${srv.notify_env||'risky'}"]`);if(nb)nvMode(nb);const bks=new Set(srv.block_kinds||[]);if(srv.auto_block_games)bks.add('game');document.querySelectorAll('#bk [data-k]').forEach(i=>i.checked=bks.has(i.dataset.k));
- $('ai-min').value=(srv.max_ai_minutes??st.max_ai_minutes??15);segSet('ai-over',srv.ai_over_action||'block');segSet('ai-game',srv.ai_game_action||'block');$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
+ $('ai-min').value=(srv.max_ai_minutes??st.max_ai_minutes??15);$('safe-kw').value=(srv.safe_keywords||[]).join(', ');segSet('ai-over',srv.ai_over_action||'block');segSet('ai-game',srv.ai_game_action||'block');$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
  $('rmsg').textContent=st.dns_block?('Trên máy: '+st.dns_block):'';}
 async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
  const groups=[...document.querySelectorAll('[data-g]')].filter(i=>i.checked).map(i=>i.dataset.g);
@@ -778,7 +781,7 @@ async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.s
  const r=await api(`/api/parent/devices/${v.id}/rules`,{apps:[...apps],domains:[...dom],keywords:[...kw],groups,
   monitor_always:$('opt-always').checked,dns_block:$('opt-dns').checked,youtube_mode:ym,youtube_keywords:sp('yt-kw'),
   youtube_shorts:$('yt-shorts').checked,notify_env:(document.querySelector('#nv-mode button.act')||{}).dataset?.m||'risky',
-  block_kinds:[...document.querySelectorAll('#bk [data-k]')].filter(i=>i.checked).map(i=>i.dataset.k),
+  block_kinds:[...document.querySelectorAll('#bk [data-k]')].filter(i=>i.checked).map(i=>i.dataset.k),safe_keywords:sp('safe-kw'),
   auto_block_games:!!document.querySelector('#bk [data-k="game"]:checked'),max_ai_minutes:parseInt($('ai-min').value||'15',10),
   ai_over_action:segGet('ai-over','block'),ai_game_action:segGet('ai-game','block')});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
 // ---------- PWA ----------
@@ -902,7 +905,8 @@ def api_parent_devices():
             "status": dev.get("status") or {},
             "alerts": (dev.get("recent_alerts") or [])[:10],
             "events": [{**e, "blocked": bool(block_state(dev.get("rules") or {}, str(e.get("domain", "")),
-                                                         str(e.get("title", "")), str(e.get("page", ""))))}
+                                                         str(e.get("title", "")), str(e.get("page", "")))),
+                        "safe": safe_kw(dev.get("rules") or {}, str(e.get("domain", "")), str(e.get("title", "")))}
                        for e in (dev.get("events") or [])[:25] if isinstance(e, dict)],
             "acks": (dev.get("acks") or [])[:5],
             "now": live_category(dev),
@@ -984,7 +988,9 @@ def api_parent_rules(did):
              "ai_game_action": data.get("ai_game_action") if data.get("ai_game_action") in ("block", "warn", "off")
              else prev.get("ai_game_action", "block"),
              "block_kinds": [k for k in (data.get("block_kinds") if isinstance(data.get("block_kinds"), list)
-                                         else prev.get("block_kinds") or []) if k in BLOCKABLE_KINDS]}
+                                         else prev.get("block_kinds") or []) if k in BLOCKABLE_KINDS],
+             "safe_keywords": clean(data.get("safe_keywords")) if isinstance(data.get("safe_keywords"), list)
+             else list(prev.get("safe_keywords") or [])}
     # Trang web cũ (mở từ trước khi cập nhật) không gửi giờ AI -> GIỮ giá trị đang có, không tự về 15 phút
     try:
         rules["max_ai_minutes"] = max(0, min(240, int(data["max_ai_minutes"])))
@@ -1001,7 +1007,7 @@ def api_parent_rules(did):
         evs = db.get(f"devices/{did}/events") or []
         for ev in (list(evs.values()) if isinstance(evs, dict) else list(evs))[:40]:
             dom = str((ev or {}).get("domain", ""))
-            if not dom or ev.get("cls") not in kinds:
+            if not dom or ev.get("cls") not in kinds or safe_kw(rules, dom, str(ev.get("title", ""))):
                 continue
             if is_content_domain(dom):      # YouTube / Google…: chỉ chặn đúng video / trang đó
                 if _add_page_rule(rules, dom, ev.get("title", ""), ev.get("page", ""), ev.get("why") or ev.get("vi", "")):
@@ -1226,7 +1232,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.10"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.11"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1433,6 +1439,16 @@ def _add_page_rule(rules: Dict[str, Any], dom: str, title: str, page: str, why: 
     return True
 
 
+def safe_kw(rules: Dict[str, Any], dom: str, title: str) -> str:
+    """Từ khóa an toàn (rules.safe_keywords) có trong tên miền / tiêu đề -> trang đó KHÔNG bị tự chặn."""
+    text = f"{dom} {title}".lower()
+    for k in rules.get("safe_keywords") or []:
+        k = str(k).strip().lower()
+        if k and k in text:
+            return k
+    return ""
+
+
 def _block_kinds(rules: Dict[str, Any]) -> set:
     """Các loại trang phụ huynh chọn TỰ CHẶN (bản cũ chỉ có công tắc auto_block_games)."""
     kinds = {k for k in (rules.get("block_kinds") or []) if k in BLOCKABLE_KINDS}
@@ -1466,7 +1482,10 @@ def _handle_events(did: str, dev: Dict[str, Any], events: List[Dict[str, Any]]) 
                        page_ok=not is_generic_page(dom, title, page))
             already = any(dom.endswith(x) for x in (rules.get("domains") or []))
             rec["blocked"] = already
-            if c["kind"] in _block_kinds(rules) and not already:
+            safe = safe_kw(rules, dom, title)
+            if safe:
+                rec["safe"] = safe
+            if c["kind"] in _block_kinds(rules) and not already and not safe:
                 if content:
                     # YouTube / Google…: chỉ chặn ĐÚNG video / trang này, video bài giảng vẫn xem được
                     if _add_page_rule(rules, dom, title, page, c.get("why") or c["vi"]):
