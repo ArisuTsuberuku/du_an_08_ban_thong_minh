@@ -36,10 +36,11 @@ _anh_test_ai.jpg
 dist_installer/
 installer/redist/
 
-# Cáº¥u hÃ¬nh + tráº¡ng thÃ¡i RIÃŠNG tá»«ng mÃ¡y (máº­t kháº©u, nháº­t kÃ½ hoáº¡t Ä‘á»™ng, cáº£nh bÃ¡o) â€” pháº§n má»m tá»± táº¡o lÃºc cháº¡y
+# Cấu hình + trạng thái RIÊNG từng máy (mật khẩu, nhật ký hoạt động, cảnh báo) — phần mềm tự tạo lúc chạy
 shared_config.json
 runtime_state.json
 runtime_state.json.tmp
 cloudflared_by_focusdesk.txt
-# Báº£n build cÅ© (exe) â€” khÃ´ng Ä‘Æ°a lÃªn kho mÃ£
+# Bản build cũ (exe) — không đưa lên kho mã
 dist/
+hosts_goc.bak

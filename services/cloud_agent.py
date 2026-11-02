@@ -358,6 +358,7 @@ class CloudAgent:
         # Chặn DNS tận gốc KHÔNG áp cho YouTube khi đang ở chế độ "chặn theo từ khóa" (để bài giảng vẫn vào được)
         yt_doms = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com")
         dns_list = [d for d in cfg["bad_urls"] if cfg.get("youtube_mode", "keyword") == "block" or d not in yt_doms]
+        cfg["dns_block_enabled"] = dns_on
         ok_dns, dns_msg = apply_hosts_block(dns_list if dns_on else [])
         cfg["dns_block_status"] = dns_msg
         save_config(cfg)

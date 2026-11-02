@@ -237,6 +237,15 @@ def shutdown_all(reason: str, progress: Optional[Callable[[str], None]] = None) 
     except Exception as exc:
         say(f"⚠  Lỗi khi tắt web nội bộ: {exc}")
 
+    # 5b. Trả file hosts về như ban đầu (gỡ chặn DNS của luật phụ huynh + khóa AI); mở lại FocusDesk sẽ chặn lại
+    try:
+        from services.hosts_blocker import clear_hosts_block
+
+        ok, msg = clear_hosts_block()
+        say(("✓  " if ok else "⚠  ") + msg)
+    except Exception as exc:
+        say(f"⚠  Không khôi phục được file hosts: {exc}")
+
     # 6. Quét lại: còn tiến trình con nào của FocusDesk thì tắt nốt
     left = _my_helpers(port)
     if left:

@@ -288,6 +288,44 @@ def _reset_key_stats() -> None:
         pass
 
 
+def _dong_app_ai(cfg: Dict[str, Any]) -> List[str]:
+    """Đóng mọi ứng dụng AI cài trên máy (ChatGPT, Claude, Copilot…): gửi lệnh đóng cửa sổ, 3 giây sau còn thì tắt hẳn."""
+    procs, names = [], set()
+    for p in psutil.process_iter(["pid", "name"]):
+        lbl = ai_app_label(p.info.get("name") or "", cfg)
+        if lbl and p.pid != os.getpid():
+            procs.append(p)
+            names.add(lbl)
+    if not procs:
+        return []
+    pids = {p.pid for p in procs}
+    try:
+        user32 = ctypes.windll.user32
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+        def _cb(hwnd, _lp):
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value in pids and user32.IsWindowVisible(hwnd):
+                user32.PostMessageW(hwnd, 0x0010, 0, 0)       # WM_CLOSE
+            return True
+
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+    except Exception:
+        pass
+
+    def _ket_thuc() -> None:
+        _gone, alive = psutil.wait_procs(procs, timeout=3)
+        for p in alive:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+
+    threading.Thread(target=_ket_thuc, name="CloseAIApps", daemon=True).start()
+    return sorted(names)
+
+
 def _dong_cua_so_hien_tai(is_browser: bool) -> None:
     """Đóng tab trình duyệt đang mở (Ctrl+W) hoặc cửa sổ ứng dụng đang ở trên cùng (WM_CLOSE)."""
     try:
@@ -443,6 +481,8 @@ class BoGiamSatThongMinh:
         self._last_ai_scan = 0.0
         self._last_ai_game_alert = 0.0
         self._last_ai_block_alert = 0.0
+        lock = state.get("ai_dns_lock") or {}
+        self._ai_locked = isinstance(lock, dict) and lock.get("day") == today
         self._usage_day = today
         self._ai_reset_seen = float(state.get("ai_reset_at", 0) or 0)
         self._last_ai_alert_at_sec: float = 0
@@ -452,6 +492,16 @@ class BoGiamSatThongMinh:
             return
         self.dang_chay = True
         update_runtime_state(monitoring_active=True)
+        # Khóa AI của HÔM QUA còn trong file hosts (máy tắt trước nửa đêm) -> gỡ ngay
+        try:
+            lock = load_runtime_state().get("ai_dns_lock") or {}
+            if lock and lock.get("day") != time.strftime("%Y-%m-%d"):
+                from services.hosts_blocker import apply_hosts_block, rules_dns_list
+
+                update_runtime_state(ai_dns_lock={})
+                apply_hosts_block(rules_dns_list(load_config()))
+        except Exception:
+            pass
         self._worker_thread = threading.Thread(
             target=self._vong_lap_giam_sat,
             name="GiamSatWorkerThread",
@@ -480,6 +530,30 @@ class BoGiamSatThongMinh:
             update_runtime_state(app_usage={k: int(v) for k, v in self.app_usage.items()},
                                  ai_seconds=int(self.ai_seconds), usage_day=self._usage_day,
                                  ai_sources={k: int(v) for k, v in self.ai_sources.items()})
+
+    def _dat_khoa_ai(self, lock: bool, cfg: Dict[str, Any], max_ai_min: int) -> None:
+        """Hết giờ AI + phụ huynh chọn 'Hết giờ thì chặn' -> KHÓA AI tới hết ngày:
+        đóng mọi app AI đang chạy, chặn DNS các web AI (tab AI tải lại không vào được), báo phụ huynh 1 lần.
+        Sang ngày mới / phụ huynh đặt lại giờ / nâng giới hạn -> tự mở khóa."""
+        if lock == self._ai_locked:
+            return
+        self._ai_locked = lock
+        today = time.strftime("%Y-%m-%d")
+        try:
+            from services.hosts_blocker import AI_LOCK_DOMAINS, apply_hosts_block, rules_dns_list
+
+            update_runtime_state(ai_dns_lock={"day": today, "domains": list(AI_LOCK_DOMAINS)} if lock else {})
+            apply_hosts_block(rules_dns_list(cfg))
+        except Exception as exc:
+            safe_log(f"[AI] Không cập nhật được chặn DNS web AI: {exc}")
+        if lock:
+            closed = _dong_app_ai(cfg)
+            gui_canh_bao_len_web(
+                f"⛔ Hết {max_ai_min} phút dùng AI hôm nay → đã KHÓA AI tới hết ngày: chặn web AI"
+                + (f", đóng {', '.join(closed)}" if closed else "") + ". Phụ huynh có thể 'Đặt lại giờ AI' để mở.",
+                "AI_OVERUSE")
+        else:
+            safe_log("[AI] Mở khóa AI (ngày mới / phụ huynh đặt lại / nâng giới hạn).")
 
     def _kiem_tra_dat_lai(self, state: Dict[str, Any]) -> None:
         """Sang ngày mới -> đếm lại từ 0; phụ huynh bấm 'Đặt lại giờ AI' (web/Telegram) -> về 0 ngay."""
@@ -543,6 +617,8 @@ class BoGiamSatThongMinh:
                     max_ai_min = max(0, int(cfg.get("max_ai_minutes", 15)))   # 0 = không cho dùng AI
                 except (TypeError, ValueError):
                     max_ai_min = 15
+                over_action = str(cfg.get("ai_over_action", "block")).lower()
+                self._dat_khoa_ai(over_action == "block" and self.ai_seconds >= max_ai_min * 60, cfg, max_ai_min)
                 bad_apps = [a.lower() for a in cfg.get("bad_apps", BAD_APPS)]
                 allowed_map = {
                     a["exe_name"].lower(): a["name"]
@@ -589,7 +665,15 @@ class BoGiamSatThongMinh:
                                 self._last_ai_game_alert = now_w
                                 gui_canh_bao_len_web(f"🎮🤖 Nghi chơi game trong AI: {verdict['reason']}", "AI_GAME")
 
-                        if verdict["is_ai"] and active and not (verdict.get("ai_game") and verdict["should_block"]):
+                        if verdict["is_ai"] and self._ai_locked and not verdict.get("ai_game"):
+                            # Đang khóa AI: tab / app AI vừa mở lại -> đóng ngay (kể cả khi chưa thao tác)
+                            _dong_cua_so_hien_tai(is_browser)
+                            if time.time() - self._last_ai_block_alert > 120:
+                                self._last_ai_block_alert = time.time()
+                                gui_canh_bao_len_web(f"⛔ Học sinh cố mở lại {ai_src or 'AI'} khi đã hết giờ AI — đã đóng",
+                                                     "AI_OVERUSE")
+                            time.sleep(1.0)
+                        elif verdict["is_ai"] and active and not (verdict.get("ai_game") and verdict["should_block"]):
                             # Chỉ tính khi tab AI đang ở trên cùng VÀ học sinh đang thao tác (không tính lúc bỏ máy)
                             self.ai_seconds += dt
                             self.ai_sources[ai_src] = self.ai_sources.get(ai_src, 0.0) + dt
@@ -609,7 +693,7 @@ class BoGiamSatThongMinh:
                                 )
                                 gui_canh_bao_len_web(msg, "AI_OVERUSE")
                             # Phụ huynh chọn "Hết giờ thì chặn": đóng tab AI / cửa sổ app AI ngay khi vượt giới hạn
-                            if self.ai_seconds >= threshold_sec and str(cfg.get("ai_over_action", "warn")) == "block":
+                            if self.ai_seconds >= threshold_sec and over_action == "block":
                                 _dong_cua_so_hien_tai(is_browser)
                                 if time.time() - self._last_ai_block_alert > 60:
                                     self._last_ai_block_alert = time.time()
@@ -633,6 +717,8 @@ class BoGiamSatThongMinh:
                                                           for p in psutil.process_iter(["name"])) if lbl})
                         update_runtime_state(ai_running=running,
                                              ai_sources={k: int(v) for k, v in self.ai_sources.items()})
+                        if running and self._ai_locked:
+                            _dong_app_ai(cfg)
                     except Exception:
                         pass
 

@@ -1186,108 +1186,175 @@ class PhanMemQuanLyBanHocEXE:
     # TASK MANAGER BẢN HỌC SINH (CHỈ HIỆN WHITELIST, ẨN EXPLORER & PYTHON)
     # =====================================================================
     def mo_task_manager_hoc_sinh(self) -> None:
+        """Task Manager bản học sinh, dạng "Ứng dụng" như Task Manager Windows: mỗi ỨNG DỤNG 1 dòng (gộp mọi tiến trình
+        con, vd Edge 11 tiến trình -> 1 dòng), mở ra thấy từng cửa sổ. Chỉ hiện ứng dụng học tập được phép."""
+        from services import kiosk_guard
+
         cfg = load_config()
-        allowed_exes = {
-            a["exe_name"].lower()
-            for a in cfg.get("allowed_apps", [])
-            if a.get("exe_name") and a["exe_name"].lower() not in FORBIDDEN_STUDENT_PROCESSES
-        }
+        names = {a["exe_name"].lower(): a.get("name") or a["exe_name"]
+                 for a in cfg.get("allowed_apps", []) if a.get("exe_name")}
+        allowed_exes = {e for e in names if e not in FORBIDDEN_STUDENT_PROCESSES}
         my_pid = os.getpid()
 
+        old = getattr(self, "_tm_win", None)
+        if old is not None and old.winfo_exists():
+            old.deiconify()
+            old.lift()
+            return
         tm = tk.Toplevel(self.root)
+        self._tm_win = tm
         tm.title("Task Manager - Phiên Bản Học Sinh")
-        tm.geometry("600x410")
+        tm.geometry("760x470")
+        tm.minsize(600, 360)
         tm.configure(bg="#111827")
         tm.attributes("-topmost", True)
 
-        tk.Label(
-            tm,
-            text="🧰 QUẢN LÝ ỨNG DỤNG ĐANG CHẠY (CHỈ ĐƯỢC TẮT ỨNG DỤNG HỌC TẬP)",
-            bg="#111827",
-            fg="#38bdf8",
-            font=("Segoe UI", 10, "bold"),
-        ).pack(pady=(12, 4))
-        tk.Label(
-            tm,
-            text="Các tiến trình hệ thống Windows và trình bảo vệ bàn học được ẩn & khóa an toàn.",
-            bg="#111827",
-            fg="#94a3b8",
-            font=("Segoe UI", 9),
-        ).pack(pady=(0, 10))
+        tk.Label(tm, text="🧰 ỨNG DỤNG ĐANG CHẠY", bg="#111827", fg="#38bdf8",
+                 font=("Segoe UI", 11, "bold")).pack(pady=(12, 2))
+        tk.Label(tm, text="Chọn 1 ứng dụng hoặc 1 cửa sổ rồi bấm Kết thúc. Nháy đúp cửa sổ để chuyển tới.",
+                 bg="#111827", fg="#94a3b8", font=("Segoe UI", 9)).pack(pady=(0, 8))
 
-        cols = ("pid", "name", "ram")
-        tree = ttk.Treeview(tm, columns=cols, show="headings", height=11)
-        tree.heading("pid", text="PID")
-        tree.heading("name", text="Tên Ứng Dụng Cho Phép")
-        tree.heading("ram", text="RAM Đang Dùng")
-        tree.column("pid", width=90, anchor="center")
-        tree.column("name", width=320, anchor="w")
-        tree.column("ram", width=140, anchor="center")
-        tree.pack(padx=16, fill="x")
+        st = ttk.Style(tm)
+        st.configure("TM.Treeview", rowheight=26, font=("Segoe UI", 10))
+        st.configure("TM.Treeview.Heading", font=("Segoe UI", 9, "bold"))
+        body = tk.Frame(tm, bg="#111827")
+        body.pack(fill="both", expand=True, padx=16)
+        tree = ttk.Treeview(body, columns=("info", "proc", "ram"), show="tree headings", style="TM.Treeview")
+        tree.heading("#0", text="Tên")
+        tree.heading("info", text="Trạng thái")
+        tree.heading("proc", text="Tiến trình")
+        tree.heading("ram", text="Bộ nhớ")
+        tree.column("#0", width=380, anchor="w")
+        tree.column("info", width=110, anchor="center")
+        tree.column("proc", width=90, anchor="center")
+        tree.column("ram", width=110, anchor="e")
+        sb = ttk.Scrollbar(body, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        lbl_sum = tk.Label(tm, text="", bg="#111827", fg="#94a3b8", font=("Segoe UI", 9))
+        lbl_sum.pack(anchor="w", padx=18, pady=(6, 0))
+
+        def du_lieu():
+            """{exe: {"procs": [Process], "ram": byte, "wins": [(hwnd, title)]}} cho ứng dụng được phép đang chạy."""
+            apps: dict = {}
+            for p in psutil.process_iter(["pid", "name", "memory_info"]):
+                try:
+                    n = (p.info.get("name") or "").lower()
+                    if p.info["pid"] == my_pid or n not in allowed_exes:
+                        continue
+                    a = apps.setdefault(n, {"procs": [], "ram": 0, "wins": []})
+                    a["procs"].append(p)
+                    a["ram"] += p.info["memory_info"].rss if p.info.get("memory_info") else 0
+                except Exception:
+                    continue
+            try:
+                for w in kiosk_guard.list_app_windows(allowed_exes):
+                    exe = str(w.get("exe", "")).lower()
+                    if exe in apps:
+                        apps[exe]["wins"].append((int(w["hwnd"]), str(w.get("title", ""))))
+            except Exception:
+                pass
+            return apps
+
+        def mb(b: int) -> str:
+            return f"{b / 1048576:,.1f} MB"
 
         def lam_moi() -> None:
             if not tm.winfo_exists():
                 return
-            for row in tree.get_children():
-                tree.delete(row)
-            for p in psutil.process_iter(["pid", "name", "memory_info"]):
-                try:
-                    pid = p.info["pid"]
-                    pname = p.info.get("name") or ""
-                    pname_l = pname.lower()
-                    if (
-                        pid != my_pid
-                        and pname_l in allowed_exes
-                        and pname_l not in FORBIDDEN_STUDENT_PROCESSES
-                    ):
-                        mem_rss = p.info["memory_info"].rss if p.info.get("memory_info") else 0
-                        mem_mb = round(mem_rss / (1024 * 1024), 1)
-                        tree.insert("", "end", values=(pid, pname, f"{mem_mb} MB"))
-                except Exception:
-                    continue
+            sel = tree.selection()
+            keep_sel = sel[0] if sel else ""
+            opened = {iid for iid in tree.get_children() if tree.item(iid, "open")}
+            first = not tree.get_children()
+            tree.delete(*tree.get_children())
+            apps = du_lieu()
+            fg_apps = sorted((e for e in apps if apps[e]["wins"]), key=lambda e: names.get(e, e).lower())
+            bg_apps = sorted((e for e in apps if not apps[e]["wins"]), key=lambda e: names.get(e, e).lower())
+            for exe in fg_apps + bg_apps:
+                a = apps[exe]
+                iid = f"app:{exe}"
+                n_win = len(a["wins"])
+                tree.insert("", "end", iid=iid, text=f"  {names.get(exe, exe)}   ({exe})",
+                            values=(f"{n_win} cửa sổ" if n_win else "chạy nền", len(a["procs"]), mb(a["ram"])),
+                            open=(iid in opened) or (first and n_win > 1))
+                for hwnd, title in a["wins"]:
+                    tree.insert(iid, "end", iid=f"win:{hwnd}", text=f"    🗔  {title[:80]}", values=("", "", ""))
+            if keep_sel and tree.exists(keep_sel):
+                tree.selection_set(keep_sel)
+            lbl_sum.config(text=f"{len(fg_apps)} ứng dụng đang mở · {len(bg_apps)} chạy nền · "
+                                f"tổng {mb(sum(a['ram'] for a in apps.values()))}")
 
-        def dong_ung_dung() -> None:
+        def _post_close(hwnd: int) -> None:
+            try:
+                import ctypes
+
+                ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)   # WM_CLOSE: đóng lịch sự, ứng dụng hỏi lưu bài
+            except Exception:
+                pass
+
+        def ket_thuc() -> None:
             sel = tree.selection()
             if not sel:
-                messagebox.showwarning("Chưa chọn ứng dụng", "Vui lòng chọn 1 ứng dụng học tập để đóng!", parent=tm)
+                messagebox.showwarning("Chưa chọn", "Chọn 1 ứng dụng hoặc 1 cửa sổ để kết thúc.", parent=tm)
                 return
-            pid, name, _ = tree.item(sel[0])["values"]
-            name_l = str(name).lower()
-            if int(pid) == my_pid or name_l in FORBIDDEN_STUDENT_PROCESSES:
+            iid = sel[0]
+            if iid.startswith("win:"):
+                _post_close(int(iid[4:]))
+                tm.after(800, lam_moi)
                 return
-            try:
-                psutil.Process(int(pid)).terminate()
-                time.sleep(0.25)
+            exe = iid[4:]
+            if exe not in allowed_exes:
+                return
+            a = du_lieu().get(exe)
+            if not a:
                 lam_moi()
-            except Exception as exc:
-                messagebox.showerror("Không thể đóng", f"Chi tiết: {exc}", parent=tm)
+                return
+            if not messagebox.askyesno("Kết thúc ứng dụng",
+                                       f"Đóng {names.get(exe, exe)} ({len(a['wins'])} cửa sổ, {len(a['procs'])} tiến trình)?\n"
+                                       "Nhớ lưu bài trước khi đóng.", parent=tm):
+                return
+            for hwnd, _t in a["wins"]:
+                _post_close(hwnd)
+            procs = [p for p in a["procs"] if p.pid != my_pid]
+
+            def _tat_han() -> None:     # 3 giây sau còn chạy (treo / không có cửa sổ) thì tắt hẳn
+                try:
+                    _g, alive = psutil.wait_procs(procs, timeout=3)
+                    for p in alive:
+                        try:
+                            p.terminate()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            threading.Thread(target=_tat_han, daemon=True).start()
+            tm.after(3600, lam_moi)
+
+        def chuyen_toi(_e=None) -> None:
+            sel = tree.selection()
+            if sel and sel[0].startswith("win:"):
+                kiosk_guard.focus_window(int(sel[0][4:]))
+
+        tree.bind("<Double-1>", chuyen_toi)
+        tree.bind("<Delete>", lambda _e: ket_thuc())
 
         btn_bar = tk.Frame(tm, bg="#111827")
-        btn_bar.pack(pady=14)
-        tk.Button(
-            btn_bar,
-            text="🔄 Làm mới danh sách",
-            command=lam_moi,
-            bg="#334155",
-            fg="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=6,
-            relief="flat",
-        ).pack(side="left", padx=8)
-        tk.Button(
-            btn_bar,
-            text="❌ Kết thúc ứng dụng (Kill Task)",
-            command=dong_ung_dung,
-            bg="#e11d48",
-            fg="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=14,
-            pady=6,
-            relief="flat",
-        ).pack(side="left", padx=8)
+        btn_bar.pack(pady=12)
+        for text, cmd, bg in (("🔄 Làm mới", lam_moi, "#334155"), ("↗ Chuyển tới cửa sổ", chuyen_toi, "#1d4ed8"),
+                              ("✖ Kết thúc tác vụ", ket_thuc, "#e11d48")):
+            tk.Button(btn_bar, text=text, command=cmd, bg=bg, fg="white", activebackground=bg, activeforeground="white",
+                      font=("Segoe UI", 9, "bold"), padx=14, pady=6, relief="flat", cursor="hand2").pack(side="left", padx=6)
+
+        def tu_lam_moi() -> None:
+            if tm.winfo_exists():
+                if not tree.focus() or tm.focus_get() is None:
+                    lam_moi()
+                tm.after(3000, tu_lam_moi)
 
         lam_moi()
+        tm.after(3000, tu_lam_moi)
 
     # =====================================================================
     # KHUNG QUẢN TRỊ DÙNG CHUNG (PHỤ HUYNH / ADMIN): THANH TRÊN + MENU TRÁI + NỘI DUNG
@@ -2539,6 +2606,14 @@ def main() -> None:
         from services.app_shutdown import kill_orphan_helpers
 
         threading.Thread(target=kill_orphan_helpers, name="OrphanCleanup", daemon=True).start()
+
+        def _chan_lai_dns() -> None:   # lần thoát trước đã trả hosts về gốc -> mở lại thì áp lại luật chặn DNS
+            from services.hosts_blocker import apply_hosts_block, rules_dns_list
+
+            ok, msg = apply_hosts_block(rules_dns_list(load_config()))
+            safe_log(f"[HOSTS] Khởi động: {msg}")
+
+        threading.Thread(target=_chan_lai_dns, name="HostsReapply", daemon=True).start()
     except Exception as exc:
         safe_log(f"[THOÁT] Không dọn được tiến trình mồ côi: {exc}")
     start_web_server_in_background()

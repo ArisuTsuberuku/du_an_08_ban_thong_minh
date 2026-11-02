@@ -179,11 +179,23 @@ def restore_windows_normal_state() -> None:
         pass
 
 
+def _restore_hosts() -> None:
+    """Thoát / crash: trả file hosts về như trước khi FocusDesk chặn DNS."""
+    try:
+        from services.hosts_blocker import clear_hosts_block
+
+        ok, msg = clear_hosts_block()
+        safe_log(f"[HOSTS] {msg}")
+    except Exception:
+        pass
+
+
 def emergency_restore_and_exit(reason: str = "Khẩn cấp", exit_code: int = 0) -> None:
     """Khôi phục hoàn toàn trạng thái chuẩn của Windows và đóng ứng dụng ngay lập tức."""
     _watchdog_stop_event.set()
     stop_global_hotkeys()
     restore_windows_normal_state()
+    _restore_hosts()
     try:
         update_runtime_state(current_role="unlocked", monitoring_active=False)
     except Exception:
@@ -215,6 +227,9 @@ def generate_emergency_bat_file() -> str:
         'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '
         "'*cloudflared*tunnel*127.0.0.1:*' -or $_.CommandLine -like '*posture_ai_engine*' } | "
         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\" >nul 2>&1\r\n"
+        'powershell -NoProfile -Command "$h=\\"$env:SystemRoot\\System32\\drivers\\etc\\hosts\\"; '
+        "(Get-Content $h) | Where-Object { $_ -notmatch 'FOCUSDESK-BLOCK|SMARTDESK-BLOCK' } | "
+        "Set-Content $h -Encoding ASCII; ipconfig /flushdns | Out-Null\" >nul 2>&1\r\n"
         "echo [3/4] Dang khoi dong lai Windows Explorer (hien lai Taskbar/Desktop)...\r\n"
         "taskkill /f /im explorer.exe >nul 2>&1\r\n"
         "start explorer.exe\r\n"
@@ -409,6 +424,7 @@ def _log_crash(exc_type, exc_value, exc_tb) -> None:
 def _crash_safety_hook(exc_type, exc_value, exc_tb) -> None:
     _log_crash(exc_type, exc_value, exc_tb)
     restore_windows_normal_state()
+    _restore_hosts()
     os._exit(1)
 
 

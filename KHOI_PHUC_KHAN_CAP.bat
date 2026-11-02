@@ -11,6 +11,7 @@ taskkill /f /im SmartDeskLauncher.exe >nul 2>&1
 taskkill /f /im pythonw.exe >nul 2>&1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*he_thong_quan_ly_3_cap*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*cloudflared*tunnel*127.0.0.1:*' -or $_.CommandLine -like '*posture_ai_engine*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
+powershell -NoProfile -Command "$h=\"$env:SystemRoot\System32\drivers\etc\hosts\"; (Get-Content $h) | Where-Object { $_ -notmatch 'FOCUSDESK-BLOCK|SMARTDESK-BLOCK' } | Set-Content $h -Encoding ASCII; ipconfig /flushdns | Out-Null" >nul 2>&1
 echo [3/4] Dang khoi dong lai Windows Explorer (hien lai Taskbar/Desktop)...
 taskkill /f /im explorer.exe >nul 2>&1
 start explorer.exe
