@@ -476,6 +476,14 @@ h3{margin:4px 0 10px}
     <div class="seg" id="nv-mode"><button type="button" data-m="risky" onclick="nvMode(this)">⚠️ Chỉ trang đáng ngờ</button><button type="button" data-m="all" onclick="nvMode(this)">📣 Mọi thay đổi</button><button type="button" data-m="off" onclick="nvMode(this)">🔕 Tắt</button></div>
     <div class="sw"><div><div class="t">Tự chặn web game mới phát hiện</div><div class="d">Trang được nhận ra là game sẽ tự thêm vào luật chặn và đóng tab</div></div>
      <label class="tg"><input type="checkbox" id="opt-autogame" onchange="rulesTouched=true"><span></span></label></div></div>
+   <div class="card"><h3>🤖 Giới hạn dùng AI</h3><p class="mut">Tính chung ChatGPT, Gemini, Claude, Copilot… trên web và ứng dụng AI cài trên máy. Chỉ tính lúc cửa sổ AI ở trên cùng và học sinh đang thao tác.</p>
+    <div class="sw"><div><div class="t">Số phút mỗi ngày</div><div class="d">0 = không cho dùng AI. Đếm lại từ 0 mỗi ngày.</div></div>
+     <input type="number" id="ai-min" min="0" max="240" step="5" style="width:90px" oninput="rulesTouched=true"></div>
+    <div class="t" style="margin:10px 0 6px">Khi hết giờ</div>
+    <div class="seg" id="ai-over"><button type="button" data-m="block" onclick="segPick(this)">⛔ Đóng tab / app AI</button><button type="button" data-m="warn" onclick="segPick(this)">🔔 Chỉ báo phụ huynh</button></div>
+    <div class="t" style="margin:12px 0 6px">Nhờ AI làm game rồi chơi (Gemini Canvas, Claude Artifact, websim…)</div>
+    <div class="seg" id="ai-game"><button type="button" data-m="block" onclick="segPick(this)">⛔ Chặn + báo</button><button type="button" data-m="warn" onclick="segPick(this)">🔔 Chỉ báo</button><button type="button" data-m="off" onclick="segPick(this)">Tắt</button></div>
+    <p class="mut" style="margin-top:8px">Nhận ra qua tên cuộc trò chuyện (vd “Tạo game rắn săn mồi”), trang chạy ứng dụng do AI tạo, và kiểu bấm phím (mũi tên/WASD/Space liên tục khi đang mở AI).</p></div>
    <div class="card"><h3>⚙️ Cách giám sát</h3>
     <div class="sw"><div><div class="t">Giám sát cả khi học sinh chưa đăng nhập</div><div class="d">Bật: chặn & báo mọi lúc máy bật. Tắt: chỉ khi học sinh vào chế độ học.</div></div>
      <label class="tg"><input type="checkbox" id="opt-always"><span></span></label></div>
@@ -588,6 +596,9 @@ function renderOpen(list,p){const box=$('openbox');let h='';
     <span class="nm"><b>${esc(a.exe)}</b>${a.focused?' <span class="pill on" style="font-size:11px">đang dùng</span>':''}<br><span class="mut">${esc(sub)}</span></span>${tag(a.category)}</summary>
     ${items.length>1||a.tabs.length?items.map(t=>`<div class="tab-row">${a.tabs.length?'🗂️':'🪟'} <span class="tt">${esc(t.title)}</span>${t.category!=='Khac'?tag(t.category):''}</div>`).join(''):''}</details>`}).join('');}
  box.innerHTML=h;}
+function segPick(b){b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('act',x===b));rulesTouched=true;}
+function segSet(id,m){const b=document.querySelector(`#${id} button[data-m="${m}"]`);if(b)b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('act',x===b));}
+function segGet(id,def){return (document.querySelector(`#${id} button.act`)||{}).dataset?.m||def;}
 function renderSettings(){$('devlist').innerHTML=DEV.map(d=>`<div class="app-row"><div class="ic">${d.online?'🟢':'⚪'}</div><div class="nm"><div><b>${esc(d.name)}</b></div>
  <div class="mut">${esc((d.status||{}).hostname||'')} · ${d.online?'trực tuyến':'ngoại tuyến'}</div></div><button class="danger" onclick="unlink('${d.id}')">Bỏ</button></div>`).join('')||'<span class="mut">Chưa có máy.</span>';}
 async function load(){const d=await api('/api/parent/devices');if(!d.devices)return;DEV=d.devices;
@@ -682,7 +693,8 @@ function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;con
  const legacyYt=(srv.groups||[]).includes('youtube');ytSet(srv.youtube_mode||r.youtube_mode||(legacyYt?'block':'keyword'));
  const ykw=(srv.youtube_keywords&&srv.youtube_keywords.length?srv.youtube_keywords:(r.youtube_keywords&&r.youtube_keywords.length?r.youtube_keywords:YT_DEFAULT));
  $('yt-kw').value=ykw.join(', ');
- const nb=document.querySelector(`#nv-mode button[data-m="${srv.notify_env||'risky'}"]`);if(nb)nvMode(nb);$('opt-autogame').checked=!!srv.auto_block_games;$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
+ const nb=document.querySelector(`#nv-mode button[data-m="${srv.notify_env||'risky'}"]`);if(nb)nvMode(nb);$('opt-autogame').checked=!!srv.auto_block_games;
+ $('ai-min').value=(srv.max_ai_minutes??st.max_ai_minutes??15);segSet('ai-over',srv.ai_over_action||'block');segSet('ai-game',srv.ai_game_action||'block');$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
  $('rmsg').textContent=st.dns_block?('Trên máy: '+st.dns_block):'';}
 async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
  const groups=[...document.querySelectorAll('[data-g]')].filter(i=>i.checked).map(i=>i.dataset.g);
@@ -693,7 +705,8 @@ async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.s
  const r=await api(`/api/parent/devices/${v.id}/rules`,{apps:[...apps],domains:[...dom],keywords:[...kw],groups,
   monitor_always:$('opt-always').checked,dns_block:$('opt-dns').checked,youtube_mode:ym,youtube_keywords:sp('yt-kw'),
   youtube_shorts:$('yt-shorts').checked,notify_env:(document.querySelector('#nv-mode button.act')||{}).dataset?.m||'risky',
-  auto_block_games:$('opt-autogame').checked});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
+  auto_block_games:$('opt-autogame').checked,max_ai_minutes:parseInt($('ai-min').value||'15',10),
+  ai_over_action:segGet('ai-over','block'),ai_game_action:segGet('ai-game','block')});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
 // ---------- PWA ----------
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 let deferredPrompt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;$('installBtn').style.display='inline-block';});
@@ -882,7 +895,13 @@ def api_parent_rules(did):
              "youtube_keywords": clean(data.get("youtube_keywords")),
              "youtube_shorts": bool(data.get("youtube_shorts", True)),
              "notify_env": data.get("notify_env") if data.get("notify_env") in ("risky", "all", "off") else "risky",
-             "auto_block_games": bool(data.get("auto_block_games", False))}
+             "auto_block_games": bool(data.get("auto_block_games", False)),
+             "ai_over_action": data.get("ai_over_action") if data.get("ai_over_action") in ("block", "warn") else "block",
+             "ai_game_action": data.get("ai_game_action") if data.get("ai_game_action") in ("block", "warn", "off") else "block"}
+    try:
+        rules["max_ai_minutes"] = max(0, min(240, int(data.get("max_ai_minutes", 15))))
+    except (TypeError, ValueError):
+        rules["max_ai_minutes"] = 15
     db.set(f"devices/{did}/rules", rules)
     mark_watching(did, force=True)
     return jsonify({"ok": True, "message": "Đã lưu. Máy sẽ áp dụng trong ≤30 giây."})

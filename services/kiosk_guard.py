@@ -45,6 +45,26 @@ _threads: Dict[str, threading.Thread] = {}
 _stop = threading.Event()
 _hook_thread_id = [0]
 _last_violation: Dict[str, float] = {}
+# Đếm phím (thời điểm, có phải phím điều khiển game) để nhận ra học sinh đang CHƠI game trong khung AI
+from collections import deque  # noqa: E402
+
+_GAME_VK = {0x25, 0x26, 0x27, 0x28, 0x20, 0x57, 0x41, 0x53, 0x44}   # ← ↑ → ↓ Space W A S D
+_keys: "deque" = deque(maxlen=2000)
+
+
+def key_stats(window_s: float = 60.0) -> Tuple[int, int]:
+    """(tổng phím, phím game) trong `window_s` giây qua. Chỉ có số liệu khi kiosk (hook bàn phím) đang bật."""
+    cut = time.time() - window_s
+    tot = gamey = 0
+    for t, g in list(_keys):
+        if t >= cut:
+            tot += 1
+            gamey += g
+    return tot, gamey
+
+
+def reset_key_stats() -> None:
+    _keys.clear()
 
 if IS_WINDOWS:
     from ctypes import wintypes
@@ -226,6 +246,8 @@ def _keyboard_thread() -> None:
             if n_code == 0 and _state["active"] and w_param in (WM_KEYDOWN, WM_SYSKEYDOWN, 0x0101, 0x0105):
                 kb = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
                 vk = kb.vkCode
+                if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
+                    _keys.append((time.time(), 1 if vk in _GAME_VK else 0))
                 ctrl = user32.GetAsyncKeyState(VK_CONTROL) & 0x8000
                 alt = bool(kb.flags & 0x20)
                 if vk in (VK_LWIN, VK_RWIN):

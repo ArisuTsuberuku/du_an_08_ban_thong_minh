@@ -338,6 +338,16 @@ class CloudAgent:
             cfg["youtube_keywords"] = clean(rules.get("youtube_keywords"))
         if "youtube_shorts" in rules:
             cfg["youtube_block_shorts"] = bool(rules.get("youtube_shorts"))
+        # Giới hạn AI phụ huynh đặt trên web (0 = cấm AI) + cách xử lý khi hết giờ / khi nhờ AI làm game
+        if "max_ai_minutes" in rules:
+            try:
+                cfg["max_ai_minutes"] = max(0, min(240, int(rules["max_ai_minutes"])))
+            except (TypeError, ValueError):
+                pass
+        if rules.get("ai_over_action") in ("block", "warn"):
+            cfg["ai_over_action"] = rules["ai_over_action"]
+        if rules.get("ai_game_action") in ("block", "warn", "off"):
+            cfg["ai_game_action"] = rules["ai_game_action"]
         dns_on = bool(rules.get("dns_block", True))
         from services.hosts_blocker import apply_hosts_block
 
@@ -351,7 +361,8 @@ class CloudAgent:
         safe_log(f"[CLOUD] Đã áp dụng cấu hình chặn mới (ver {cfg['rules_ver']}).")
         self._acks.append({"id": "", "type": "rules", "ok": True, "time": time.strftime("%H:%M:%S"),
                            "msg": f"Đã áp dụng: {len(cfg['bad_apps'])} app, {len(cfg['bad_urls'])} trang web, "
-                                  f"{len(cfg['bad_tabs'])} từ khóa · {dns_msg} · giám sát "
+                                  f"{len(cfg['bad_tabs'])} từ khóa · AI {cfg.get('max_ai_minutes', 15)} phút/ngày · "
+                                  f"{dns_msg} · giám sát "
                                   f"{'luôn bật' if cfg.get('monitor_always') else 'khi học sinh đăng nhập'}"})
         self._urgent = True
 

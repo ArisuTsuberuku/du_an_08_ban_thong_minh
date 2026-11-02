@@ -42,6 +42,17 @@ DEFAULT_AI_DOMAINS = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "cl
                       "chat.deepseek.com", "perplexity.ai", "poe.com", "grok.com", "chat.qwen.ai", "meta.ai",
                       "chat.mistral.ai", "you.com"]
 AI_TITLE_HINTS = ["chatgpt", "gemini", "copilot", "deepseek", "perplexity", "grok"]
+# Học sinh nhờ AI viết game rồi chơi ngay trong khung Canvas / Artifact của AI:
+#  - Tiêu đề cuộc trò chuyện (ChatGPT, Claude, Gemini đặt theo nội dung) có từ khóa game
+#  - Mở trang chạy ứng dụng do AI tạo (khung chạy Gemini Canvas, Claude Artifact, các web "AI tạo game")
+AI_GAME_KEYWORDS = ["game", "trò chơi", "tro choi", "snake", "rắn săn mồi", "tetris", "flappy", "mario", "pacman",
+                    "pac-man", "minecraft", "2048", "platformer", "shooter", "bắn súng", "đua xe", "racing",
+                    "pygame", "phaser", "html5 canvas game", "đánh nhau", "zombie", "sudoku game", "caro", "cờ caro"]
+AI_GAME_EXCEPTIONS = ["game theory", "lý thuyết trò chơi", "gamification", "game-based learning"]
+AI_SANDBOX_DOMAINS = ["usercontent.goog", "claudeusercontent.com", "claude.site", "websim.ai", "websim.com",
+                      "rosebud.ai", "scf.usercontent"]
+# Phím điều khiển game: mũi tên, Space, W A S D
+GAME_KEYS = {0x25, 0x26, 0x27, 0x28, 0x20, 0x57, 0x41, 0x53, 0x44}
 # Ứng dụng AI cài trên máy (tên .exe, dùng * thay nhiều ký tự) -> nhãn hiển thị. Phụ huynh/Admin sửa được qua "ai_apps".
 DEFAULT_AI_APPS = {
     "chatgpt.exe": "ChatGPT", "claude.exe": "Claude", "copilot.exe": "Copilot", "m365copilot.exe": "Copilot",
@@ -258,6 +269,53 @@ def ai_web_label(current_url: str, window_title: str, cfg: Dict[str, Any]) -> st
     return ""
 
 
+def _key_stats(window_s: float = 60.0) -> Tuple[int, int]:
+    """(tổng phím, phím điều khiển game) học sinh bấm trong `window_s` giây qua — đếm bởi hook bàn phím của kiosk."""
+    try:
+        from services.kiosk_guard import key_stats
+
+        return key_stats(window_s)
+    except Exception:
+        return 0, 0
+
+
+def _reset_key_stats() -> None:
+    try:
+        from services.kiosk_guard import reset_key_stats
+
+        reset_key_stats()
+    except Exception:
+        pass
+
+
+def _dong_cua_so_hien_tai(is_browser: bool) -> None:
+    """Đóng tab trình duyệt đang mở (Ctrl+W) hoặc cửa sổ ứng dụng đang ở trên cùng (WM_CLOSE)."""
+    try:
+        if is_browser:
+            pyautogui.hotkey("ctrl", "w")
+        else:
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if hwnd:
+                ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)   # WM_CLOSE
+    except Exception:
+        pass
+
+
+def ai_game_reason(current_url: str, window_title: str, cfg: Dict[str, Any]) -> str:
+    """Lý do nếu đang mở GAME DO AI TẠO (khung chạy Canvas/Artifact, hoặc cuộc trò chuyện AI về game), ngược lại ""."""
+    url_l = (current_url or "").lower()
+    title_l = (window_title or "").lower()
+    for d in [str(x).lower() for x in (cfg.get("ai_sandbox_domains") or AI_SANDBOX_DOMAINS)]:
+        if d and d in url_l:
+            return f"Mở ứng dụng/game do AI tạo ({d})"
+    if any(e in title_l for e in AI_GAME_EXCEPTIONS):
+        return ""
+    for k in [str(x).lower() for x in (cfg.get("ai_game_keywords") or AI_GAME_KEYWORDS)]:
+        if k and k in title_l:
+            return f"Dùng AI để làm/chơi game: «{(window_title or '').strip()[:70]}» (từ khóa '{k}')"
+    return ""
+
+
 def phan_loai_truy_cap_web(
     current_url: str,
     window_title: str,
@@ -297,10 +355,20 @@ def phan_loai_truy_cap_web(
     academic_kw = [k.lower() for k in cfg.get("academic_keywords", [])]
 
     combined = f"{url_l} {title_l}"
+    game_action = str(cfg.get("ai_game_action", "block")).lower()
+    # 0. Trang chạy game/ứng dụng do AI tạo (Gemini Canvas, Claude Artifact, websim...) = trang game
+    if url_l and game_action != "off" and any(
+            d in url_l for d in [str(x).lower() for x in (cfg.get("ai_sandbox_domains") or AI_SANDBOX_DOMAINS)]):
+        return {"exempt": False, "is_ai": False, "should_block": game_action == "block", "ai_game": True,
+                "reason": ai_game_reason(current_url, window_title, cfg)}
     is_ai = any(ai in combined for ai in ai_domains) or (not url_l and any(
         h in title_l for h in AI_TITLE_HINTS) and any(b in title_l for b in ("chrome", "edge", "cốc cốc", "brave", "firefox")))
     if is_ai:
-        # Chatbot AI được phép mở (nhưng bộ đếm thời gian sẽ giám sát ngưỡng MAX_AI_MINUTES)
+        # Chatbot AI được phép mở (bộ đếm giám sát ngưỡng max_ai_minutes) — TRỪ KHI đang nhờ AI làm/chơi game
+        why = ai_game_reason(current_url, window_title, cfg) if game_action != "off" else ""
+        if why:
+            return {"exempt": False, "is_ai": True, "should_block": game_action == "block", "ai_game": True,
+                    "reason": why}
         return {"exempt": False, "is_ai": True, "should_block": False, "reason": ""}
 
     # 1b. YouTube: chặn theo từ khóa tìm kiếm / tiêu đề thay vì chặn cả trang
@@ -361,6 +429,8 @@ class BoGiamSatThongMinh:
         # Giờ AI gộp chung app AI trên máy + web AI, có tách theo nguồn: {"ChatGPT (ứng dụng)": giây, "chatgpt.com (web)": …}
         self.ai_sources: Dict[str, float] = dict(state.get("ai_sources", {})) if same_day else {}
         self._last_ai_scan = 0.0
+        self._last_ai_game_alert = 0.0
+        self._last_ai_block_alert = 0.0
         self._usage_day = today
         self._ai_reset_seen = float(state.get("ai_reset_at", 0) or 0)
         self._last_ai_alert_at_sec: float = 0
@@ -457,7 +527,10 @@ class BoGiamSatThongMinh:
 
                 self._kiem_tra_dat_lai(state)
                 cfg = load_config()
-                max_ai_min = int(cfg.get("max_ai_minutes", 15))
+                try:
+                    max_ai_min = max(0, int(cfg.get("max_ai_minutes", 15)))   # 0 = không cho dùng AI
+                except (TypeError, ValueError):
+                    max_ai_min = 15
                 bad_apps = [a.lower() for a in cfg.get("bad_apps", BAD_APPS)]
                 allowed_map = {
                     a["exe_name"].lower(): a["name"]
@@ -475,14 +548,36 @@ class BoGiamSatThongMinh:
                         # Gộp chung: app AI trên máy (đang ở trên cùng) cũng tính như web AI
                         app_ai = ai_app_label(fg_proc, cfg)
                         if app_ai and not verdict.get("exempt"):
-                            verdict = {**verdict, "is_ai": True, "should_block": False}
+                            g = ai_game_reason("", win_title, cfg) if str(cfg.get("ai_game_action", "block")) != "off" else ""
+                            verdict = {**verdict, "is_ai": True, "ai_game": bool(g), "reason": g or verdict.get("reason", ""),
+                                       "should_block": bool(g) and str(cfg.get("ai_game_action", "block")) == "block"}
                             ai_src = f"{app_ai} (ứng dụng)"
                         elif verdict["is_ai"]:
                             ai_src = f"{ai_web_label(current_url, win_title, cfg) or 'AI'} (web)"
                         else:
                             ai_src = ""
 
-                        if verdict["is_ai"] and active:
+                        game_action = str(cfg.get("ai_game_action", "block")).lower()
+                        # Nhận diện theo HÀNH VI: đang ở AI mà bấm liên tục mũi tên / WASD / Space = đang chơi game AI tạo
+                        if verdict["is_ai"] and active and not verdict.get("ai_game") and game_action != "off":
+                            tot, gamey = _key_stats(60)
+                            if gamey >= 40 and gamey >= 0.6 * tot:
+                                verdict = {**verdict, "ai_game": True, "should_block": game_action == "block",
+                                           "reason": f"Bấm phím điều khiển liên tục ({gamey} lần mũi tên/WASD/Space "
+                                                     f"trong 1 phút) khi đang mở {ai_src or 'AI'} — nghi chơi game do AI tạo"}
+
+                        if verdict.get("ai_game"):
+                            now_w = time.time()
+                            if verdict["should_block"]:
+                                _dong_cua_so_hien_tai(is_browser)
+                                gui_canh_bao_len_web(f"🎮🤖 Đã chặn: {verdict['reason']}", "AI_GAME")
+                                _reset_key_stats()
+                                time.sleep(1.5)
+                            elif now_w - self._last_ai_game_alert > 120:
+                                self._last_ai_game_alert = now_w
+                                gui_canh_bao_len_web(f"🎮🤖 Nghi chơi game trong AI: {verdict['reason']}", "AI_GAME")
+
+                        if verdict["is_ai"] and active and not (verdict.get("ai_game") and verdict["should_block"]):
                             # Chỉ tính khi tab AI đang ở trên cùng VÀ học sinh đang thao tác (không tính lúc bỏ máy)
                             self.ai_seconds += dt
                             self.ai_sources[ai_src] = self.ai_sources.get(ai_src, 0.0) + dt
@@ -501,8 +596,16 @@ class BoGiamSatThongMinh:
                                     f"— vượt giới hạn {max_ai_min} phút. Chi tiết: {chi_tiet}"
                                 )
                                 gui_canh_bao_len_web(msg, "AI_OVERUSE")
+                            # Phụ huynh chọn "Hết giờ thì chặn": đóng tab AI / cửa sổ app AI ngay khi vượt giới hạn
+                            if self.ai_seconds >= threshold_sec and str(cfg.get("ai_over_action", "warn")) == "block":
+                                _dong_cua_so_hien_tai(is_browser)
+                                if time.time() - self._last_ai_block_alert > 60:
+                                    self._last_ai_block_alert = time.time()
+                                    gui_canh_bao_len_web(
+                                        f"⛔ Đã đóng {ai_src or 'AI'}: hết {max_ai_min} phút dùng AI hôm nay", "AI_OVERUSE")
+                                time.sleep(1.5)
 
-                        elif verdict["should_block"] and is_browser:
+                        elif verdict["should_block"] and is_browser and not verdict.get("ai_game"):
                             pyautogui.hotkey("ctrl", "w")
                             msg = f"🚨 Đã tự động đóng Tab giải trí: [{verdict['reason']}]"
                             gui_canh_bao_len_web(msg, "GAME")
