@@ -299,6 +299,10 @@ class CloudAgent:
         self.tracker.start()
         while not _stop.is_set():
             try:
+                if self.ident.get("device_id") and load_runtime_state().get("cloud_pair_refresh"):
+                    update_runtime_state(cloud_pair_refresh=False)
+                    self.refresh_pair_code()
+                    _publish_local(self.ident)
                 due = time.time() - last_sent >= self.heartbeat_s
                 urgent = (not first) and time.time() - last_sent >= 3.0 and (self._urgent or self._has_pending_event())
                 if first or due or urgent:

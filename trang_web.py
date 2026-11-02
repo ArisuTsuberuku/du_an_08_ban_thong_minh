@@ -716,21 +716,55 @@ def _try_start_cloud_agent() -> None:
 
 CLOUD_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kết nối Cloud - Bảng Điều Khiển Bàn Học</title>
-<body style="font-family:system-ui;background:#0b1220;color:#e2e8f0;display:grid;place-items:center;min-height:90vh">
-<div style="background:#131c2e;padding:28px;border-radius:16px;max-width:460px;text-align:center">
+<body style="font-family:system-ui;background:#f4f6fb;color:#0f172a;display:grid;place-items:center;min-height:90vh;margin:0">
+<div style="background:#fff;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(15,23,42,.08);padding:28px;border-radius:16px;max-width:480px;text-align:center">
 {% if not c.enabled %}<h2>☁️ Chưa bật kết nối Cloud</h2><p>Thêm <code>"cloud_url"</code> vào <code>secrets.local.json</code> rồi khởi động lại.</p>
-{% elif c.paired %}<h2>✅ Máy đã được phụ huynh ghép</h2><p>Mã máy: {{ c.device_id }}</p>
-{% else %}<h2>🔗 Mã ghép máy</h2><div style="font-size:56px;letter-spacing:10px;font-weight:700">{{ c.pair_code or '......' }}</div>
-<p>Phụ huynh đăng nhập <b>{{ c.url }}</b> → <i>Thêm máy học sinh</i> → nhập mã này (hết hạn sau 15 phút, tự đổi mã mới).</p>{% endif %}
-{% if c.error %}<p style="color:#f87171">Lỗi kết nối: {{ c.error }}</p>{% endif %}
-</div><script>setTimeout(()=>location.reload(),10000)</script></body>"""
+{% else %}
+ {% if c.paired %}<h2>✅ Máy đã được phụ huynh ghép</h2><p style="color:#64748b">Mã máy: {{ c.device_id }}</p>{% endif %}
+ {% if c.code_valid %}
+  <h3 style="margin-bottom:4px">🔗 Mã ghép máy</h3>
+  <div style="font-size:56px;letter-spacing:10px;font-weight:700;color:#1d4ed8">{{ c.pair_code }}</div>
+  <p>Hết hạn lúc <b>{{ c.expires_hm }}</b> (còn {{ c.minutes_left }} phút).</p>
+  <p style="color:#64748b">Phụ huynh đăng nhập <b>{{ c.url }}</b> → <i>Thêm máy học sinh</i> → nhập mã.</p>
+ {% elif not c.paired %}<h2>⌛ Mã ghép đã hết hạn</h2>{% endif %}
+ <form method="post" action="/ket-noi-cloud/ma-moi"><button style="font:inherit;padding:10px 16px;border-radius:10px;border:1px solid #c7d2fe;background:#eef2ff;color:#1e3a8a;cursor:pointer">
+  🔄 {{ 'Tạo mã để thêm phụ huynh khác' if c.paired and not c.code_valid else 'Tạo mã mới' }}</button></form>
+ {% if c.refreshing %}<p style="color:#64748b">Đang xin mã mới từ server…</p>{% endif %}
+{% endif %}
+{% if c.error %}<p style="color:#dc2626">Lỗi kết nối: {{ c.error }}</p>{% endif %}
+</div><script>setTimeout(()=>location.href='/ket-noi-cloud',{{ 3000 if c.refreshing else 15000 }})</script></body>"""
+
+
+def _local_only() -> bool:
+    """Trang mã ghép chỉ mở trên chính máy học sinh (chặn máy khác trong Wi-Fi và qua Internet)."""
+    return (request.remote_addr or "") in ("127.0.0.1", "::1") and not _is_remote_request()
 
 
 @app.route("/ket-noi-cloud")
 def ket_noi_cloud():
-    cloud = load_runtime_state().get("cloud") or {}
-    return render_template_string(CLOUD_PAGE, c=type("C", (), {k: cloud.get(k) for k in (
-        "enabled", "paired", "device_id", "pair_code", "url", "error")})())
+    if not _local_only():
+        return Response("Chỉ mở được trên chính máy học sinh: http://127.0.0.1:5000/ket-noi-cloud", status=403)
+    st = load_runtime_state()
+    cloud = st.get("cloud") or {}
+    exp = int(cloud.get("pair_expires", 0) or 0)
+    left = exp - int(time.time())
+    view = {k: cloud.get(k) for k in ("enabled", "paired", "device_id", "pair_code", "url", "error")}
+    view.update(code_valid=bool(cloud.get("pair_code")) and left > 0, minutes_left=max(0, left // 60),
+                expires_hm=time.strftime("%H:%M", time.localtime(exp)) if exp else "",
+                refreshing=bool(st.get("cloud_pair_refresh")))
+    return render_template_string(CLOUD_PAGE, c=type("C", (), view)())
+
+
+@app.route("/ket-noi-cloud/ma-moi", methods=["POST"])
+def ket_noi_cloud_ma_moi():
+    if not _local_only():
+        return Response("403 Forbidden", status=403)
+    update_runtime_state(cloud_pair_refresh=True)  # cloud_agent xin mã mới ở vòng lặp kế tiếp (~1s)
+    return redirect_local("/ket-noi-cloud")
+
+
+def redirect_local(path: str):
+    return Response(status=303, headers={"Location": path})
 
 
 def _try_start_telegram_poller() -> None:
