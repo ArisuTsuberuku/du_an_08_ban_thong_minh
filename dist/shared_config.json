@@ -1,0 +1,120 @@
+{
+  "usernames": {
+    "admin": "admin",
+    "parent": "phuhuynh",
+    "student": "hocsinh"
+  },
+  "passwords": {
+    "admin": "admin123",
+    "parent": "phuhuynh123",
+    "student": "hocsinh123"
+  },
+  "kiosk_hide_explorer": false,
+  "enforce_app_whitelist": false,
+  "web_port": 5000,
+  "esp32_com_port": "COM3",
+  "allowed_apps": [
+    {
+      "name": "Google Chrome (Học tập)",
+      "exe_name": "chrome.exe",
+      "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    },
+    {
+      "name": "Microsoft Edge",
+      "exe_name": "msedge.exe",
+      "path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+    },
+    {
+      "name": "Sổ tay (Notepad)",
+      "exe_name": "notepad.exe",
+      "path": "notepad.exe"
+    },
+    {
+      "name": "Máy tính (Calculator)",
+      "exe_name": "CalculatorApp.exe",
+      "path": "calc.exe"
+    }
+  ],
+  "allowed_folders": [
+    "C:\\Users\\Public\\Documents",
+    "D:\\TaiLieuHocTap"
+  ],
+  "bad_tabs": [
+    "facebook",
+    "tiktok",
+    "shopee",
+    "phim",
+    "youtube",
+    "game",
+    "truyện",
+    "poki",
+    "y8"
+  ],
+  "bad_urls": [
+    "facebook.com",
+    "tiktok.com",
+    "shopee.vn",
+    "poki.com",
+    "y8.com",
+    "roblox.com",
+    "youtube.com/shorts",
+    "discord.com"
+  ],
+  "allowed_urls": [
+    "olm.vn",
+    "vietjack.com",
+    "hocmai.vn",
+    "scholar.google",
+    "github.com",
+    "docs.google.com",
+    "drive.google.com",
+    "wikipedia.org",
+    "khanacademy.org"
+  ],
+  "academic_keywords": [
+    "bài giảng",
+    "vật lý",
+    "vật lí",
+    "toán",
+    "hóa",
+    "hóa học",
+    "sinh học",
+    "tiếng anh",
+    "ngữ văn",
+    "lịch sử",
+    "địa lý",
+    "khtn",
+    "lập trình",
+    "python",
+    "ôn thi",
+    "chữa đề",
+    "học tập",
+    "stem",
+    "thí nghiệm"
+  ],
+  "bad_apps": [
+    "roblox",
+    "league",
+    "valorant",
+    "steam",
+    "fc_online",
+    "genshin"
+  ],
+  "ai_domains": [
+    "chatgpt.com",
+    "gemini.google.com",
+    "claude.ai",
+    "copilot.microsoft.com"
+  ],
+  "max_ai_minutes": 15,
+  "telegram": {
+    "bot_token": "",
+    "chat_id": "",
+    "enable_alerts": true,
+    "alert_on_game": true,
+    "alert_on_wrong_login": true,
+    "alert_on_ai_overuse": true,
+    "alert_on_posture": true,
+    "cooldown_seconds": 30
+  }
+}

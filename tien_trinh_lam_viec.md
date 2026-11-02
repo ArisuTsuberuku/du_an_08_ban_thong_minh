@@ -13,8 +13,8 @@
 | **Giai đoạn 3** | Web Server Dashboard Trung tâm (`trang_web.py` chạy `0.0.0.0:5000`, giữ nguyên `/api/nhan_canh_bao`, hỗ trợ PC & Android) | ✅ Đã hoàn thành |
 | **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ✅ Đã hoàn thành |
 | **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ✅ Đã hoàn thành |
-| **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ⏳ Đang thực hiện |
-| **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ⏳ Chờ thực hiện |
+| **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ✅ Đã hoàn thành |
+| **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ⏳ Đang thực hiện |
 
 ---
 
@@ -92,3 +92,17 @@
      - Mở lại `explorer.exe` và Task Manager gốc, cung cấp Bảng điều khiển 3 Tab cho Phụ huynh (Quản lý `.exe` & Thư mục, Chính sách Web/AI/Game, Báo cáo thống kê & Lịch sử vi phạm) và Bảng Quản trị Hệ thống cho Admin (Kiosk `explorer.exe`, cổng Web/COM ESP32-S3, đổi mật khẩu 3 cấp, Thoát hoàn toàn phần mềm).
      - Tự động khởi chạy ngầm `trang_web.py` cổng `5000` suốt vòng đời ứng dụng.
 - **Kiểm thử:** Chạy `python he_thong_quan_ly_3_cap.py --self-test` kiểm chứng toàn bộ 4 màn hình UI + Student Task Manager + Embedded Web Server thành công 100%.
+
+---
+
+### ✅ Giai đoạn 6: Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`) & Kiểm thử Nghiệm thu
+- **Thời gian hoàn thành:** 02/11/2026
+- **Các công việc đã thực hiện:**
+  1. Xây dựng script đóng gói tự động `build_exe.bat` với PyInstaller 6.22.0:
+     - Tham số chuẩn: `--onefile --noconsole --uac-admin --name SmartDeskLauncher`
+     - Đóng gói kèm thư viện DLL gốc `--collect-data uiautomation` để đọc thanh địa chỉ trình duyệt trực tiếp bên trong file `.exe`.
+     - Loại trừ các thư viện khoa học dữ liệu không cần thiết (`numpy`, `scipy`, `pandas`, `onnxruntime`...) giúp dung lượng `dist/SmartDeskLauncher.exe` tối ưu chỉ **~24.5 MB**, khởi động nhanh.
+     - Tự động sao chép `shared_config.json` và `KHOI_PHUC_KHAN_CAP.bat` vào thư mục `dist/`.
+  2. Chạy kiểm thử thực tế trực tiếp trên file thực thi đã biên dịch `dist\SmartDeskLauncher.exe --self-test`:
+     - Mã thoát: `ExitCode = 0`
+     - `self_test_passed = true`, `uia_available = true`, Embedded Flask Server cổng `5000` phản hồi `200 OK`, tự động định vị đúng thư mục `dist/` thông qua `sys.executable`.

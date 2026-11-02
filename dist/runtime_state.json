@@ -1,0 +1,31 @@
+{
+  "updated_at": "2026-11-02 11:12:16",
+  "current_role": "locked",
+  "monitoring_active": false,
+  "remote_lock_requested": false,
+  "ai_seconds": 0,
+  "app_usage": {
+    "Microsoft Edge (msedge.exe)": 2
+  },
+  "alerts": [],
+  "posture_telemetry": {
+    "calibrated": false,
+    "visual_focus_score": 100.0,
+    "cfi_score": 100.0,
+    "ear": 0.3,
+    "perclos": 0.0,
+    "mar": 0.1,
+    "pitch_deg": 0.0,
+    "roll_deg": 0.0,
+    "hands_on_desk": true,
+    "alerts": []
+  },
+  "hardware_box": {
+    "connected": false,
+    "phone_docked": false,
+    "com_port": "COM3"
+  },
+  "self_test_passed": true,
+  "uia_available": true,
+  "telegram_ready": false
+}

@@ -1149,9 +1149,10 @@ def run_self_test() -> int:
     """
     Chế độ tự kiểm tra tự động (--self-test):
     Khởi tạo giao diện ẩn nhanh, đi qua đủ 4 màn hình (Lock -> Student + Task Manager -> Parent -> Admin),
-    kiểm tra Web Server nhúng cổng 5000, khôi phục sạch sẽ Windows rồi thoát mã 0.
+    kiểm tra uiautomation DLL, Web Server nhúng cổng 5000, khôi phục sạch sẽ Windows rồi thoát mã 0.
     """
     import requests as req
+    from services.giam_sat_worker import UIA_AVAILABLE
 
     ensure_data_files_exist()
     start_web_server_in_background()
@@ -1174,16 +1175,28 @@ def run_self_test() -> int:
     app_ui.vao_che_do_admin()
     root.update_idletasks()
 
-    # Kiểm tra Web Server nhúng đang phản hồi
+    # Kiểm tra Web Server nhúng & uiautomation DLL trong bản đóng gói
     cfg = load_config()
     port = int(cfg.get("web_port", 5000))
     resp = req.get(f"http://127.0.0.1:{port}/api/du_lieu_dashboard", timeout=2)
     assert resp.status_code == 200, f"Dashboard HTTP lỗi: {resp.status_code}"
+    dash_json = resp.json()
+    assert UIA_AVAILABLE is True, "uiautomation chưa khả dụng trong môi trường đóng gói!"
 
     restore_windows_normal_state()
     stop_web_server_in_background()
+    update_runtime_state(
+        current_role="locked",
+        monitoring_active=False,
+        self_test_passed=True,
+        uia_available=UIA_AVAILABLE,
+        telegram_ready=bool(dash_json.get("telegram_ready", False)),
+    )
     root.destroy()
-    safe_log("[SELF-TEST PASS] Tất cả 4 màn hình UI + Student Task Manager + Embedded Web Server hoạt động hoàn hảo!")
+    safe_log(
+        f"[SELF-TEST PASS] UIA={UIA_AVAILABLE} | Telegram={dash_json.get('telegram_ready')} | "
+        "Tất cả 4 màn hình UI + Student Task Manager + Embedded Web Server hoạt động hoàn hảo!"
+    )
     return 0
 
 
