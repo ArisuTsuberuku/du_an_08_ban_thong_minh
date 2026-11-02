@@ -65,6 +65,9 @@ HAND_EDGES = (
     (9, 13), (13, 14), (14, 15), (15, 16), (13, 17), (17, 18), (18, 19), (19, 20), (0, 17),
 )
 CALIBRATION_SECONDS = 5.0
+AI_PROC_WIDTH = 640            # độ rộng ảnh đưa vào MediaPipe
+LIVE_WIDTH, LIVE_QUALITY = 480, 60      # xem trực tiếp: nhẹ, ~10-15 KB/khung
+FULL_QUALITY = 90                       # ảnh chụp: giữ nguyên độ phân giải gốc
 IRIS_DIAMETER_CM = 1.17        # đường kính mống mắt người gần như hằng số (~11.7mm) -> thước đo khoảng cách
 OUTER_CANTHAL_CM = 8.8         # khoảng cách 2 đuôi mắt trung bình (dự phòng khi không có điểm iris)
 # Tai: lấy từ viền lưới mặt (ngang tragus) thay cho Pose 7/8 vốn lệch khi đeo kính / tóc che
@@ -137,6 +140,7 @@ class PostureAIEngine:
         self._last_cam_probe_time = 0.0
         self._read_fail_count = 0
         self._black_frame_count = 0
+        self.last_raw_frame: Optional[np.ndarray] = None   # khung GỐC độ phân giải đầy đủ (không lớp AI)
         self._last_cam_reason = ""
         try:
             self.draw_landmarks = bool(load_config().get("posture_draw_landmarks", True))
@@ -241,7 +245,9 @@ class PostureAIEngine:
         except Exception:
             cfg = {}
         try:
-            cap, info = open_best_camera(cfg, fallback_index=self.camera_index)
+            cap, info = open_best_camera(cfg, fallback_index=self.camera_index,
+                                         width=int(cfg.get("camera_width", 1280)),
+                                         height=int(cfg.get("camera_height", 720)))
         except Exception as exc:
             cap, info = None, {"ok": False, "reason": "OPEN_FAILED", "message": str(exc),
                                "message_ascii": "Loi mo Webcam", "hint": "", "devices": []}
@@ -828,14 +834,20 @@ class PostureAIEngine:
                 self._read_fail_count = 0
             return self._build_no_camera_placeholder()
         self._read_fail_count = 0
+        self.last_raw_frame = frame
+        # AI chỉ cần ảnh ~640px: thu nhỏ để giữ tốc độ khi webcam chạy 720p/1080p (tọa độ điểm mốc là tỉ lệ nên không đổi)
+        proc = frame
+        if frame.shape[1] > AI_PROC_WIDTH:
+            scale = AI_PROC_WIDTH / frame.shape[1]
+            proc = cv2.resize(frame, (AI_PROC_WIDTH, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
 
         # Khung hình đen liên tục = Webcam đang bị tiến trình khác giữ (vd: trang_web.py đã bật AI) hoặc nắp che camera
-        small = frame[::8, ::8]
+        small = frame[::16, ::16]
         if float(small.mean()) < 4.0 and float(small.std()) < 3.0:
             self._black_frame_count += 1
         else:
             self._black_frame_count = 0
-        jpeg_bytes, telemetry = self.process_bgr_frame(frame)
+        jpeg_bytes, telemetry = self.process_bgr_frame(proc)
         if self._black_frame_count >= 30:
             if self._black_frame_count == 30:
                 safe_log("[CAMERA] Webcam trả về khung hình ĐEN liên tục: đang bị ứng dụng khác dùng "
@@ -851,6 +863,20 @@ class PostureAIEngine:
                     jpeg_bytes = enc.tobytes()
             telemetry["camera_warning"] = "BLACK_FRAME"
         return jpeg_bytes, telemetry
+
+    def encode_raw(self, kind: str = "live") -> bytes:
+        """Mã hóa khung GỐC (không lớp AI): live = 480px q60, full = độ phân giải gốc q90."""
+        frame = self.last_raw_frame
+        if frame is None:
+            return b""
+        if kind == "live":
+            if frame.shape[1] > LIVE_WIDTH:
+                scale = LIVE_WIDTH / frame.shape[1]
+                frame = cv2.resize(frame, (LIVE_WIDTH, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+            ok, enc = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), LIVE_QUALITY])
+        else:
+            ok, enc = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), FULL_QUALITY])
+        return enc.tobytes() if ok else b""
 
     def release(self) -> None:
         if self.cap is not None:
@@ -886,10 +912,13 @@ class PostureAIServiceWorker:
         camera_index: int = 0,
         push_via_http: bool = False,
         frame_callback: Optional[Any] = None,
+        raw_callback: Optional[Any] = None,
     ):
         self.camera_index = camera_index
         self.push_via_http = push_via_http
         self.frame_callback = frame_callback
+        self.raw_callback = raw_callback
+        self._last_full_t = 0.0
         self.running = False
         self._engine: Optional[PostureAIEngine] = None
         self._thread: Optional[threading.Thread] = None
@@ -911,6 +940,29 @@ class PostureAIServiceWorker:
     def recalibrate(self) -> None:
         if self._engine is not None:
             self._engine.reset_calibration()
+
+    def _publish_raw(self, now: float, port: int) -> None:
+        """Đẩy khung GỐC cho phụ huynh: live mỗi khung, full (độ phân giải gốc) mỗi 1 giây."""
+        if self._engine is None or self._engine.last_raw_frame is None:
+            return
+        kinds = ["live"] + (["full"] if now - self._last_full_t >= 1.0 else [])
+        if "full" in kinds:
+            self._last_full_t = now
+        for kind in kinds:
+            jpg = self._engine.encode_raw(kind)
+            if not jpg:
+                continue
+            if self.raw_callback is not None:
+                try:
+                    self.raw_callback(kind, jpg)
+                except Exception:
+                    pass
+            elif self.push_via_http:
+                try:
+                    requests.post(f"http://127.0.0.1:{port}/api/posture_frame?kind={kind}", data=jpg,
+                                  headers={"Content-Type": "image/jpeg"}, timeout=0.5)
+                except Exception:
+                    pass
 
     def _emit_posture_violation(self, telemetry: Dict[str, Any], cfg: Dict[str, Any]) -> None:
         cfi = float(telemetry.get("visual_focus_score", 100.0))
@@ -945,6 +997,7 @@ class PostureAIServiceWorker:
                 now = time.time()
                 cfg = load_config()
                 port = int(cfg.get("web_port", 5000))
+                self._publish_raw(now, port)
 
                 # Theo dõi ngưỡng CFI < 50% duy trì liên tục > 15 giây để bắn cảnh báo POSTURE_OR_HW
                 cfi = float(telemetry.get("visual_focus_score", 100.0))

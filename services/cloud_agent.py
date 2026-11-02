@@ -83,7 +83,9 @@ class CloudAgent:
         self._urgent = False
         from services.activity_tracker import ActivityTracker
 
-        self.tracker = ActivityTracker(batch_s=60.0)
+        self.tracker = ActivityTracker(batch_s=30.0)
+        self._monitor = None          # bộ giám sát "luôn bật" do agent quản lý (khi học sinh chưa đăng nhập)
+        self._last_monitor_check = 0.0
 
     # ---------------- HTTP ----------------
     def _auth(self) -> Dict[str, str]:
@@ -130,10 +132,12 @@ class CloudAgent:
             "rules": {"apps": cfg.get("bad_apps", []), "domains": cfg.get("bad_urls", []),
                       "keywords": cfg.get("bad_tabs", [])},
             "rules_ver": int(cfg.get("rules_ver", 0) or 0),
+            "monitor_always": bool(cfg.get("monitor_always", False)),
+            "monitoring": bool(st.get("monitoring_active")),
+            "dns_block": cfg.get("dns_block_status", ""),
             "hostname": socket.gethostname(),
             "version": AGENT_VERSION,
             "role": st.get("current_role", "?"),
-            "monitoring": bool(st.get("monitoring_active")),
             "ai_seconds": int(st.get("ai_seconds", 0) or 0),
             "max_ai_minutes": cfg.get("max_ai_minutes"),
             "top_apps": [{"name": k, "seconds": v} for k, v in top_apps],
@@ -175,6 +179,8 @@ class CloudAgent:
         if res.get("rules"):
             self._apply_rules(res["rules"])
         self.heartbeat_s = int(res.get("heartbeat_s", self.heartbeat_s) or 30)
+        # Phụ huynh đang xem -> gom báo cáo hoạt động 10s/lô cho gần thời gian thực; bình thường 30s
+        self.tracker.batch_s = 10.0 if self.heartbeat_s <= 10 else 30.0
         paired = bool(res.get("paired"))
         if paired != bool(self.ident.get("paired")):
             self.ident["paired"] = paired
@@ -243,6 +249,36 @@ class CloudAgent:
                            "time": time.strftime("%H:%M:%S")})
         self._urgent = True  # báo kết quả ngay cho phụ huynh
 
+    def _tunnel_keeper(self) -> None:
+        try:
+            from services.live_view import ensure_tunnel, find_cloudflared
+        except Exception:
+            return
+        while not _stop.is_set():
+            if find_cloudflared():
+                ensure_tunnel()
+            _stop.wait(60)
+
+    def _ensure_monitor(self) -> None:
+        """
+        Giám sát "luôn bật": chặn game / web cấm + báo phụ huynh ngay cả khi học sinh chưa đăng nhập app 3 cấp.
+        Khi học sinh đăng nhập, app 3 cấp tự chạy bộ giám sát riêng -> agent nhường để không chạy trùng.
+        """
+        try:
+            want = bool(load_config().get("monitor_always", False)) and load_runtime_state().get("current_role") != "student"
+            running = self._monitor is not None and self._monitor.dang_chay
+            if want and not running:
+                from services.giam_sat_worker import BoGiamSatThongMinh
+
+                self._monitor = BoGiamSatThongMinh()
+                self._monitor.bat_dau()
+                safe_log("[CLOUD] Bật giám sát luôn-bật (học sinh chưa đăng nhập).")
+            elif not want and running:
+                self._monitor.dung_lai()
+                self._monitor = None
+        except Exception as exc:
+            safe_log(f"[CLOUD] Lỗi bộ giám sát luôn-bật: {exc}")
+
     def _apply_rules(self, rules: Dict[str, Any]) -> None:
         """Cấu hình chặn từ xa -> shared_config (giam_sat_worker đọc lại mỗi vòng quét)."""
         def clean(v):
@@ -253,15 +289,24 @@ class CloudAgent:
         cfg["bad_urls"] = [d.replace("https://", "").replace("http://", "").split("/")[0] for d in clean(rules.get("domains"))]
         cfg["bad_tabs"] = clean(rules.get("keywords"))
         cfg["rules_ver"] = int(rules.get("ver", 0) or 0)
+        if "monitor_always" in rules:
+            cfg["monitor_always"] = bool(rules.get("monitor_always"))
+        dns_on = bool(rules.get("dns_block", True))
+        from services.hosts_blocker import apply_hosts_block
+
+        ok_dns, dns_msg = apply_hosts_block(cfg["bad_urls"] if dns_on else [])
+        cfg["dns_block_status"] = dns_msg
         save_config(cfg)
+        self._last_monitor_check = 0.0
         safe_log(f"[CLOUD] Đã áp dụng cấu hình chặn mới (ver {cfg['rules_ver']}).")
         self._acks.append({"id": "", "type": "rules", "ok": True, "time": time.strftime("%H:%M:%S"),
                            "msg": f"Đã áp dụng: {len(cfg['bad_apps'])} app, {len(cfg['bad_urls'])} trang web, "
-                                  f"{len(cfg['bad_tabs'])} từ khóa"})
+                                  f"{len(cfg['bad_tabs'])} từ khóa · {dns_msg} · giám sát "
+                                  f"{'luôn bật' if cfg.get('monitor_always') else 'khi học sinh đăng nhập'}"})
         self._urgent = True
 
     def _send_snapshot(self, chat_id: str) -> None:
-        from services.posture_controller import get_latest_posture_frame, has_live_posture_stream, posture_manager
+        from services.posture_controller import get_latest_raw_frame, has_live_posture_stream, posture_manager
 
         started_here = False
         if not has_live_posture_stream():
@@ -271,7 +316,7 @@ class CloudAgent:
                     break
                 time.sleep(0.25)
             time.sleep(1.0)
-        jpg = get_latest_posture_frame() if has_live_posture_stream() else b""
+        jpg = get_latest_raw_frame("full") if has_live_posture_stream() else b""  # ảnh gốc full, không lớp AI
         if started_here:
             posture_manager.stop()
         if not jpg:
@@ -297,8 +342,13 @@ class CloudAgent:
         backoff = 5
         last_sent = 0.0
         self.tracker.start()
+        # Mở sẵn đường truyền Internet cho camera (nếu đã cài cloudflared) -> bấm "Xem trực tiếp" hiện hình nhanh
+        threading.Thread(target=self._tunnel_keeper, name="TunnelKeeper", daemon=True).start()
         while not _stop.is_set():
             try:
+                if time.time() - self._last_monitor_check >= 5.0:
+                    self._last_monitor_check = time.time()
+                    self._ensure_monitor()
                 if self.ident.get("device_id") and load_runtime_state().get("cloud_pair_refresh"):
                     update_runtime_state(cloud_pair_refresh=False)
                     self.refresh_pair_code()
@@ -373,3 +423,9 @@ def start_cloud_agent() -> bool:
 
 def stop_cloud_agent() -> None:
     _stop.set()
+    try:
+        from services.live_view import shutdown_tunnel
+
+        shutdown_tunnel()
+    except Exception:
+        pass

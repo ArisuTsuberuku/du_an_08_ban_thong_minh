@@ -56,46 +56,57 @@ def token_valid(tok: str) -> bool:
     return bool(info.get("active") and tok and secrets.compare_digest(str(info.get("token", "")), tok))
 
 
-def start_live(lan_ip: str) -> Dict[str, Any]:
-    """Bật xem trực tiếp: tạo token mới, mở Quick Tunnel nếu có cloudflared. Trả về thông tin link."""
+def ensure_tunnel() -> str:
+    """
+    Giữ SẴN 1 Cloudflare Quick Tunnel suốt phiên chạy (mở 1 lần mất 5-25s) để bấm "Xem trực tiếp"
+    hiện hình gần như ngay. Hình chỉ chảy khi có token hợp lệ, nên tunnel mở sẵn vẫn không lộ gì.
+    Trả về địa chỉ gốc https://xxx.trycloudflare.com hoặc "" nếu không có cloudflared.
+    """
     global _proc
     with _lock:
-        port = int(load_config().get("web_port", 5000))
-        token = secrets.token_urlsafe(16)
-        info: Dict[str, Any] = {"active": True, "token": token, "expires": int(time.time()) + LIVE_TTL_S,
-                                "lan_url": f"http://{lan_ip}:{port}/live?t={token}", "public_url": "", "note": ""}
+        tun = load_runtime_state().get("tunnel") or {}
+        if _proc is not None and _proc.poll() is None and tun.get("base"):
+            return tun["base"]
         cf = find_cloudflared()
-        if _proc is not None and _proc.poll() is None:
-            old = load_runtime_state().get("live") or {}
-            info["public_base"] = old.get("public_base", "")
-        elif cf:
-            try:
-                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                _proc = subprocess.Popen([cf, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
-                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                         encoding="utf-8", errors="ignore", creationflags=flags)
-                deadline = time.time() + 25
-                base = ""
-                while time.time() < deadline and _proc.poll() is None:
-                    line = _proc.stdout.readline()
-                    m = _URL_RE.search(line or "")
-                    if m:
-                        base = m.group(0)
-                        break
-                info["public_base"] = base
-                if not base:
-                    info["note"] = "cloudflared chưa trả về link (mạng chặn?)"
-                else:
-                    threading.Thread(target=_drain, args=(_proc,), daemon=True).start()
-            except Exception as exc:
-                info["note"] = f"Lỗi cloudflared: {exc}"
-        else:
-            info["note"] = "Chưa cài cloudflared -> chỉ xem được khi cùng Wi-Fi (winget install Cloudflare.cloudflared)"
-        if info.get("public_base"):
-            info["public_url"] = f"{info['public_base']}/live?t={token}"
-        update_runtime_state(live=info)
-        safe_log(f"[LIVE] Bật xem trực tiếp: LAN={info['lan_url']} | Internet={info['public_url'] or '(không có)'}")
-        return info
+        if not cf:
+            update_runtime_state(tunnel={"base": "", "note": "Chưa cài cloudflared"})
+            return ""
+        port = int(load_config().get("web_port", 5000))
+        try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            _proc = subprocess.Popen([cf, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                     encoding="utf-8", errors="ignore", creationflags=flags)
+            deadline = time.time() + 30
+            base = ""
+            while time.time() < deadline and _proc.poll() is None:
+                m = _URL_RE.search(_proc.stdout.readline() or "")
+                if m:
+                    base = m.group(0)
+                    break
+            if base:
+                threading.Thread(target=_drain, args=(_proc,), daemon=True).start()
+                safe_log(f"[LIVE] Đường truyền Internet sẵn sàng: {base}")
+            update_runtime_state(tunnel={"base": base, "note": "" if base else "cloudflared chưa trả về link"})
+            return base
+        except Exception as exc:
+            update_runtime_state(tunnel={"base": "", "note": f"Lỗi cloudflared: {exc}"})
+            return ""
+
+
+def start_live(lan_ip: str) -> Dict[str, Any]:
+    """Bật xem trực tiếp: tạo token mới (15 phút) trên tunnel đã mở sẵn. Trả về thông tin link."""
+    base = ensure_tunnel()
+    port = int(load_config().get("web_port", 5000))
+    token = secrets.token_urlsafe(16)
+    info: Dict[str, Any] = {"active": True, "token": token, "expires": int(time.time()) + LIVE_TTL_S,
+                            "lan_url": f"http://{lan_ip}:{port}/live?t={token}",
+                            "public_url": f"{base}/live?t={token}" if base else "",
+                            "note": "" if base else ((load_runtime_state().get("tunnel") or {}).get("note")
+                                                     or "Chỉ xem được trong Wi-Fi nhà")}
+    update_runtime_state(live=info)
+    safe_log(f"[LIVE] Bật xem trực tiếp: LAN={info['lan_url']} | Internet={info['public_url'] or '(không có)'}")
+    return info
 
 
 def _drain(p: subprocess.Popen) -> None:
@@ -107,6 +118,11 @@ def _drain(p: subprocess.Popen) -> None:
 
 
 def stop_live() -> None:
+    """Thu hồi token (link cũ hết hiệu lực ngay). Tunnel vẫn giữ để lần sau mở nhanh."""
+    update_runtime_state(live={"active": False})
+
+
+def shutdown_tunnel() -> None:
     global _proc
     with _lock:
         if _proc is not None:
@@ -119,4 +135,4 @@ def stop_live() -> None:
                 except Exception:
                     pass
             _proc = None
-        update_runtime_state(live={"active": False})
+        update_runtime_state(tunnel={"base": ""})

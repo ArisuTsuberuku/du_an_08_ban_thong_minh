@@ -575,7 +575,9 @@ def api_parent_rules(did):
         return [str(x).strip().lower()[:80] for x in (v or []) if str(x).strip()][:200]
 
     rules = {"apps": clean(data.get("apps")), "domains": clean(data.get("domains")),
-             "keywords": clean(data.get("keywords")), "ver": int(time.time() * 1000), "by": uid}
+             "keywords": clean(data.get("keywords")), "ver": int(time.time() * 1000), "by": uid,
+             "monitor_always": bool(data.get("monitor_always", False)), "dns_block": bool(data.get("dns_block", True)),
+             "groups": [str(g)[:30] for g in (data.get("groups") or [])][:20]}
     db.set(f"devices/{did}/rules", rules)
     mark_watching(did, force=True)
     return jsonify({"ok": True, "message": "Đã lưu. Máy sẽ áp dụng trong ≤30 giây."})

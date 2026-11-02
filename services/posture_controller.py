@@ -18,7 +18,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 from core.config_manager import get_app_dir, load_config, safe_log, update_runtime_state
 
@@ -148,6 +148,25 @@ def set_latest_posture_frame(jpeg_bytes: bytes) -> None:
         _latest_ts = time.time()
 
 
+# Hình GỐC (không vẽ lớp AI) cho phụ huynh: "live" = 480px nhẹ cho xem trực tiếp, "full" = độ phân giải gốc cho ảnh chụp
+_raw_frames: Dict[str, Tuple[bytes, float]] = {}
+
+
+def set_latest_raw_frame(kind: str, jpeg_bytes: bytes) -> None:
+    if jpeg_bytes and kind in ("live", "full"):
+        with _frame_lock:
+            _raw_frames[kind] = (jpeg_bytes, time.time())
+
+
+def get_latest_raw_frame(kind: str = "live", max_age_sec: float = 5.0) -> bytes:
+    """Khung hình gốc mới nhất (không lớp AI); thiếu thì dùng bản có lớp AI / ảnh chờ."""
+    with _frame_lock:
+        item = _raw_frames.get(kind) or _raw_frames.get("live")
+        if item and time.time() - item[1] <= max_age_sec:
+            return item[0]
+    return get_latest_posture_frame(max_age_sec)
+
+
 def get_latest_posture_frame(max_age_sec: float = 5.0) -> bytes:
     """Lấy khung hình MJPEG mới nhất; nếu Camera đang nghỉ thì trả về ảnh chờ STANDBY_POSTURE_JPEG."""
     with _frame_lock:
@@ -271,6 +290,7 @@ class PostureAIManager:
                         camera_index=cam_idx,
                         push_via_http=False,
                         frame_callback=lambda jpg, _tel: set_latest_posture_frame(jpg),
+                        raw_callback=set_latest_raw_frame,
                     )
                     self._worker.start()
                     safe_log("[AI] Đã bật luồng AI Nhận diện Tư thế 3D trực tiếp trong tiến trình.")

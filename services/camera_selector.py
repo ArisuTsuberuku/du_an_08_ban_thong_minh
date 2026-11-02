@@ -173,6 +173,9 @@ def _try_open(index: int, backend: int, width: int, height: int, warmup_s: float
     if not cap.isOpened():
         cap.release()
         return None, "OPEN_FAILED"
+    if backend == getattr(cv2, "CAP_DSHOW", -1):
+        # MJPG cho phép webcam USB chạy 720p/1080p ở 30fps (YUY2 thường tụt còn 5-10fps)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     deadline = time.time() + warmup_s

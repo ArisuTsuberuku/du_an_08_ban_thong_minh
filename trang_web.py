@@ -27,7 +27,9 @@ from core.config_manager import (
 from services.posture_controller import (
     consume_recalibration_request,
     get_latest_posture_frame,
+    get_latest_raw_frame,
     has_live_posture_stream,
+    set_latest_raw_frame,
     posture_manager,
     set_latest_posture_frame,
 )
@@ -259,7 +261,10 @@ def nhan_posture_telemetry():
 def nhan_posture_frame():
     """Nhận khung hình JPEG đã vẽ lớp phủ thông số từ tiến trình Sidecar AI lưu vào bộ đệm RAM cục bộ."""
     raw = request.get_data()
-    if raw:
+    kind = request.args.get("kind", "")
+    if raw and kind in ("live", "full"):
+        set_latest_raw_frame(kind, raw)   # khung gốc cho phụ huynh (không lớp AI)
+    elif raw:
         set_latest_posture_frame(raw)
     return jsonify({"status": "ok"})
 
@@ -330,20 +335,22 @@ LIVE_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" conten
 <body style="margin:0;font-family:system-ui;background:#f4f6fb;color:#0f172a">
 <div style="max-width:720px;margin:0 auto;padding:12px">
 <h3 style="margin:8px 0">📺 Camera bàn học (trực tiếp, không qua cloud)</h3>
-<img id="v" src="/video_feed?t={{ t }}&fps={{ fps }}" style="width:100%;border-radius:12px;background:#000">
+<img id="v" src="/video_feed?t={{ t }}&fps={{ fps }}&raw=1" style="width:100%;border-radius:12px;background:#000">
 <p><a href="/snapshot.jpg?t={{ t }}" download="anh_ban_hoc.jpg">📸 Tải ảnh chụp</a> ·
 <span style="color:#64748b">Link tự hết hạn sau 15 phút.</span></p></div></body>"""
 
 
 @app.route("/live")
 def live_page():
-    fps = max(1, min(12, int(request.args.get("fps", "5") or 5)))
+    fps = max(1, min(12, int(request.args.get("fps", "8") or 8)))
     return render_template_string(LIVE_PAGE, t=request.args.get("t", ""), fps=fps)
 
 
 @app.route("/snapshot.jpg")
 def snapshot_jpg():
-    return Response(get_latest_posture_frame(), mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+    """Ảnh chụp cho phụ huynh: độ phân giải gốc của webcam, KHÔNG có lớp vẽ AI."""
+    return Response(get_latest_raw_frame("full"), mimetype="image/jpeg",
+                    headers={"Cache-Control": "no-store", "Content-Disposition": 'inline; filename="anh_ban_hoc.jpg"'})
 
 
 @app.route("/video_feed")
@@ -355,16 +362,23 @@ def video_feed():
         fps = max(1.0, min(12.0, float(request.args.get("fps", "12") or 12)))
     except ValueError:
         fps = 12.0
-    if _is_remote_request():
-        fps = min(fps, 6.0)  # qua Internet: giới hạn 6 khung/giây cho nhẹ băng thông (~200 KB/s)
+    # Phụ huynh (qua Internet hoặc ?raw=1): hình GỐC 480px không lớp AI, 8 khung/giây (~100 KB/s)
+    raw_mode = _is_remote_request() or request.args.get("raw") == "1"
+    if raw_mode:
+        fps = min(fps, 8.0)
 
     def _gen_mjpeg():
+        last = None
         while True:
-            jpg = get_latest_posture_frame()
-            yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
+            jpg = get_latest_raw_frame("live") if raw_mode else get_latest_posture_frame()
+            if jpg is not last:  # chỉ gửi khung MỚI (không dồn khung cũ -> giảm trễ)
+                last = jpg
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpg)).encode()
+                       + b"\r\n\r\n" + jpg + b"\r\n")
             time.sleep(1.0 / fps if has_live_posture_stream() else 0.45)
 
-    return Response(_gen_mjpeg(), mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(_gen_mjpeg(), mimetype="multipart/x-mixed-replace; boundary=frame",
+                    headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
 
 
 # =====================================================================
