@@ -41,6 +41,16 @@ class _FirebaseStore:
         self.url = url
         self._creds = None
         self._lock = threading.Lock()
+        self._local = threading.local()
+
+    def _session(self) -> requests.Session:
+        """Giữ kết nối HTTPS (keep-alive) giữa các lần gọi trong cùng 1 phiên bản hàm đang ấm: bỏ bắt tay TLS mỗi
+        lần gọi -> nhanh hơn nhiều và Firebase không tính thêm dung lượng bắt tay vào hạn mức tải xuống."""
+        s = getattr(self._local, "s", None)
+        if s is None:
+            s = requests.Session()
+            self._local.s = s
+        return s
 
     def _token(self) -> str:
         with self._lock:
@@ -62,24 +72,26 @@ class _FirebaseStore:
     def _req(self, method: str, path: str, data: Any = None, params: Optional[Dict[str, str]] = None) -> Any:
         url = f"{self.url}/{path.strip('/')}.json"
         headers = {"Authorization": f"Bearer {self._token()}"}
-        resp = requests.request(method, url, json=data, params=params, headers=headers, timeout=8)
+        resp = self._session().request(method, url, json=data, params=params, headers=headers, timeout=8)
         resp.raise_for_status()
         return resp.json() if resp.content else None
 
-    def get(self, path: str) -> Any:
-        return self._req("GET", path)
+    def get(self, path: str, shallow: bool = False) -> Any:
+        """shallow=True: chỉ lấy tên khóa con ({khóa: true}) — rất nhẹ, dùng để biết 'có hay không'."""
+        return self._req("GET", path, params={"shallow": "true"} if shallow else None)
 
+    # print=silent: Firebase không gửi lại dữ liệu vừa ghi (mặc định có gửi lại -> tốn hạn mức TẢI XUỐNG 10 GB/tháng)
     def set(self, path: str, value: Any) -> None:
-        self._req("PUT", path, value)
+        self._req("PUT", path, value, params={"print": "silent"})
 
     def update(self, path: str, values: Dict[str, Any]) -> None:
-        self._req("PATCH", path, values)
+        self._req("PATCH", path, values, params={"print": "silent"})
 
     def push(self, path: str, value: Any) -> str:
         return self._req("POST", path, value)["name"]
 
     def delete(self, path: str) -> None:
-        self._req("DELETE", path)
+        self._req("DELETE", path, params={"print": "silent"})
 
 
 class _LocalStore:
@@ -106,13 +118,15 @@ class _LocalStore:
     def _parts(path: str):
         return [p for p in path.strip("/").split("/") if p]
 
-    def get(self, path: str) -> Any:
+    def get(self, path: str, shallow: bool = False) -> Any:
         with self._lock:
             node: Any = self._load()
             for p in self._parts(path):
                 if not isinstance(node, dict) or p not in node:
                     return None
                 node = node[p]
+            if shallow and isinstance(node, dict):
+                return {k: True for k in node}
             return node
 
     def _write(self, path: str, fn) -> Any:

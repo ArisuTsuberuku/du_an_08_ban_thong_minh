@@ -110,3 +110,20 @@ TELEGRAM_WEBHOOK_SECRET=test python app.py      # dùng DB JSON cục bộ %TEMP
 - Server phân loại Học tập/Giải trí/Khác (Gemini nếu có `GEMINI_API_KEY`, ngược lại theo luật), lưu `activity/{máy}/{ngày}`.
 - Dashboard: **📊 Báo cáo hoạt động** (chọn ngày, thanh tỉ lệ, bảng chi tiết) và **🔒 Cấu hình chặn từ xa**
   (app / tên miền / từ khóa → đồng bộ vào `shared_config.json` của máy).
+
+## Ngân sách gói miễn phí (Vercel Hobby + Firebase Spark)
+
+Hàm chạy ở **Singapore (`sin1`, file `vercel.json`)** — cùng vùng với Firebase `asia-southeast1`. Trước đây hàm chạy ở
+Mỹ (`iad1`): mỗi lần đọc Firebase mất ~0,5 s, heartbeat ~2–3 s, tốn "Provisioned Memory" gấp ~30 lần.
+
+Giả định 1 máy: bật 8 giờ/ngày, phụ huynh mở web 1 giờ/ngày, 30 ngày.
+
+| Hạng mục | Mỗi máy / tháng | Hạn mức miễn phí | Đủ cho |
+| --- | --- | --- | --- |
+| Lượt gọi hàm (heartbeat 15 s / 2 s + web phụ huynh 4 s) | ~140 nghìn | 1 triệu | ~7 máy |
+| Active CPU (~15 ms/lượt) | ~0,6 giờ | 4 giờ | ~6 máy |
+| Provisioned Memory (~80 ms × 2 GB) | ~6 GB-giờ | 360 GB-giờ | dư |
+| Firebase tải xuống (heartbeat nhẹ ~1,5 KB, web phụ huynh ~40 KB/lần) | ~1,6 GB | 10 GB | ~6 máy |
+
+Hết hạn mức Vercel Hobby thì phải chờ 30 ngày. Quá ~6 máy: đặt `AGENT_HEARTBEAT_S=30` (và/hoặc `AGENT_FAST_HEARTBEAT_S=4`)
+trên Vercel rồi Redeploy — không cần sửa code. Cảnh báo / sự kiện mới vẫn gửi ngay (≤1 s) bất kể chu kỳ.

@@ -426,7 +426,7 @@ class CloudAgent:
     def run(self) -> None:
         """
         Báo theo chu kỳ server chỉ định (30s bình thường / 5s khi phụ huynh đang xem),
-        nhưng quét sự kiện cục bộ mỗi 1s để báo NGAY khi có cảnh báo mới (cách nhau tối thiểu 3s).
+        nhưng quét sự kiện cục bộ mỗi 1s để báo NGAY khi có cảnh báo mới (cách nhau tối thiểu 1s).
         """
         first = True
         backoff = 5
@@ -446,7 +446,7 @@ class CloudAgent:
                 if self.ident.get("paired"):
                     self._auto_snapshot()
                 due = time.time() - last_sent >= self.heartbeat_s
-                urgent = (not first) and time.time() - last_sent >= 3.0 and (self._urgent or self._has_pending_event())
+                urgent = (not first) and time.time() - last_sent >= 1.0 and (self._urgent or self._has_pending_event())
                 if first or due or urgent:
                     self.ensure_registered()
                     self._urgent = False

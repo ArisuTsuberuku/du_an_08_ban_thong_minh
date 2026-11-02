@@ -53,8 +53,10 @@ TG_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 #  - Bình thường: máy báo 30s/lần.
 #  - Có sự kiện đặc biệt (cảnh báo mới) -> máy báo NGAY, không chờ chu kỳ.
 #  - Phụ huynh đang mở dashboard / vừa gửi lệnh -> server bảo máy chuyển chế độ nhanh 5s trong 2 phút.
-HEARTBEAT_S = int(os.environ.get("AGENT_HEARTBEAT_S", "30"))
-FAST_HEARTBEAT_S = int(os.environ.get("AGENT_FAST_HEARTBEAT_S", "5"))
+# Máy báo về: 15 s bình thường, 2 s khi phụ huynh đang mở web / vừa có lệnh (cảnh báo & sự kiện vẫn gửi NGAY, không chờ).
+# Đã tính cho gói miễn phí (Vercel Hobby + Firebase Spark) — xem bảng ngân sách trong HUONG_DAN_DEPLOY.md.
+HEARTBEAT_S = int(os.environ.get("AGENT_HEARTBEAT_S", "15"))
+FAST_HEARTBEAT_S = int(os.environ.get("AGENT_FAST_HEARTBEAT_S", "2"))
 FAST_WINDOW_S = int(os.environ.get("AGENT_FAST_WINDOW_S", "120"))
 ONLINE_GRACE_S = HEARTBEAT_S * 2 + 15
 PAIR_TTL_S = 15 * 60
@@ -170,13 +172,21 @@ def parent_owns(uid: str, did: str) -> bool:
     return bool(db.get(f"devices/{did}/owners/{uid}"))
 
 
-def device_auth() -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-    """Xác thực máy học sinh: header Authorization: Device <device_id>:<device_token>."""
+def device_auth(light: bool = False) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Xác thực máy học sinh: header Authorization: Device <device_id>:<device_token>.
+    light=True: chỉ đọc token_hash (~100 byte) thay vì cả hồ sơ máy (vài chục KB) — dùng cho heartbeat."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Device ") or ":" not in auth:
         return None, None
     did, token = auth[7:].split(":", 1)
     did = fb_key(did)
+    if not did:
+        return None, None
+    if light:
+        th = db.get(f"devices/{did}/token_hash")
+        if not isinstance(th, str) or not hmac.compare_digest(th, sha256(token)):
+            return None, None
+        return did, {"token_hash": th}
     dev = db.get(f"devices/{did}")
     if not dev or not hmac.compare_digest(dev.get("token_hash", ""), sha256(token)):
         return None, None
@@ -729,7 +739,7 @@ let deferredPrompt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefa
 async function installApp(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt=null;$('installBtn').style.display='none';}}
 $('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối';
 const qs=new URLSearchParams(location.search);go({camera:'camera',report:'report'}[qs.get('tab')]||'home');
-load();nstat();setInterval(load,6000);setInterval(()=>{if(VIEW==='report'&&!document.hidden)report();},15000);
+load();nstat();setInterval(()=>{if(!document.hidden)load();},4000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});setInterval(()=>{if(VIEW==='report'&&!document.hidden)report();},15000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
 </script>"""
 
@@ -1103,7 +1113,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.3"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.4"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1547,10 +1557,18 @@ def api_agent_pair_code():
 
 @app.route("/api/agent/heartbeat", methods=["POST"])
 def api_agent_heartbeat():
-    did, dev = device_auth()
+    did, dev = device_auth(light=True)
     if not did:
         return jsonify({"error": "unauthorized"}), 401
     data = request.get_json(silent=True) or {}
+    # Heartbeat "nhẹ" (đa số): chỉ đọc vài trường nhỏ. Chỉ khi có cảnh báo / sự kiện / xác nhận lệnh / tắt máy mới đọc
+    # cả hồ sơ máy — giữ băng thông Firebase Spark (10 GB tải xuống/tháng) đủ cho heartbeat dày hơn.
+    heavy = bool(data.get("shutdown") or data.get("alerts") or data.get("events") or data.get("acks"))
+    if heavy:
+        dev = db.get(f"devices/{did}") or dev
+    else:
+        dev["watch_until"] = db.get(f"devices/{did}/watch_until") or 0
+        dev["owners"] = db.get(f"devices/{did}/owners", shallow=True) or {}
     if data.get("shutdown"):
         # FocusDesk trên máy học sinh đang thoát: giữ trạng thái cũ, đánh dấu đã tắt + báo phụ huynh ngay
         reason = str(data.get("reason", ""))[:120]
@@ -1584,7 +1602,6 @@ def api_agent_heartbeat():
     if evs:
         try:
             _handle_events(did, dev, evs)
-            dev = db.get(f"devices/{did}") or dev
         except Exception as exc:
             app.logger.warning("Lỗi xử lý sự kiện: %s", exc)
     if new_alerts:
@@ -1605,9 +1622,10 @@ def api_agent_heartbeat():
     fast = int(dev.get("watch_until", 0) or 0) > now() or bool(out)
     resp: Dict[str, Any] = {"commands": out, "heartbeat_s": FAST_HEARTBEAT_S if fast else HEARTBEAT_S,
                             "paired": bool(dev.get("owners"))}
-    rules = dev.get("rules") or {}
-    if rules and int(rules.get("ver", 0) or 0) != int(status.get("rules_ver", 0) or 0):
-        resp["rules"] = rules
+    # Luật chặn: chỉ đọc phiên bản (vài byte); khác bản máy đang có mới tải cả bộ luật
+    rv = int(db.get(f"devices/{did}/rules/ver") or 0)
+    if rv and rv != int(status.get("rules_ver", 0) or 0):
+        resp["rules"] = db.get(f"devices/{did}/rules") or {}
     return jsonify(resp)
 
 

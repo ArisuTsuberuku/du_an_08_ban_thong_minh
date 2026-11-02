@@ -103,7 +103,7 @@ Lưu ý:
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Không | Thông báo đẩy (mục 3) |
 | `GEMINI_API_KEY`, `GEMINI_MODEL`, `ACTIVITY_AI` | Không | AI phân loại (mục 4) |
 | `ALLOWED_EMAILS` | Không | Chỉ cho các email này đăng nhập (cách nhau dấu phẩy) |
-| `AGENT_HEARTBEAT_S`, `AGENT_FAST_HEARTBEAT_S` | Không | Chu kỳ máy học sinh báo về (mặc định 30 s và 5 s khi phụ huynh đang xem) |
+| `AGENT_HEARTBEAT_S`, `AGENT_FAST_HEARTBEAT_S` | Không | Chu kỳ máy học sinh báo về (mặc định 15 s, và 2 s khi phụ huynh đang mở web hoặc vừa có lệnh). Nhiều máy (> 6) thì tăng lên 20–30 s |
 | `TZ_OFFSET_H` | Không | Múi giờ, mặc định 7 |
 
 Máy học sinh đọc địa chỉ web từ `secrets.local.json` (`"cloud_url"`) hoặc biến `FOCUSDESK_CLOUD_URL`
