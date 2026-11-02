@@ -70,6 +70,7 @@ COMMAND_TYPES = {
     "live_off": "⏹️ Tắt xem trực tiếp",
     "box_unlock_30": "🔓 Mở hộp điện thoại 30 phút",
     "box_unlock": "🔓 Mở hộp điện thoại (tới khi khóa lại)",
+    "box_unlock_min": "🔓 Mở hộp điện thoại theo số phút",
     "box_lock": "🔒 Khóa hộp điện thoại",
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -236,9 +237,12 @@ def devices_of_parent(uid: str) -> List[Tuple[str, Dict[str, Any]]]:
     return out
 
 
-def queue_command(did: str, ctype: str, by: str, chat_id: Optional[str] = None) -> str:
+def queue_command(did: str, ctype: str, by: str, chat_id: Optional[str] = None, minutes: int = 0) -> str:
     mark_watching(did, force=True)
-    return db.push(f"commands/{did}", {"type": ctype, "by": by, "ts": now(), "chat_id": chat_id or ""})
+    item = {"type": ctype, "by": by, "ts": now(), "chat_id": chat_id or ""}
+    if minutes:
+        item["minutes"] = int(minutes)
+    return db.push(f"commands/{did}", item)
 
 
 def mark_watching(did: str, force: bool = False, dev: Optional[Dict[str, Any]] = None) -> None:
@@ -283,7 +287,7 @@ img.snap{width:100%;border-radius:10px;margin-top:8px}
 AUTH_HTML = BASE_CSS + """
 <title>FocusDesk - Đăng nhập</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#2563eb"><link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png"><link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.ico" sizes="any">
 <script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
 <div style="text-align:center;margin-top:6vh"><img src="/static/icon-192.png" width="72" style="border-radius:18px" alt=""></div>
 <div class="wrap" style="max-width:420px;margin-top:2vh">
@@ -322,7 +326,7 @@ DASH_HTML = BASE_CSS + """
 <title>FocusDesk</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2563eb"><link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/static/apple-touch-icon.png"><meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png"><link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.ico" sizes="any"><meta name="mobile-web-app-capable" content="yes">
 <meta name="csrf-token" content="{{ csrf }}">
 <style>
 body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
@@ -398,7 +402,7 @@ h3{margin:4px 0 10px}
 </style>
 <div class="app">
  <nav class="side">
-  <div class="brand" style="padding:6px 10px 16px"><img src="/static/icon-192.png" alt="">Bàn Học</div>
+  <div class="brand" style="padding:6px 10px 16px"><img src="/static/icon-192.png" alt="">FocusDesk</div>
   <a data-go="home"><i>🏠</i>Tổng quan</a><a data-go="camera"><i>📺</i>Camera</a>
   <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="settings"><i>⚙️</i>Cài đặt</a>
  </nav>
@@ -422,8 +426,10 @@ h3{margin:4px 0 10px}
     <div id="acks" class="card" style="display:none"></div>
    </div><div>
     <div class="card"><h3>🔔 Cảnh báo gần đây</h3><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
-    <div class="card" id="boxcard" style="display:none"><h3>📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
-     <div class="row" style="margin-top:10px"><button onclick="boxCmd('box_unlock_30')">🔓 Mở 30 phút</button><button onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button onclick="cmd('box_lock')">🔒 Khóa hộp</button></div></div>
+    <div class="card" id="boxcard"><h3>📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
+     <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="boxbtn" onclick="boxMin(15)">🔓 Mở 15′</button><button class="boxbtn" onclick="boxMin(30)">🔓 Mở 30′</button><button class="boxbtn" onclick="boxMin(60)">🔓 Mở 60′</button><button class="boxbtn" onclick="boxMinAsk()">🔓 Mở … phút</button><button class="boxbtn" onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button class="boxbtn" onclick="cmd('box_lock')">🔒 Khóa hộp</button></div>
+     <div class="mut" style="margin-top:6px;font-size:12px">Hết giờ, hộp tự khóa lại khi nắp đã đóng. Telegram: /mohop · /khoahop</div></div>
+    <div class="card" id="aicard"><h3>🤖 AI hôm nay (ứng dụng + web)</h3><div id="aibox" class="mut">—</div></div>
     <div class="card"><h3>🕒 Thay đổi gần đây</h3><p class="mut" style="margin-top:-4px">Ứng dụng vừa mở, trang web vừa vào — AI tự nhận ra web game / giải trí.</p><div id="evbox" class="mut">Chưa có.</div></div>
     <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div><div id="openbox"></div>
      <div class="bar" id="h-bar" style="margin-top:12px"></div><div class="mut" id="h-legend" style="margin-top:6px"></div></div>
@@ -562,7 +568,7 @@ function renderAll(){const v=cur();renderChips();renderSettings();
  $('h-legend').textContent=sum?`Hôm nay: ${fmtMin(t.Hoc_tap)} học · ${fmtMin(t.Giai_tri)} giải trí · ${fmtMin(t.Khac)} khác`:'Chưa có dữ liệu hôm nay';
  const n=v.now||{};$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.app||'')}</b></div><div class="mut">${esc(n.title)}</div></div>
   ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}</div>`:(n.category==='Idle'?'<span class="mut">💤 Đang rời máy</span>':'—');
- renderOpen(n.open||[],p);renderEvents(v);renderBox(v);
+ renderOpen(n.open||[],p);renderEvents(v);renderBox(v);renderAI(v);
  $('alerts').innerHTML=(v.alerts||[]).slice(0,6).map(a=>`<div class="alert-row"><time>${esc(a.time)}</time><div>${esc(a.message)}</div></div>`).join('')||'Không có cảnh báo. 👍';
  const acks=v.acks||[];if(acks.length){$('acks').style.display='block';$('acks').innerHTML='<h3>✅ Kết quả lệnh</h3>'+acks.slice(0,3).map(a=>`<div class="${a.ok?'':'err'}" style="font-size:14px;padding:3px 0">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
   const k=acks[0].time+acks[0].msg;if(lastAck&&k!==lastAck)toast((acks[0].ok?'✅ ':'⚠️ ')+acks[0].msg);lastAck=k;}
@@ -634,10 +640,20 @@ let rulesTouched=false;
 const YT_DEFAULT=['free fire','liên quân','minecraft','roblox','pubg','genshin','gameplay','game','mukbang','prank','asmr','tiktok','review phim','phim','anime','nhạc remix','livestream game'];
 function nvMode(b){document.querySelectorAll('#nv-mode button').forEach(x=>x.classList.toggle('act',x===b));rulesTouched=true;}
 const KCOL={game:'#dc2626',social:'#db2777',video:'#ea580c',shopping:'#ca8a04',comics:'#9333ea',study:'#16a34a',ai:'#2563eb',app:'#64748b',other:'#94a3b8'};
-function renderBox(v){const b=((v.status||{}).phone_box)||{};const c=$('boxcard');if(!b.enabled){c.style.display='none';return;}c.style.display='block';
+function renderBox(v){const b=((v.status||{}).phone_box)||{};const dis=!b.enabled||!b.connected||!v.online;
+ document.querySelectorAll('.boxbtn').forEach(x=>{x.disabled=dis;x.style.opacity=dis?.5:1;});
+ if(!v.online){$('boxst').innerHTML='⚪ Máy học sinh đang ngoại tuyến';return;}
+ if(!b.enabled){$('boxst').innerHTML='⚪ Chưa bật hộp trên máy — vào app: <b>Admin → 📦 Hộp điện thoại</b> → Bật';return;}
  if(!b.connected){$('boxst').innerHTML='🔌 <b>Mất kết nối hộp</b> — kiểm tra cáp USB';return;}
  $('boxst').innerHTML=`${b.phone?'📱 <b>Điện thoại đang trong hộp</b>':'📭 <b>Hộp trống</b>'} · ${b.lock==='locked'?'🔒 đang khóa':'🔓 đang mở'} · nắp ${b.lid==='closed'?'đóng':'mở'}${b.unlock_left>0?' · tự khóa sau '+Math.ceil(b.unlock_left/60)+' phút':''}`;}
 async function boxCmd(t){if(confirm(t==='box_unlock_30'?'Mở hộp điện thoại 30 phút rồi tự khóa lại?':'Mở hộp điện thoại cho tới khi bạn khóa lại?'))cmd(t);}
+async function boxMin(m){const v=cur();if(!v||!confirm(`Mở hộp điện thoại ${m} phút rồi tự khóa lại?`))return;
+ const r=await api(`/api/parent/devices/${v.id}/command`,{type:'box_unlock_min',minutes:m});toast(r.message||r.error||'');}
+function boxMinAsk(){const m=parseInt(prompt('Mở hộp điện thoại bao nhiêu phút? (1–240)','45')||'0',10);if(m>0&&m<=240)boxMin(m);}
+function renderAI(v){const s=v.status||{},src=s.ai_sources||{},run=s.ai_running||[];const tot=Math.round((s.ai_seconds||0)/60);
+ const rows=Object.entries(src).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,sec])=>`<div class="app-row"><div class="nm"><b>${esc(k)}</b></div><span class="tag" style="background:${k.endsWith('(web)')?'#2563eb':'#7c3aed'}">${Math.max(1,Math.round(sec/60))}′</span></div>`).join('');
+ $('aibox').innerHTML=`<div><b>${tot}</b> / ${s.max_ai_minutes||'?'} phút cho phép</div>`+(rows||'<div class="mut">Chưa dùng AI hôm nay.</div>')+
+  (run.length?`<div class="mut" style="margin-top:6px">Ứng dụng AI đang chạy trên máy: ${run.map(esc).join(', ')}</div>`:'');}
 function renderEvents(v){const ev=v.events||[];if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
  $('evbox').innerHTML=ev.slice(0,15).map(e=>{const tm=new Date((e.t||0)*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
   const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖'}[e.cls]||'🌐'):'🪟';
@@ -820,13 +836,21 @@ def api_parent_command(did):
     uid, did = current_uid(), fb_key(did)
     if not parent_owns(uid, did):
         return jsonify({"error": "Không có quyền với máy này."}), 403
-    ctype = str((request.get_json(silent=True) or {}).get("type", ""))
+    body = request.get_json(silent=True) or {}
+    ctype = str(body.get("type", ""))
     if ctype not in COMMAND_TYPES:
         return jsonify({"error": "Lệnh không hợp lệ."}), 400
-    queue_command(did, ctype, by=uid)
+    minutes = 0
+    if ctype == "box_unlock_min":
+        try:
+            minutes = max(1, min(240, int(body.get("minutes", 0))))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Số phút không hợp lệ."}), 400
+    queue_command(did, ctype, by=uid, minutes=minutes)
     dev = db.get(f"devices/{did}") or {}
     note = "" if is_online(dev) else " (máy đang ngoại tuyến, lệnh sẽ chạy khi máy kết nối lại)"
-    return jsonify({"ok": True, "message": f"Đã gửi lệnh: {COMMAND_TYPES[ctype]} — máy nhận trong ≤{HEARTBEAT_S}s "
+    label = f"🔓 Mở hộp điện thoại {minutes} phút" if minutes else COMMAND_TYPES[ctype]
+    return jsonify({"ok": True, "message": f"Đã gửi lệnh: {label} — máy nhận trong ≤{HEARTBEAT_S}s "
                                           f"(≤{FAST_HEARTBEAT_S}s khi đang mở trang này){note}"})
 
 
@@ -1269,7 +1293,10 @@ def api_agent_heartbeat():
     out = []
     for cid, c in sorted(cmds.items()):
         if now() - int(c.get("ts", 0) or 0) < 24 * 3600:
-            out.append({"id": cid, "type": c.get("type"), "chat_id": c.get("chat_id", "")})
+            item = {"id": cid, "type": c.get("type"), "chat_id": c.get("chat_id", "")}
+            if c.get("minutes"):
+                item["minutes"] = int(c["minutes"])
+            out.append(item)
         db.delete(f"commands/{did}/{cid}")
     fast = int(dev.get("watch_until", 0) or 0) > now() or bool(out)
     resp: Dict[str, Any] = {"commands": out, "heartbeat_s": FAST_HEARTBEAT_S if fast else HEARTBEAT_S,
@@ -1474,7 +1501,10 @@ def _status_text(name: str, dev: Dict[str, Any]) -> str:
              f"Vai trò: {html.escape(str(s.get('role', '?')))}"]
     if p.get("cfi") is not None:
         lines.append(f"🎯 CFI: <b>{round(float(p['cfi']))}%</b> — {html.escape(str(p.get('state_vi', '')))}")
-    lines.append(f"🤖 AI: {round((s.get('ai_seconds') or 0) / 60)}/{s.get('max_ai_minutes', '?')} phút")
+    lines.append(f"🤖 AI (ứng dụng + web): {round((s.get('ai_seconds') or 0) / 60)}/{s.get('max_ai_minutes', '?')} phút")
+    src = sorted((s.get("ai_sources") or {}).items(), key=lambda kv: -kv[1])[:3]
+    if src:
+        lines.append("   " + ", ".join(f"{k} {max(1, round(v / 60))}′" for k, v in src))
     for a in (dev.get("recent_alerts") or [])[:3]:
         lines.append(f"• {html.escape(str(a.get('time', '')))} {html.escape(str(a.get('message', '')))}")
     return "\n".join(lines)
@@ -1501,15 +1531,17 @@ MANIFEST = {
     "description": "Theo dõi việc học, xem camera, khóa máy và nhận cảnh báo từ máy học sinh.",
     "start_url": "/dashboard?src=pwa", "scope": "/", "display": "standalone", "orientation": "portrait",
     "background_color": "#f4f6fb", "theme_color": "#2563eb",
-    "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-              {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}],
+    "icons": [{"src": "/static/icon-any-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+              {"src": "/static/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+              {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+              {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}],
     "shortcuts": [{"name": "Xem camera", "url": "/dashboard?tab=camera"},
                   {"name": "Báo cáo hôm nay", "url": "/dashboard?tab=report"}],
 }
 
 SW_JS = """
-const CACHE='banhoc-v2';
-const SHELL=['/offline','/static/icon-192.png','/static/icon-512.png','/manifest.webmanifest'];
+const CACHE='focusdesk-v3';
+const SHELL=['/offline','/static/icon-192.png','/static/icon-512.png','/static/icon-any-512.png','/static/favicon.svg','/manifest.webmanifest'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{
@@ -1520,7 +1552,7 @@ self.addEventListener('fetch',e=>{
 });
 self.addEventListener('push',e=>{let d={};try{d=e.data.json();}catch(_){d={body:e.data?e.data.text():''};}
   e.waitUntil(self.registration.showNotification(d.title||'FocusDesk',{body:d.body||'',icon:'/static/icon-192.png',
-   badge:'/static/icon-192.png',tag:d.tag||'sd',renotify:true,vibrate:[200,100,200],data:{url:d.url||'/dashboard'}}));});
+   badge:'/static/badge-96.png',tag:d.tag||'sd',renotify:true,vibrate:[200,100,200],data:{url:d.url||'/dashboard'}}));});
 self.addEventListener('notificationclick',e=>{e.notification.close();const url=(e.notification.data||{}).url||'/dashboard';
   e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{for(const c of cs){if(c.url.includes('/dashboard'))return c.focus();}
    return clients.openWindow(url);}));});
@@ -1532,6 +1564,11 @@ OFFLINE_HTML = """<!doctype html><meta charset=utf-8><meta name=viewport content
 <p style="color:#64748b">Điện thoại đang offline. Ứng dụng sẽ tự tải lại khi có mạng.</p>
 <button onclick="location.reload()" style="font:inherit;padding:12px 20px;border-radius:12px;border:0;background:#2563eb;color:#fff">Thử lại</button></div>
 <script>addEventListener('online',()=>location.reload())</script></body>"""
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return app.send_static_file("favicon.ico")
 
 
 @app.route("/manifest.webmanifest")

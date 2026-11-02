@@ -7,7 +7,7 @@
 ;  Gỡ cài đặt: trả lại Task Manager, gỡ chặn DNS, xóa tác vụ tự khởi động, hiện lại taskbar.
 ; =====================================================================
 #define AppName "FocusDesk"
-#define AppVer "1.17.0"
+#define AppVer "1.18.0"
 
 [Setup]
 AppId={{6F0B3A52-8C1E-4C5D-9E0A-1D08B4A70001}
@@ -25,7 +25,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}
-UninstallDisplayIcon={sys}\imageres.dll,109
+UninstallDisplayIcon={app}\assets\focusdesk.ico
+SetupIconFile=..\assets\focusdesk.ico
 DisableProgramGroupPage=yes
 #ifdef SIGN
 ; Bat khi TAO_BO_CAI.bat goi ISCC voi /DSIGN /Sfdsign=... (xem bien FOCUSDESK_SIGN_SHA1)
@@ -50,6 +51,7 @@ Source: "..\*.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\core\*.py"; DestDir: "{app}\core"; Flags: ignoreversion
 Source: "..\services\*.py"; DestDir: "{app}\services"; Flags: ignoreversion
 Source: "..\models\*"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "..\firmware\*"; DestDir: "{app}\firmware"; Flags: ignoreversion recursesubdirs
 Source: "..\tests\*.py"; DestDir: "{app}\tests"; Flags: ignoreversion
 Source: "..\CAI_DAT.bat"; DestDir: "{app}"; Flags: ignoreversion
@@ -66,11 +68,12 @@ Source: "go_cai_dat.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "redist\python-installer.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\MO_FOCUSDESK.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\imageres.dll"; IconIndex: 109
+Name: "{group}\{#AppName}"; Filename: "{app}\MO_FOCUSDESK.bat"; WorkingDir: "{app}"; IconFilename: "{app}\assets\focusdesk.ico"
 Name: "{group}\Kiểm tra cài đặt"; Filename: "{app}\KIEM_TRA.bat"; WorkingDir: "{app}"
+Name: "{group}\Sửa lỗi cài đặt (cài lại thư viện thiếu / hỏng)"; Filename: "{app}\KIEM_TRA.bat"; Parameters: "--sua"; WorkingDir: "{app}"
 Name: "{group}\Khôi phục khẩn cấp"; Filename: "{app}\KHOI_PHUC_KHAN_CAP.bat"; WorkingDir: "{app}"
 Name: "{group}\Gỡ cài đặt {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\MO_FOCUSDESK.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\imageres.dll"; IconIndex: 109; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\MO_FOCUSDESK.bat"; WorkingDir: "{app}"; IconFilename: "{app}\assets\focusdesk.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{tmp}\python-installer.exe"; Parameters: "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1"; StatusMsg: "Đang cài Python..."; Check: NeedPython and HasBundledPython; Flags: waituntilterminated

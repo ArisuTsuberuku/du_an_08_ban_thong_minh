@@ -8,6 +8,7 @@ pywin32>=306
 pyinstaller>=6.0.0
 numpy>=2.0.0
 # Chỉ cài 1 gói OpenCV duy nhất (mediapipe yêu cầu bản contrib). KHÔNG cài thêm opencv-python để tránh xung đột thư mục cv2.
+# Giữ < 5: OpenCV 5 bỏ file nhận mặt Haar (cv2.data) và bản opencv-python 5 bỏ cả CascadeClassifier.
 opencv-contrib-python>=4.9.0,<5
 mediapipe>=1.0  # cần HolisticLandmarker + blendshape mắt (Python 3.14 dùng 1.2.x)
 # Liệt kê tên Webcam DirectShow để ưu tiên chọn đúng "HD Webcam" thay vì Camera ảo

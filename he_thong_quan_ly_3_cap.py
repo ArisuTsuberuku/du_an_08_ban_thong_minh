@@ -5,7 +5,7 @@ Phần Mềm Trung Tâm Quản Lý FocusDesk 3 Cấp Quyền (he_thong_quan_ly_3
   - Giao diện Khóa Toàn màn hình kiểu Gcafe / CSM + 3 Tài khoản Demo nhanh.
   - Phân quyền 3 cấp: Admin (Quản trị hệ thống), Phụ huynh (Quản lý Whitelist/Web/AI & Báo cáo), Học sinh (Custom Shell).
   - Student Task Manager riêng: Chỉ hiện ứng dụng học tập được phép, ẩn tuyệt đối explorer.exe & python.
-  - Tích hợp 5 Lớp An toàn Khẩn cấp chống kẹt máy (Win32 Panic Hotkeys, Crash Hooks, PIN 999999, UNLOCK.txt, .bat).
+  - Tích hợp 5 Lớp An toàn Khẩn cấp chống kẹt máy (phím cứu hộ do Admin đặt + PIN, Crash Hooks, UNLOCK.txt, .bat).
   - Tự động khởi chạy ngầm Web Dashboard (0.0.0.0:5000) & Bộ giám sát URL/Game/AI (BoGiamSatThongMinh).
 """
 
@@ -31,7 +31,7 @@ from core.config_manager import (
     update_runtime_state,
 )
 from core.failsafe import (
-    MASTER_RESCUE_PIN,
+    ack_rescue_prompt,
     attach_tkinter_failsafe,
     emergency_restore_and_exit,
     install_all_failsafes,
@@ -83,6 +83,7 @@ class PhanMemQuanLyBanHocEXE:
         self.root = root
         self.root.title("FocusDesk – Hệ thống quản lý bàn học thông minh 3 cấp quyền")
         self.root.configure(bg=UI["bg"])
+        self._dat_icon_cua_so()
 
         self.bo_giam_sat = BoGiamSatThongMinh(on_remote_lock=self._nhan_lenh_khoa_tu_xa)
         # Chỉ dừng bộ giám sát tab/game & Camera AI khi mở khóa sang Phụ huynh/Admin; giữ nguyên Web Server cổng 5000!
@@ -105,6 +106,26 @@ class PhanMemQuanLyBanHocEXE:
         self._ui_q: "queue.Queue" = queue.Queue()
         self._bom_ui()
         self.hien_man_hinh_dang_nhap()
+
+    def _dat_icon_cua_so(self) -> None:
+        """Icon FocusDesk cho cửa sổ, thanh tác vụ và mọi hộp thoại con (assets/focusdesk.ico + .png)."""
+        base = os.path.join(get_app_dir(), "assets")
+        try:
+            ico = os.path.join(base, "focusdesk.ico")
+            if sys.platform.startswith("win") and os.path.exists(ico):
+                self.root.iconbitmap(default=ico)
+                try:   # tách khỏi nhóm "Python" trên thanh tác vụ -> hiện đúng icon FocusDesk
+                    import ctypes
+
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("D08.FocusDesk")
+                except Exception:
+                    pass
+            png = os.path.join(base, "focusdesk_256.png")
+            if os.path.exists(png):
+                self._icon_img = tk.PhotoImage(file=png)
+                self.root.iconphoto(True, self._icon_img)
+        except Exception as exc:
+            safe_log(f"[UI] Không đặt được icon cửa sổ: {exc}")
 
     def _goi_ui(self, fn) -> None:
         self._ui_q.put(fn)
@@ -133,7 +154,7 @@ class PhanMemQuanLyBanHocEXE:
             if messagebox.askyesno(
                 "Chuyển về Màn hình Khóa?",
                 "Bạn có muốn bật lại Màn hình Khóa để bàn giao máy cho Học sinh không?\n"
-                "(Nếu muốn tắt hẳn phần mềm, hãy dùng quyền Admin hoặc mã PIN cứu hộ 999999).",
+                "(Muốn tắt hẳn phần mềm: Admin → Thoát phần mềm, hoặc phím cứu hộ + PIN).",
                 parent=self.root,
             ):
                 self.hien_man_hinh_dang_nhap()
@@ -151,8 +172,12 @@ class PhanMemQuanLyBanHocEXE:
         )
 
     def thoat_khan_cap_tu_luong_phu(self, ly_do: str) -> None:
-        """Được gọi từ luồng Win32 RegisterHotKey hoặc luồng UNLOCK.txt."""
-        self._goi_ui(lambda: self.thoat_khan_cap(ly_do, hien_thong_bao=False))
+        """Được gọi từ luồng Win32 RegisterHotKey (phím cứu hộ do Admin đặt) hoặc luồng UNLOCK.txt.
+        Phím cứu hộ -> hỏi PIN (học sinh lỡ biết phím cũng không thoát được); UNLOCK.txt -> thoát ngay."""
+        if ly_do.startswith("Phím cứu hộ"):
+            self._goi_ui(lambda: self.nhap_pin_cuu_ho(ly_do))
+        else:
+            self._goi_ui(lambda: self.thoat_khan_cap(ly_do, hien_thong_bao=False))
 
     def thoat_khan_cap(self, ly_do: str = "Khẩn cấp", hien_thong_bao: bool = True) -> None:
         self._huy_bo_dem_ui()
@@ -178,18 +203,27 @@ class PhanMemQuanLyBanHocEXE:
             pass
         emergency_restore_and_exit(ly_do, 0)
 
-    def nhap_pin_cuu_ho(self) -> None:
-        pin = simpledialog.askstring(
-            "Mã PIN Cứu Hộ Khẩn Cấp",
-            f"Nhập mã PIN cứu hộ khẩn cấp (Mặc định: {MASTER_RESCUE_PIN}) để mở khóa Windows & tắt ngay:",
-            show="*",
-            parent=self.root,
-        )
+    def nhap_pin_cuu_ho(self, ly_do: str = "Cứu hộ") -> None:
+        """Hộp nhập PIN cứu hộ — chỉ mở bằng phím cứu hộ Admin đặt; không có nút nào trên màn hình học sinh."""
+        ack_rescue_prompt()   # giao diện còn phản hồi -> hủy hẹn giờ cưỡng bức khôi phục
+        if getattr(self, "_dang_hoi_pin", False):
+            return
+        self._dang_hoi_pin = True
+        try:
+            pin = simpledialog.askstring("Cứu hộ", "Nhập mã PIN cứu hộ để mở khóa Windows và thoát FocusDesk:",
+                                         show="*", parent=self.root)
+        finally:
+            self._dang_hoi_pin = False
         if pin is None:
             return
         if verify_rescue_pin(pin):
-            self.thoat_khan_cap(f"Mã PIN Cứu hộ {MASTER_RESCUE_PIN}", hien_thong_bao=True)
+            self.thoat_khan_cap(ly_do + " + PIN đúng", hien_thong_bao=True)
         else:
+            safe_log(f"[CỨU HỘ] Sai PIN cứu hộ ({ly_do}).")
+            try:
+                gui_canh_bao_len_web("⚠️ Có người bấm phím cứu hộ và nhập SAI mã PIN", "SYSTEM")
+            except Exception:
+                pass
             messagebox.showerror("Sai mã PIN", "Mã PIN cứu hộ không chính xác!", parent=self.root)
 
     def _huy_bo_dem_ui(self) -> None:
@@ -224,10 +258,8 @@ class PhanMemQuanLyBanHocEXE:
         bar = tk.Frame(self.root, bg=UI["card"], height=38, highlightbackground=UI["line"], highlightthickness=1)
         bar.pack(side="bottom", fill="x")
 
-        info_text = (
-            f"{admin_badge}  |  📱 Web Phụ huynh: {lan_url}  |  "
-            "Phím tắt Cứu hộ Toàn cục: [Ctrl+Alt+Shift+F12] hoặc [Ctrl+Shift+F10]"
-        )
+        # Không ghi phím / PIN cứu hộ ở đây: thanh này hiện cả ở màn khóa mà học sinh nhìn thấy
+        info_text = f"{admin_badge}  |  📱 Web Phụ huynh: {lan_url}"
         tk.Label(
             bar,
             text=info_text,
@@ -236,19 +268,6 @@ class PhanMemQuanLyBanHocEXE:
             font=("Segoe UI", 9),
         ).pack(side="left", padx=14, pady=6)
 
-        tk.Button(
-            bar,
-            text=f"🆘 Thoát Khẩn Cấp (PIN: {MASTER_RESCUE_PIN})",
-            command=self.nhap_pin_cuu_ho,
-            bg="#be123c",
-            activebackground="#9f1239",
-            fg="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=3,
-            relief="flat",
-            cursor="hand2",
-        ).pack(side="right", padx=14, pady=5)
 
     # =====================================================================
     # MÀN HÌNH KHÓA ĐĂNG NHẬP 3 CẤP KIỂU GCAFE / CSM
@@ -262,6 +281,13 @@ class PhanMemQuanLyBanHocEXE:
             threading.Thread(target=set_studying, args=(on,), daemon=True).start()
         except Exception:
             pass
+        if not on:   # rời giờ học -> ngừng quét tắt app chạy nền
+            try:
+                from services.process_cleanup import stop_sweeper
+
+                stop_sweeper()
+            except Exception:
+                pass
 
     def hien_man_hinh_dang_nhap(self) -> None:
         self._current_mode = "locked"
@@ -290,10 +316,17 @@ class PhanMemQuanLyBanHocEXE:
         brand = tk.Frame(card, bg="#1d4ed8", width=380)
         brand.pack(side="left", fill="y")
         brand.pack_propagate(False)
-        tk.Label(brand, text="📚", bg="#1d4ed8", fg="white", font=("Segoe UI Emoji", 40)).pack(anchor="w", padx=36, pady=(48, 6))
-        tk.Label(brand, text="Bàn Học\nThông Minh", bg="#1d4ed8", fg="white", justify="left",
-                 font=("Segoe UI", 26, "bold")).pack(anchor="w", padx=36)
-        tk.Label(brand, text="Góc học tập tập trung cho học sinh", bg="#1d4ed8", fg="#bfdbfe",
+        logo = os.path.join(get_app_dir(), "assets", "focusdesk_64.png")
+        if os.path.exists(logo):
+            self._logo_img = tk.PhotoImage(file=logo)
+            tk.Label(brand, image=self._logo_img, bg="#1d4ed8").pack(anchor="w", padx=36, pady=(48, 10))
+        else:
+            tk.Label(brand, text="📚", bg="#1d4ed8", fg="white", font=("Segoe UI Emoji", 40)).pack(anchor="w", padx=36,
+                                                                                               pady=(48, 6))
+        tk.Label(brand, text="FocusDesk", bg="#1d4ed8", fg="white", justify="left",
+                 font=("Segoe UI", 28, "bold")).pack(anchor="w", padx=36)
+        tk.Label(brand, text="Bàn học thông minh · góc học tập tập trung", bg="#1d4ed8", fg="#bfdbfe", wraplength=300,
+                 justify="left",
                  font=("Segoe UI", 11)).pack(anchor="w", padx=36, pady=(6, 26))
         for line in ("🧩  Chỉ mở ứng dụng & tài liệu được phép", "📷  Camera AI nhắc tư thế, chống ngủ gật",
                      "📱  Phụ huynh theo dõi qua điện thoại"):
@@ -476,6 +509,12 @@ class PhanMemQuanLyBanHocEXE:
         allowed_exes = {a.get("exe_name", "").lower() for a in cfg.get("allowed_apps", []) if a.get("exe_name")}
         self._bat_kiosk(allowed_exes)
         self._tao_dock_hoc_sinh(cfg)
+        if "--self-test" not in sys.argv:
+            # Tắt ứng dụng chạy nền (trừ Windows, bộ gõ, OneDrive, driver, diệt virus, app được cấp) — chạy nền
+            from services.process_cleanup import on_student_start
+
+            threading.Thread(target=on_student_start, args=(allowed_exes,),
+                             kwargs={"notify": lambda m: gui_canh_bao_len_web(m, "SYSTEM")}, daemon=True).start()
 
         # ---------- Thanh đầu trang ----------
         header = tk.Frame(self.root, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1)
@@ -607,8 +646,7 @@ class PhanMemQuanLyBanHocEXE:
         nut(dock, "🏠  Góc học tập", ve_goc_hoc_tap, bg=UI["acc"]).pack(side="left", padx=(10, 6), pady=8)
         self._dock_apps = tk.Frame(dock, bg="#0f172a")
         self._dock_apps.pack(side="left", fill="y", padx=4)
-        nut(dock, "🆘", self.nhap_pin_cuu_ho, bg="#9f1239").pack(side="right", padx=(4, 10), pady=8)
-        nut(dock, "🔒 Khóa", self.hien_man_hinh_dang_nhap).pack(side="right", padx=4, pady=8)
+        nut(dock, "🔒 Khóa", self.hien_man_hinh_dang_nhap).pack(side="right", padx=(4, 10), pady=8)
         nut(dock, "🚻 Xin đi vệ sinh", self.xin_di_ve_sinh, bg="#0e7490").pack(side="right", padx=4, pady=8)
         self._dock_clock = tk.Label(dock, text="", bg="#0f172a", fg="white", font=("Segoe UI", 12, "bold"))
         self._dock_clock.pack(side="right", padx=12)
@@ -1834,6 +1872,7 @@ class PhanMemQuanLyBanHocEXE:
             [("system", "🛡️", "Hệ thống & kiosk", self._trang_he_thong),
              ("camera", "📷", "Camera AI", self._trang_camera),
              ("passwords", "🔑", "Mật khẩu", self._trang_mat_khau),
+             ("rescue", "🆘", "Cứu hộ", self._trang_cuu_ho),
              ("phonebox", "📦", "Hộp điện thoại", self._trang_hop_dien_thoai),
              ("exit", "🚪", "Thoát phần mềm", self._trang_thoat)],
             [("👪  Sang bảng Phụ huynh", self.vao_che_do_phu_huynh, "ghost"),
@@ -2181,8 +2220,45 @@ class PhanMemQuanLyBanHocEXE:
                                 "Desktop khi thoát", cfg.get("kiosk_hide_explorer", False))
         v_always = self._check(c1, "Giám sát web/game luôn bật, kể cả khi chưa đăng nhập học sinh",
                                cfg.get("monitor_always", False))
-        tk.Label(c1, text="Thoát khẩn cấp luôn hoạt động: Ctrl+Alt+Shift+F12 · nút 🆘 PIN 999999 · KHOI_PHUC_KHAN_CAP.bat",
-                 bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9), wraplength=420, justify="left").pack(anchor="w", pady=(10, 0))
+        tk.Label(c1, text="Thoát khẩn cấp: phím cứu hộ + PIN (đặt ở trang “🆘 Cứu hộ”) · file UNLOCK.txt · "
+                          "KHOI_PHUC_KHAN_CAP.bat", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9), wraplength=420,
+                 justify="left").pack(anchor="w", pady=(10, 0))
+        bgc = self._card(page, "🧹  Tắt ứng dụng chạy nền khi vào học", pady=(12, 0))
+        v_bg = self._check(bgc, "Khi học sinh đăng nhập: tắt mọi ứng dụng đang mở / chạy ngầm (giữ lại Windows, bộ gõ "
+                                "EVKey/UniKey, OneDrive, driver AMD/NVIDIA/Intel/âm thanh, diệt virus, app được cấp)",
+                           cfg.get("student_close_background", True))
+        v_sweep = self._check(bgc, "Trong giờ học, cứ 60 giây tắt tiếp ứng dụng chạy nền mới mở",
+                              cfg.get("student_bg_sweep", True))
+        self._label(bgc, "Giữ thêm các ứng dụng sau (tên file .exe, cách nhau dấu phẩy, dùng * thay nhiều ký tự, "
+                         "vd: zalo.exe, hwinfo*.exe)", size=9)
+        e_bg = self._entry(bgc, ", ".join(cfg.get("background_allow", [])))
+        tk.Label(bgc, text="⚠️ Ứng dụng chưa lưu bài sẽ được yêu cầu đóng, sau 4 giây bị buộc tắt. Nhớ lưu công việc "
+                           "trước khi giao máy cho học sinh.", bg=UI["card"], fg=UI["warn"], font=("Segoe UI", 9),
+                 wraplength=880, justify="left").pack(anchor="w")
+        out_bg = tk.Label(bgc, text="", bg=UI["card"], fg=UI["txt"], font=("Consolas", 9), justify="left",
+                          wraplength=880, anchor="w")
+
+        def xem_truoc() -> None:
+            out_bg.config(text="⏳ Đang quét…")
+            extra = [x.strip() for x in e_bg.get().split(",") if x.strip()]
+
+            def work():
+                try:
+                    from services.process_cleanup import find_targets
+
+                    tg = find_targets(extra)
+                    txt = (f"Nếu vào học lúc này sẽ tắt {len(tg)} ứng dụng:\n" +
+                           "\n".join(f"  • {g['name']}" + (f"  ({g['windows']} cửa sổ)" if g["windows"] else "  (chạy ngầm)")
+                                     for g in tg[:40])) if tg else "Không có ứng dụng nào bị tắt."
+                except Exception as exc:
+                    txt = f"Lỗi khi quét: {exc}"
+                self._goi_ui(lambda: out_bg.winfo_exists() and out_bg.config(text=txt))
+            threading.Thread(target=work, daemon=True).start()
+
+        self._ui_button(bgc, "👁  Xem trước danh sách sẽ bị tắt (không tắt gì)", xem_truoc, kind="ghost").pack(
+            anchor="w", pady=(6, 4))
+        out_bg.pack(anchor="w", fill="x")
+
         c2 = self._card(row, "⚙️  Kết nối", side="left", padx=(8, 0))
         self._label(c2, "Cổng web nội bộ")
         e_port = self._entry(c2, str(cfg.get("web_port", 5000)))
@@ -2197,6 +2273,9 @@ class PhanMemQuanLyBanHocEXE:
             cfg["kiosk_strict"] = bool(v_strict.get())
             cfg["kiosk_hide_explorer"] = bool(v_exp.get())
             cfg["monitor_always"] = bool(v_always.get())
+            cfg["student_close_background"] = bool(v_bg.get())
+            cfg["student_bg_sweep"] = bool(v_sweep.get())
+            cfg["background_allow"] = [x.strip().lower() for x in e_bg.get().split(",") if x.strip()]
             try:
                 cfg["web_port"] = int(e_port.get().strip() or 5000)
             except ValueError:
@@ -2205,6 +2284,81 @@ class PhanMemQuanLyBanHocEXE:
             messagebox.showinfo("Đã lưu", "Đã lưu cấu hình hệ thống.", parent=self.root)
 
         self._ui_button(page, "💾  Lưu", luu).pack(anchor="e", pady=(12, 0))
+
+    def _trang_cuu_ho(self, page) -> None:
+        """Admin: đặt phím cứu hộ riêng + PIN cứu hộ. Học sinh không thấy nút / gợi ý cứu hộ ở bất kỳ màn hình nào."""
+        from core.failsafe import (RESCUE_HOTKEY_DEFAULT, get_rescue_hotkey, parse_hotkey, rescue_pin_is_default,
+                                   restart_global_panic_hotkeys, set_rescue_pin)
+
+        self._page_header(page, "Cứu hộ khẩn cấp",
+                          "Khi máy bị kẹt ở chế độ khóa: bấm phím cứu hộ ở bất kỳ màn hình nào → nhập PIN → FocusDesk mở "
+                          "khóa Windows và thoát. Phím và PIN chỉ Admin biết; màn hình học sinh không có nút cứu hộ.")
+        row = tk.Frame(page, bg=UI["bg"])
+        row.pack(fill="x")
+        c1 = self._card(row, "⌨️  Phím cứu hộ", side="left", padx=(0, 8))
+        cur = parse_hotkey(get_rescue_hotkey()) or parse_hotkey(RESCUE_HOTKEY_DEFAULT)
+        parts = cur[2].split("+")
+        mods = tk.Frame(c1, bg=UI["card"])
+        mods.pack(anchor="w")
+        v_mod = {}
+        for m in ("Ctrl", "Alt", "Shift"):
+            v_mod[m] = tk.BooleanVar(value=m in parts[:-1])
+            tk.Checkbutton(mods, text=m, variable=v_mod[m], bg=UI["card"], selectcolor=UI["card"],
+                           font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 10))
+        keys = [f"F{i}" for i in range(1, 13)] + [chr(c) for c in range(ord("A"), ord("Z") + 1)] + [str(i) for i in range(10)]
+        v_key = tk.StringVar(value=parts[-1])
+        ttk.Combobox(c1, textvariable=v_key, values=keys, state="readonly", width=8).pack(anchor="w", pady=(6, 4))
+        lbl_now = tk.Label(c1, text=f"Đang dùng: {cur[2]}", bg=UI["card"], fg=UI["acc"], font=("Segoe UI", 10, "bold"))
+        lbl_now.pack(anchor="w", pady=(4, 0))
+        tk.Label(c1, text="Cần ít nhất 2 phím bổ trợ (Ctrl/Alt/Shift). Tránh tổ hợp trùng phần mềm khác.",
+                 bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9), wraplength=380, justify="left").pack(anchor="w")
+
+        c2 = self._card(row, "🔢  PIN cứu hộ", side="left", padx=(8, 0))
+        tk.Label(c2, text=("⚠️ Đang dùng PIN mặc định — hãy đổi." if rescue_pin_is_default() else "✅ Đã đặt PIN riêng."),
+                 bg=UI["card"], fg=UI["warn"] if rescue_pin_is_default() else UI["ok"],
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 6))
+        self._label(c2, "PIN mới (6–12 chữ số, để trống nếu không đổi)", size=9)
+        e_pin1 = self._entry(c2, "", show="•")
+        self._label(c2, "Nhập lại PIN mới", size=9)
+        e_pin2 = self._entry(c2, "", show="•")
+        tk.Label(c2, text="PIN chỉ lưu dạng băm SHA-256 trong cấu hình, không lưu chữ số thật.", bg=UI["card"],
+                 fg=UI["mut"], font=("Segoe UI", 9)).pack(anchor="w")
+
+        other = self._card(page, "🧯  Cách cứu hộ khác (chỉ người có quyền truy cập ổ đĩa)", pady=(12, 0))
+        self._label(other, "• Tạo file UNLOCK.txt trong thư mục phần mềm → thoát ngay.\n"
+                           "• Chạy KHOI_PHUC_KHAN_CAP.bat → bật lại Task Manager, taskbar, tắt FocusDesk.\n"
+                           "• Nếu giao diện bị treo, bấm phím cứu hộ: sau 4 giây không hiện được hộp PIN, phần mềm tự "
+                           "khôi phục Windows.", bold=False, size=9)
+
+        def luu() -> None:
+            combo = "+".join([m for m in ("Ctrl", "Alt", "Shift") if v_mod[m].get()] + [v_key.get()])
+            parsed = parse_hotkey(combo)
+            if not parsed:
+                messagebox.showwarning("Phím chưa hợp lệ", "Chọn ít nhất 2 phím bổ trợ và 1 phím chính.", parent=self.root)
+                return
+            p1, p2 = e_pin1.get().strip(), e_pin2.get().strip()
+            if p1 or p2:
+                if p1 != p2:
+                    messagebox.showwarning("PIN không khớp", "Hai lần nhập PIN không giống nhau.", parent=self.root)
+                    return
+                if not (p1.isdigit() and 6 <= len(p1) <= 12):
+                    messagebox.showwarning("PIN chưa hợp lệ", "PIN cần 6–12 chữ số.", parent=self.root)
+                    return
+                set_rescue_pin(p1)
+            cfg = load_config()
+            cfg["rescue_hotkey"] = parsed[2]
+            save_config(cfg)
+            try:
+                restart_global_panic_hotkeys()
+            except Exception as exc:
+                safe_log(f"[CỨU HỘ] Không đăng ký lại phím: {exc}")
+            lbl_now.config(text=f"Đang dùng: {parsed[2]}")
+            e_pin1.delete(0, "end")
+            e_pin2.delete(0, "end")
+            messagebox.showinfo("Đã lưu", f"Phím cứu hộ: {parsed[2]}" + ("\nĐã đổi PIN cứu hộ." if p1 else ""),
+                                parent=self.root)
+
+        self._ui_button(page, "💾  Lưu cài đặt cứu hộ", luu).pack(anchor="e", pady=(12, 0))
 
     def _trang_mat_khau(self, page) -> None:
         cfg = load_config()

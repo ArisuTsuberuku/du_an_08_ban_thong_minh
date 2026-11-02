@@ -17,7 +17,7 @@ import shutil
 import socket
 import subprocess
 import sys
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 FIX = "--sua" in sys.argv
@@ -42,7 +42,6 @@ PACKAGES = [
     ("requests", "requests", True, "gọi web phụ huynh"),
     ("psutil", "psutil", True, "quản lý tiến trình"),
     ("numpy", "numpy", True, "xử lý ảnh"),
-    ("cv2", "opencv-contrib-python", True, "webcam"),
     ("mediapipe", "mediapipe", True, "AI tư thế (cần >= 1.0)"),
     ("PIL", "pillow", True, "icon ứng dụng, ảnh xem trước"),
     ("win32api", "pywin32", True, "icon, quét ứng dụng, Windows API"),
@@ -65,6 +64,8 @@ MODELS = [
                                     "hand_landmarker/float16/latest/hand_landmarker.task"),
     ("movinet_a0_stream_k600.tflite", False, "https://tfhub.dev/tensorflow/lite-model/movinet/a0/stream/"
                                              "kinetics-600/classification/tflite/float16/1?lite-format=tflite"),
+    ("haarcascade_frontalface_default.xml", False, "https://raw.githubusercontent.com/opencv/opencv/4.x/data/"
+                                                   "haarcascades/haarcascade_frontalface_default.xml"),
     ("kinetics_600_labels.txt", False, "https://raw.githubusercontent.com/tensorflow/models/master/official/"
                                        "projects/movinet/files/kinetics_600_labels.txt"),
 ]
@@ -80,6 +81,97 @@ def check_python() -> None:
         ok("Python", txt)
 
 
+OPENCV_DISTS = ("opencv-python", "opencv-python-headless", "opencv-contrib-python", "opencv-contrib-python-headless")
+OPENCV_WANT = os.environ.get("FOCUSDESK_OPENCV_PKG", "opencv-contrib-python>=4.9.0,<5")
+_CV2_PROBE = (
+    "import json,sys\n"
+    "r={}\n"
+    "try:\n"
+    " import cv2\n"
+    " r['file']=getattr(cv2,'__file__',None)\n"
+    " r['ver']=getattr(cv2,'__version__','')\n"
+    " r['missing']=[a for a in ('VideoCapture','CascadeClassifier','cvtColor','data') if not hasattr(cv2,a)]\n"
+    " if hasattr(cv2,'data'):\n"
+    "  import os\n"
+    "  r['haar']=os.path.exists(cv2.data.haarcascades+'haarcascade_frontalface_default.xml')\n"
+    "except Exception as e:\n"
+    " r['error']=str(e)[:200]\n"
+    "print(json.dumps(r))\n"
+)
+
+
+def _probe_cv2() -> Dict[str, Any]:
+    """Thử import cv2 trong TIẾN TRÌNH RIÊNG: nếu phải sửa thì file .pyd không bị khóa bởi chính chương trình này."""
+    try:
+        out = subprocess.run([sys.executable, "-c", _CV2_PROBE], capture_output=True, text=True, timeout=120)
+        return json.loads((out.stdout or "{}").strip().splitlines()[-1])
+    except Exception as exc:
+        return {"error": f"không chạy được kiểm tra cv2: {exc}"}
+
+
+def _opencv_dists() -> Dict[str, str]:
+    from importlib.metadata import PackageNotFoundError, version as _ver
+
+    found = {}
+    for d in OPENCV_DISTS:
+        try:
+            found[d] = _ver(d)
+        except PackageNotFoundError:
+            pass
+        except Exception:
+            pass
+    return found
+
+
+def check_opencv() -> None:
+    """OpenCV hay hỏng khi máy cài lẫn nhiều bản (opencv-python + opencv-contrib-python...) hoặc gỡ dở một bản:
+    thư mục cv2 còn sót -> "module 'cv2' has no attribute 'CascadeClassifier' / 'VideoCapture'". --sua: gỡ sạch mọi
+    bản OpenCV rồi cài lại đúng 1 bản opencv-contrib-python (bản mediapipe cần)."""
+    dists = _opencv_dists()
+    r = _probe_cv2()
+    problems = []
+    if len(dists) > 1:
+        problems.append("cài lẫn " + ", ".join(f"{k} {v}" for k, v in dists.items()))
+    if not dists:
+        problems.append("chưa cài OpenCV")
+    if r.get("error"):
+        problems.append("import cv2 lỗi: " + r["error"])
+    elif not r.get("file"):
+        problems.append("thư mục cv2 bị hỏng (gỡ cài dở)")
+    if r.get("missing"):
+        problems.append("cv2 thiếu " + ", ".join(r["missing"]))
+    elif "haar" in r and not r["haar"]:
+        problems.append("thiếu file haarcascade (bộ nhận mặt)")
+    if not problems:
+        ok("Gói opencv-contrib-python", f"{r.get('ver', '')} · webcam + nhận mặt")
+        return
+    if not FIX:
+        bad("Gói OpenCV (cv2)", "; ".join(problems)[:160] + " — chạy KIEM_TRA.bat --sua để cài lại sạch")
+        return
+    print("→ Đang sửa OpenCV: gỡ mọi bản rồi cài lại opencv-contrib-python (2-5 phút)…")
+    pip = [sys.executable, "-m", "pip", "--disable-pip-version-check"]
+    subprocess.call(pip + ["uninstall", "-y", *OPENCV_DISTS])
+    # Xóa thư mục cv2 sót lại sau khi gỡ (nguyên nhân chính của lỗi thiếu thuộc tính)
+    try:
+        import site
+
+        for sp in set(site.getsitepackages() + [site.getusersitepackages()]):
+            left = os.path.join(sp, "cv2")
+            if os.path.isdir(left):
+                import shutil
+
+                shutil.rmtree(left, ignore_errors=True)
+                print(f"   đã xóa thư mục sót: {left}")
+    except Exception:
+        pass
+    subprocess.call(pip + ["install", "--no-cache-dir", "--force-reinstall", OPENCV_WANT])
+    r2 = _probe_cv2()
+    if r2.get("file") and not r2.get("missing") and not r2.get("error"):
+        ok("Gói opencv-contrib-python", f"{r2.get('ver', '')} · đã cài lại sạch")
+    else:
+        bad("Gói OpenCV (cv2)", f"vẫn lỗi sau khi cài lại: {r2}"[:160])
+
+
 def check_packages() -> None:
     missing = []
     for mod, pip_name, required, note in PACKAGES:
@@ -93,8 +185,6 @@ def check_packages() -> None:
                 ver = ""
             if mod == "mediapipe" and ver and int(ver.split(".")[0]) < 1:
                 warn(f"Gói {pip_name}", f"{ver} — nên nâng lên >= 1.0 (blendshape mắt, nhận diện đồ vật)")
-            elif mod == "cv2" and not hasattr(m, "data"):
-                warn(f"Gói {pip_name}", f"{ver} — thiếu cv2.data (bộ nhận mặt Haar); cài opencv-contrib-python")
             else:
                 ok(f"Gói {pip_name}", f"{ver} · {note}".strip(" ·"))
         except Exception as exc:
@@ -285,7 +375,7 @@ def main() -> int:
     except Exception:
         pass
     print("Đang kiểm tra cài đặt FocusDesk" + (" (chế độ tự sửa)" if FIX else "") + "…\n")
-    for fn in (check_python, check_packages, check_models, check_admin, check_camera, check_cloud, check_port,
+    for fn in (check_python, check_opencv, check_packages, check_models, check_admin, check_camera, check_cloud, check_port,
                check_cloudflared, check_phone_box, check_config):
         try:
             fn()

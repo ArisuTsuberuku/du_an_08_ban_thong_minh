@@ -10,23 +10,49 @@ Thiết lập camera bằng TÊN + ẢNH XEM TRƯỚC (services/camera_setup.py)
   hay cắm thêm camera thì vẫn đúng.
 """
 
+import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
+from core.config_manager import get_app_dir, safe_log
 from services.camera_selector import IS_WINDOWS, _backend_list, _match_any, _try_open, list_dshow_devices
 
 VIRTUAL_HINTS = ["obs", "virtual", "manycam", "droidcam", "iriun", "snap camera", "xsplit", "nvidia broadcast"]
 _face = None
 
 
+HAAR_FILE = "haarcascade_frontalface_default.xml"
+
+
 def _face_detector():
+    """Bộ nhận mặt Haar để chấm điểm ảnh xem trước. Chịu lỗi: OpenCV cài lẫn/hỏng hoặc OpenCV 5 (bỏ file Haar,
+    bản opencv-python 5 bỏ cả CascadeClassifier) -> trả None, ảnh xem trước vẫn hiện, chỉ không đếm khuôn mặt.
+    Sửa tận gốc: KIEM_TRA.bat --sua (gỡ sạch OpenCV, cài lại opencv-contrib-python 4.x)."""
     global _face
-    if _face is None:
-        _face = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    return _face
+    if _face is not None:
+        return _face or None
+    _face = False
+    if not hasattr(cv2, "CascadeClassifier"):
+        safe_log("[CAMERA] OpenCV thiếu CascadeClassifier (cài lẫn opencv-python / OpenCV 5) — bỏ qua đếm khuôn mặt. "
+                 "Chạy KIEM_TRA.bat --sua để cài lại.")
+        return None
+    candidates = []
+    try:
+        candidates.append(os.path.join(cv2.data.haarcascades, HAAR_FILE))
+    except Exception:
+        pass
+    candidates.append(os.path.join(get_app_dir(), "models", HAAR_FILE))   # bản dự phòng tải về models/
+    for path in candidates:
+        if os.path.exists(path):
+            det = cv2.CascadeClassifier(path)
+            if not det.empty():
+                _face = det
+                return det
+    safe_log("[CAMERA] Không tìm thấy file nhận mặt Haar — bỏ qua đếm khuôn mặt (chạy KIEM_TRA.bat --sua).")
+    return None
 
 
 def list_cameras(cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -55,7 +81,8 @@ def grab_preview(index: int, width: int = 320) -> Tuple[Optional[np.ndarray], Di
         if frame is None:
             continue
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = _face_detector().detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+        det = _face_detector()
+        faces = det.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)) if det is not None else ()
         best = max((w * h for (_x, _y, w, h) in faces), default=0)
         face_ratio = best / float(frame.shape[0] * frame.shape[1])
         scale = width / frame.shape[1]

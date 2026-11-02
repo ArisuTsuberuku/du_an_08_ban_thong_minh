@@ -4,7 +4,7 @@ title FocusDesk - Ban hoc thong minh (app 3 cap)
 REM ============================================================
 REM  Nhap dup file nay de mo app quan ly 3 cap (he_thong_quan_ly_3_cap.py)
 REM  - Tu xin quyen Administrator (can de khoa Task Manager + chan web qua file hosts)
-REM  - Thoat khan cap: Ctrl+Alt+Shift+F12, nut "Thoat khan cap" (PIN 999999), hoac chay KHOI_PHUC_KHAN_CAP.bat
+REM  - Thoat khan cap: phim cuu ho do Admin dat (Admin > Cuu ho) + PIN, file UNLOCK.txt, hoac KHOI_PHUC_KHAN_CAP.bat
 REM ============================================================
 net session >nul 2>&1
 if %errorlevel% neq 0 (

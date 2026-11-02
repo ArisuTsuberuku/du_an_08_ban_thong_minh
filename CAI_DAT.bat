@@ -46,7 +46,7 @@ if defined SILENT (
 
 REM ---- 4. Loi tat tren Desktop -------------------------------------------------
 echo [4/5] Tao loi tat "FocusDesk" tren Desktop...
-powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\FocusDesk.lnk');$s.TargetPath='%~dp0MO_FOCUSDESK.bat';$s.WorkingDirectory='%~dp0';$s.IconLocation='%SystemRoot%\System32\imageres.dll,109';$s.Save()"
+powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\FocusDesk.lnk');$s.TargetPath='%~dp0MO_FOCUSDESK.bat';$s.WorkingDirectory='%~dp0';$s.IconLocation='%~dp0assets\focusdesk.ico,0';$s.Save()"
 
 REM ---- 5. Tuy chon -------------------------------------------------------------
 echo [5/5] Tuy chon:

@@ -42,6 +42,15 @@ DEFAULT_AI_DOMAINS = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "cl
                       "chat.deepseek.com", "perplexity.ai", "poe.com", "grok.com", "chat.qwen.ai", "meta.ai",
                       "chat.mistral.ai", "you.com"]
 AI_TITLE_HINTS = ["chatgpt", "gemini", "copilot", "deepseek", "perplexity", "grok"]
+# Ứng dụng AI cài trên máy (tên .exe, dùng * thay nhiều ký tự) -> nhãn hiển thị. Phụ huynh/Admin sửa được qua "ai_apps".
+DEFAULT_AI_APPS = {
+    "chatgpt.exe": "ChatGPT", "claude.exe": "Claude", "copilot.exe": "Copilot", "m365copilot.exe": "Copilot",
+    "microsoft.copilot.exe": "Copilot", "perplexity.exe": "Perplexity", "deepseek*.exe": "DeepSeek",
+    "gemini*.exe": "Gemini", "grok*.exe": "Grok", "poe.exe": "Poe", "lm studio.exe": "LM Studio",
+    "lmstudio.exe": "LM Studio", "ollama app.exe": "Ollama", "jan.exe": "Jan AI", "msty.exe": "Msty",
+    "chatbox.exe": "Chatbox AI", "cherry studio.exe": "Cherry Studio", "cursor.exe": "Cursor (AI code)",
+    "windsurf.exe": "Windsurf (AI code)", "monica*.exe": "Monica AI", "doubao*.exe": "Doubao",
+}
 IDLE_PAUSE_S = 120.0      # không chạm phím/chuột > 2 phút -> ngừng tính giờ AI & ứng dụng
 
 # YouTube: mặc định CHỈ chặn tìm kiếm / video có từ khóa giải trí, bài giảng vẫn xem được
@@ -221,6 +230,34 @@ def lay_link_address_trinh_duyet(is_browser: bool = True) -> str:
     return ""
 
 
+def ai_app_label(proc_name: str, cfg: Optional[Dict[str, Any]] = None) -> str:
+    """Tên ứng dụng AI nếu tiến trình là app AI trên máy (ChatGPT, Claude, Copilot, LM Studio…), ngược lại ""."""
+    import fnmatch
+
+    name = (proc_name or "").lower()
+    if not name:
+        return ""
+    apps = dict(DEFAULT_AI_APPS)
+    apps.update({str(k).lower(): str(v) for k, v in ((cfg or {}).get("ai_apps") or {}).items()})
+    for pat, label in apps.items():
+        if fnmatch.fnmatch(name, pat):
+            return label
+    return ""
+
+
+def ai_web_label(current_url: str, window_title: str, cfg: Dict[str, Any]) -> str:
+    """Tên miền AI đang mở trên trình duyệt (chatgpt.com, gemini.google.com…), ngược lại ""."""
+    combined = f"{(current_url or '').lower()} {(window_title or '').lower()}"
+    for d in [d.lower() for d in (cfg.get("ai_domains") or DEFAULT_AI_DOMAINS)]:
+        if d in combined:
+            return d
+    t = (window_title or "").lower()
+    for h in AI_TITLE_HINTS:
+        if h in t:
+            return h
+    return ""
+
+
 def phan_loai_truy_cap_web(
     current_url: str,
     window_title: str,
@@ -321,6 +358,9 @@ class BoGiamSatThongMinh:
         same_day = state.get("usage_day") in (None, today)
         self.app_usage: Dict[str, float] = dict(state.get("app_usage", {})) if same_day else {}
         self.ai_seconds: float = float(state.get("ai_seconds", 0)) if same_day else 0.0
+        # Giờ AI gộp chung app AI trên máy + web AI, có tách theo nguồn: {"ChatGPT (ứng dụng)": giây, "chatgpt.com (web)": …}
+        self.ai_sources: Dict[str, float] = dict(state.get("ai_sources", {})) if same_day else {}
+        self._last_ai_scan = 0.0
         self._usage_day = today
         self._ai_reset_seen = float(state.get("ai_reset_at", 0) or 0)
         self._last_ai_alert_at_sec: float = 0
@@ -353,10 +393,11 @@ class BoGiamSatThongMinh:
                 json={"app_usage": usage, "ai_seconds": int(self.ai_seconds)},
                 timeout=0.9,
             )
-            update_runtime_state(usage_day=self._usage_day)
+            update_runtime_state(usage_day=self._usage_day, ai_sources={k: int(v) for k, v in self.ai_sources.items()})
         except Exception:
             update_runtime_state(app_usage={k: int(v) for k, v in self.app_usage.items()},
-                                 ai_seconds=int(self.ai_seconds), usage_day=self._usage_day)
+                                 ai_seconds=int(self.ai_seconds), usage_day=self._usage_day,
+                                 ai_sources={k: int(v) for k, v in self.ai_sources.items()})
 
     def _kiem_tra_dat_lai(self, state: Dict[str, Any]) -> None:
         """Sang ngày mới -> đếm lại từ 0; phụ huynh bấm 'Đặt lại giờ AI' (web/Telegram) -> về 0 ngay."""
@@ -364,12 +405,14 @@ class BoGiamSatThongMinh:
         if today != self._usage_day:
             self._usage_day = today
             self.ai_seconds = 0.0
+            self.ai_sources = {}
             self.app_usage = {}
             self._last_ai_alert_at_sec = 0
         reset_at = float(state.get("ai_reset_at", 0) or 0)
         if reset_at > self._ai_reset_seen:
             self._ai_reset_seen = reset_at
             self.ai_seconds = 0.0
+            self.ai_sources = {}
             self._last_ai_alert_at_sec = 0
 
     def _vong_lap_giam_sat(self) -> None:
@@ -429,10 +472,20 @@ class BoGiamSatThongMinh:
                     if win_title or is_browser:
                         current_url = lay_link_address_trinh_duyet(is_browser) if is_browser else ""
                         verdict = phan_loai_truy_cap_web(current_url, win_title, cfg)
+                        # Gộp chung: app AI trên máy (đang ở trên cùng) cũng tính như web AI
+                        app_ai = ai_app_label(fg_proc, cfg)
+                        if app_ai and not verdict.get("exempt"):
+                            verdict = {**verdict, "is_ai": True, "should_block": False}
+                            ai_src = f"{app_ai} (ứng dụng)"
+                        elif verdict["is_ai"]:
+                            ai_src = f"{ai_web_label(current_url, win_title, cfg) or 'AI'} (web)"
+                        else:
+                            ai_src = ""
 
                         if verdict["is_ai"] and active:
                             # Chỉ tính khi tab AI đang ở trên cùng VÀ học sinh đang thao tác (không tính lúc bỏ máy)
                             self.ai_seconds += dt
+                            self.ai_sources[ai_src] = self.ai_sources.get(ai_src, 0.0) + dt
                             threshold_sec = max_ai_min * 60
                             # Cảnh báo ngay khi chạm ngưỡng và nhắc lại mỗi 5 phút nếu vẫn cố dùng
                             if self.ai_seconds >= threshold_sec and (
@@ -441,9 +494,11 @@ class BoGiamSatThongMinh:
                             ):
                                 self._last_ai_alert_at_sec = self.ai_seconds
                                 used_min = round(self.ai_seconds / 60.0, 1)
+                                top = sorted(self.ai_sources.items(), key=lambda kv: -kv[1])[:3]
+                                chi_tiet = ", ".join(f"{k} {round(v / 60)}′" for k, v in top)
                                 msg = (
-                                    f"🤖 Học sinh đã tra cứu ChatGPT/AI tổng cộng {used_min} phút "
-                                    f"(Vượt giới hạn {max_ai_min} phút! Nguồn: {current_url or win_title})"
+                                    f"🤖 Học sinh đã dùng AI (ứng dụng + web) tổng cộng {used_min} phút "
+                                    f"— vượt giới hạn {max_ai_min} phút. Chi tiết: {chi_tiet}"
                                 )
                                 gui_canh_bao_len_web(msg, "AI_OVERUSE")
 
@@ -454,6 +509,17 @@ class BoGiamSatThongMinh:
                             time.sleep(1.5)
                 except Exception as exc:
                     safe_log(f"[WARN] Lỗi quét cửa sổ Web: {exc}")
+
+                # --- AI ĐANG CHẠY (app AI mở trên máy, kể cả không ở trên cùng) — 15 giây/lần, chỉ để báo cáo ---
+                if time.monotonic() - self._last_ai_scan >= 15:
+                    self._last_ai_scan = time.monotonic()
+                    try:
+                        running = sorted({lbl for lbl in (ai_app_label((p.info.get("name") or ""), cfg)
+                                                          for p in psutil.process_iter(["name"])) if lbl})
+                        update_runtime_state(ai_running=running,
+                                             ai_sources={k: int(v) for k, v in self.ai_sources.items()})
+                    except Exception:
+                        pass
 
                 # --- LỚP PHÒNG THỦ 2: QUÉT & TIÊU DIỆT GAME NGẦM + ĐẾM GIỜ ỨNG DỤNG ---
                 try:

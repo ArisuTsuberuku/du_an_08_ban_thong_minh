@@ -2,11 +2,11 @@
 """
 Hệ thống An toàn Khẩn cấp 5 Lớp (5-Layer Fail-Safe) cho phần mềm Khóa máy Bàn học Thông minh:
   1. Phím tắt Cứu hộ Toàn cục cấp Hệ điều hành (Win32 RegisterHotKey):
-       - Ctrl + Alt + Shift + F12
-       - Ctrl + Shift + F10
+       - 1 tổ hợp do Admin đặt (Admin → 🆘 Cứu hộ), mặc định Ctrl + Alt + Shift + F12, bấm xong phải nhập PIN
      Hoạt động ngay cả khi cửa sổ khác (Chrome, Game...) đang chiếm quyền bàn phím hoặc UI bị treo.
   2. Tự động Khôi phục khi Crash (atexit, sys.excepthook, signal, Tkinter callback exception hook).
-  3. Mở khóa Khẩn cấp bằng Mã PIN Cứu hộ (999999) qua thanh cứu hộ cố định ở đáy mọi màn hình.
+  3. Mã PIN cứu hộ (Admin đặt, lưu băm SHA-256; mặc định 999999 khi chưa đổi) — chỉ hỏi sau phím cứu hộ,
+     không có nút cứu hộ nào trên màn hình học sinh.
   4. Công tắc File Cứu hộ UNLOCK.txt quét định kỳ mỗi 1 giây ở mọi chế độ.
   5. Tự động sinh File KHOI_PHUC_KHAN_CAP.bat ngay khi khởi động phần mềm.
 """
@@ -30,6 +30,7 @@ from core.config_manager import (
     EMERGENCY_BAT_FILE,
     UNLOCK_FLAG_FILE,
     get_app_dir,
+    load_config,
     safe_log,
     update_runtime_state,
 )
@@ -228,70 +229,110 @@ def generate_emergency_bat_file() -> str:
 # =====================================================================
 # LỚP 1: PHÍM TẮT CỨU HỘ TOÀN CỤC WIN32 (PANIC HOTKEYS)
 # =====================================================================
+RESCUE_HOTKEY_DEFAULT = "Ctrl+Alt+Shift+F12"
+_MOD_BITS = {"CTRL": MOD_CONTROL, "CONTROL": MOD_CONTROL, "ALT": MOD_ALT, "SHIFT": MOD_SHIFT}
+_hotkey_callback: Optional[Callable[[str], None]] = None
+_rescue_ack = threading.Event()
+
+
+def parse_hotkey(text: str):
+    """"Ctrl+Alt+Shift+F12" -> (mods, vk, chuẩn hóa). Cần >= 2 phím bổ trợ để học sinh khó bấm nhầm/đoán.
+    Phím chính: F1–F24, A–Z, 0–9. Trả None nếu không hợp lệ."""
+    parts = [p.strip().upper() for p in (text or "").replace(" ", "").split("+") if p.strip()]
+    if len(parts) < 3:
+        return None
+    mods, names = 0, []
+    for p in parts[:-1]:
+        if p not in _MOD_BITS:
+            return None
+        bit = _MOD_BITS[p]
+        if mods & bit:
+            return None
+        mods |= bit
+        names.append({MOD_CONTROL: "Ctrl", MOD_ALT: "Alt", MOD_SHIFT: "Shift"}[bit])
+    key = parts[-1]
+    if len(key) >= 2 and key[0] == "F" and key[1:].isdigit() and 1 <= int(key[1:]) <= 24:
+        vk = 0x70 + int(key[1:]) - 1
+    elif len(key) == 1 and (key.isalpha() or key.isdigit()):
+        vk = ord(key)
+    else:
+        return None
+    order = {"Ctrl": 0, "Alt": 1, "Shift": 2}
+    names.sort(key=lambda n: order[n])
+    return mods, vk, "+".join(names + [key])
+
+
+def get_rescue_hotkey() -> str:
+    try:
+        hk = str(load_config().get("rescue_hotkey", "") or "")
+    except Exception:
+        hk = ""
+    return parse_hotkey(hk)[2] if parse_hotkey(hk) else RESCUE_HOTKEY_DEFAULT
+
+
+def ack_rescue_prompt() -> None:
+    """Giao diện gọi khi đã hiện được hộp nhập PIN -> hủy hẹn giờ cưỡng bức khôi phục."""
+    _rescue_ack.set()
+
+
 def start_global_panic_hotkeys(on_trigger: Optional[Callable[[str], None]] = None) -> None:
     """
-    Đăng ký trực tiếp tổ hợp phím cứu hộ với nhân Windows (user32.RegisterHotKey):
-      - Ctrl + Alt + Shift + F12
-      - Ctrl + Shift + F10
-    Nếu callback giao diện bị treo quá 0.6s, luồng cứu hộ tự cưỡng bức khôi phục Windows và thoát.
+    Đăng ký 1 tổ hợp phím cứu hộ do Admin đặt (shared_config "rescue_hotkey", mặc định Ctrl+Alt+Shift+F12)
+    với nhân Windows (user32.RegisterHotKey). Không hiện ở bất kỳ màn hình nào của học sinh.
+      - Có giao diện (on_trigger): bấm phím -> giao diện hỏi PIN cứu hộ. Nếu giao diện treo, không hiện được hộp PIN
+        trong 4 giây -> tự cưỡng bức khôi phục Windows và thoát (an toàn hơn là kẹt máy).
+      - Không có giao diện: khôi phục Windows ngay.
     """
+    global _hotkey_callback
+    _hotkey_callback = on_trigger
+    parsed = parse_hotkey(get_rescue_hotkey()) or parse_hotkey(RESCUE_HOTKEY_DEFAULT)
+    mods, vk, combo_name = parsed
 
     def _hotkey_loop() -> None:
         global _hotkey_thread_id
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         _hotkey_thread_id = kernel32.GetCurrentThreadId()
-
-        ok1 = user32.RegisterHotKey(
-            None,
-            HOTKEY_ID_CTRL_ALT_SHIFT_F12,
-            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
-            VK_F12,
-        )
-        ok2 = user32.RegisterHotKey(
-            None,
-            HOTKEY_ID_CTRL_SHIFT_F10,
-            MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
-            VK_F10,
-        )
-        if not ok1 and not ok2:
-            safe_log("[WARN] Win32 RegisterHotKey đã được đăng ký bởi tiến trình khác.")
-
+        if not user32.RegisterHotKey(None, HOTKEY_ID_CTRL_ALT_SHIFT_F12, mods | MOD_NOREPEAT, vk):
+            safe_log(f"[WARN] Không đăng ký được phím cứu hộ {combo_name} (chương trình khác đang dùng).")
         msg = wintypes.MSG()
         try:
             while not _watchdog_stop_event.is_set():
                 ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
                 if ret <= 0 or msg.message == WM_QUIT:
                     break
-                if msg.message == WM_HOTKEY:
-                    hk_id = msg.wParam
-                    combo_name = (
-                        "Ctrl + Alt + Shift + F12"
-                        if hk_id == HOTKEY_ID_CTRL_ALT_SHIFT_F12
-                        else "Ctrl + Shift + F10"
-                    )
-                    reason = f"Phím tắt Cứu hộ Toàn cục ({combo_name})"
-                    # Luôn mở khóa hệ thống ngay lập tức ở luồng này trước tiên
-                    restore_windows_normal_state()
-                    if on_trigger is not None:
-                        # Đặt hẹn giờ bảo hiểm 0.8s phòng trường hợp mainloop Tkinter bị đơ
-                        threading.Timer(
-                            0.8,
-                            lambda r=reason: emergency_restore_and_exit(r, 0),
-                        ).start()
-                        try:
-                            on_trigger(reason)
-                        except Exception:
-                            emergency_restore_and_exit(reason, 0)
-                    else:
-                        emergency_restore_and_exit(reason, 0)
+                if msg.message != WM_HOTKEY:
+                    continue
+                reason = f"Phím cứu hộ ({combo_name})"
+                cb = _hotkey_callback
+                if cb is None:
+                    emergency_restore_and_exit(reason, 0)
                     break
+                _rescue_ack.clear()
+
+                def _bao_hiem(r=reason) -> None:
+                    if not _rescue_ack.wait(4.0):
+                        safe_log("[FAILSAFE] Giao diện không phản hồi phím cứu hộ -> cưỡng bức khôi phục Windows.")
+                        emergency_restore_and_exit(r + " · giao diện treo", 0)
+
+                threading.Thread(target=_bao_hiem, daemon=True).start()
+                try:
+                    cb(reason)
+                except Exception:
+                    emergency_restore_and_exit(reason, 0)
         finally:
             user32.UnregisterHotKey(None, HOTKEY_ID_CTRL_ALT_SHIFT_F12)
-            user32.UnregisterHotKey(None, HOTKEY_ID_CTRL_SHIFT_F10)
 
     t = threading.Thread(target=_hotkey_loop, name="Win32PanicHotkeyThread", daemon=True)
     t.start()
+
+
+def restart_global_panic_hotkeys() -> None:
+    """Admin vừa đổi phím cứu hộ -> gỡ phím cũ, đăng ký phím mới."""
+    cb = _hotkey_callback
+    stop_global_hotkeys()
+    time.sleep(0.3)
+    start_global_panic_hotkeys(cb)
 
 
 def stop_global_hotkeys() -> None:
@@ -420,19 +461,44 @@ def attach_tkinter_failsafe(root, on_emergency_exit: Callable[[str], None]) -> N
             pass
 
     root.report_callback_exception = _tk_exception_handler
-    root.bind_all(
-        "<Control-Alt-Shift-F12>",
-        lambda _e: on_emergency_exit("Phím tắt Ctrl + Alt + Shift + F12"),
-    )
-    root.bind_all(
-        "<Control-Shift-F10>",
-        lambda _e: on_emergency_exit("Phím tắt Ctrl + Shift + F10"),
-    )
+    # Phím cứu hộ chỉ đăng ký 1 nơi (RegisterHotKey toàn cục, Admin đặt) -> không gắn thêm phím cố định ở đây,
+    # để học sinh không thể dùng tổ hợp mặc định cũ (Ctrl+Shift+F10) thoát phần mềm.
 
 
 # =====================================================================
-# LỚP 3: MÃ PIN CỨU HỘ (999999)
+# LỚP 3: MÃ PIN CỨU HỘ (Admin đặt; mặc định 999999)
 # =====================================================================
+def _hash_pin(pin: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(("focusdesk-rescue|" + pin.strip()).encode()).hexdigest()
+
+
+def set_rescue_pin(pin: str) -> None:
+    """Admin đổi PIN cứu hộ: chỉ lưu bản băm SHA-256 vào shared_config ("rescue_pin_hash")."""
+    from core.config_manager import save_config
+
+    cfg = load_config()
+    cfg["rescue_pin_hash"] = _hash_pin(pin)
+    save_config(cfg)
+
+
+def rescue_pin_is_default() -> bool:
+    try:
+        return not load_config().get("rescue_pin_hash")
+    except Exception:
+        return True
+
+
 def verify_rescue_pin(pin_input: Optional[str]) -> bool:
-    """Kiểm tra mã PIN cứu hộ khẩn cấp (999999)."""
-    return (pin_input or "").strip() == MASTER_RESCUE_PIN
+    """Kiểm tra PIN cứu hộ: PIN Admin đã đặt (băm), hoặc 999999 nếu Admin chưa đổi."""
+    pin = (pin_input or "").strip()
+    try:
+        h = load_config().get("rescue_pin_hash")
+    except Exception:
+        h = None
+    if h:
+        import hmac as _hmac
+
+        return _hmac.compare_digest(_hash_pin(pin), str(h))
+    return pin == MASTER_RESCUE_PIN

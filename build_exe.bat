@@ -13,6 +13,7 @@ python -m PyInstaller ^
     --noconsole ^
     --uac-admin ^
     --name FocusDeskLauncher ^
+    --icon "assets\focusdesk.ico" ^
     --workpath "%TEMP%\FocusDeskLauncher_pyi_build" ^
     --distpath "dist" ^
     --collect-data uiautomation ^

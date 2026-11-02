@@ -149,6 +149,10 @@ class CloudAgent:
             "version": AGENT_VERSION,
             "role": st.get("current_role", "?"),
             "ai_seconds": int(st.get("ai_seconds", 0) or 0),
+            # Giờ AI tách theo nguồn (app AI trên máy + web AI) và app AI đang chạy
+            "ai_sources": {str(k)[:60]: int(v) for k, v in sorted((st.get("ai_sources") or {}).items(),
+                                                               key=lambda kv: -kv[1])[:8]},
+            "ai_running": list(st.get("ai_running") or [])[:8],
             "max_ai_minutes": cfg.get("max_ai_minutes"),
             "top_apps": [{"name": k, "seconds": v} for k, v in top_apps],
             "posture": {
@@ -255,18 +259,25 @@ class CloudAgent:
 
                 stop_live()
                 msg = "Đã tắt xem trực tiếp"
-            elif ctype in ("box_unlock", "box_unlock_30", "box_lock"):
+            elif ctype in ("box_unlock", "box_unlock_30", "box_unlock_min", "box_lock"):
                 from services.phone_box import get_box
 
                 box = get_box()
+                minutes = 30 if ctype == "box_unlock_30" else int(cmd.get("minutes") or 0) if ctype == "box_unlock_min" else 0
+                minutes = max(0, min(240, minutes))
                 if ctype == "box_lock":
                     r = box.lock()
                 else:
-                    r = box.unlock(1800 if ctype == "box_unlock_30" else 0)
+                    r = box.unlock(minutes * 60)
                 ok = bool(r.get("ok"))
-                msg = ({"box_lock": "Đã khóa hộp điện thoại", "box_unlock": "Đã mở hộp điện thoại",
-                        "box_unlock_30": "Đã mở hộp điện thoại 30 phút (tự khóa lại khi nắp đóng)"}[ctype]
-                       if ok else f"Không điều khiển được hộp: {r.get('err')}")
+                if not ok:
+                    msg = f"Không điều khiển được hộp: {r.get('err')}"
+                elif ctype == "box_lock":
+                    msg = "Đã khóa hộp điện thoại"
+                elif minutes:
+                    msg = f"Đã mở hộp điện thoại {minutes} phút (tự khóa lại khi nắp đóng)"
+                else:
+                    msg = "Đã mở hộp điện thoại"
             elif ctype == "snapshot":
                 ok, msg = self._send_snapshot(cmd.get("chat_id") or "")
             else:

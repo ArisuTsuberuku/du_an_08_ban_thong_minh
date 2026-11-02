@@ -9,7 +9,7 @@ hoặc chuột vào taskbar để mở mọi thứ khác trên máy.
   1. ẨN TASKBAR: ShowWindow(Shell_TrayWnd + Shell_SecondaryTrayWnd, SW_HIDE), nhắc lại mỗi 1s (Explorer hay tự hiện).
      Không kill explorer.exe -> không mất khay hệ thống, khôi phục tức thì.
   2. CHẶN PHÍM HỆ THỐNG: hook bàn phím mức thấp (WH_KEYBOARD_LL) nuốt phím Windows (Start, Win+D/E/R/Tab...),
-     Ctrl+Esc, Alt+Esc. KHÔNG chặn tổ hợp cứu hộ Ctrl+Alt+Shift+F12 / Ctrl+Shift+F10 (RegisterHotKey vẫn chạy).
+     Ctrl+Esc, Alt+Esc. KHÔNG chặn phím cứu hộ do Admin đặt (RegisterHotKey vẫn chạy).
   3. CANH CỬA SỔ: cửa sổ đang được focus mà KHÔNG thuộc ứng dụng được phép (hoặc là Start menu/Search/Desktop)
      -> thu nhỏ ngay + trả màn hình Góc học tập lên trước + báo vi phạm (mỗi ứng dụng 1 lần/60s).
      Ứng dụng UWP (Máy tính...) chạy trong ApplicationFrameHost -> dò tiến trình thật qua cửa sổ con.
