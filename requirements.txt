@@ -9,8 +9,11 @@ pyinstaller>=6.0.0
 numpy>=2.0.0
 # Chỉ cài 1 gói OpenCV duy nhất (mediapipe yêu cầu bản contrib). KHÔNG cài thêm opencv-python để tránh xung đột thư mục cv2.
 opencv-contrib-python>=4.9.0,<5
-mediapipe>=0.10.14
+mediapipe>=1.0  # cần HolisticLandmarker + blendshape mắt (Python 3.14 dùng 1.2.x)
 # Liệt kê tên Webcam DirectShow để ưu tiên chọn đúng "HD Webcam" thay vì Camera ảo
 pygrabber>=0.2
 # Nhận diện hành động MoViNet (TFLite) — có bản cho Python 3.14 Windows
 ai-edge-litert>=2.0
+# Icon ứng dụng thật + ảnh xem trước camera
+pillow>=10.0
+comtypes>=1.2

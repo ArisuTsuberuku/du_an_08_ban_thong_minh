@@ -419,6 +419,7 @@ h3{margin:4px 0 10px}
     <div id="acks" class="card" style="display:none"></div>
    </div><div>
     <div class="card"><h3>🔔 Cảnh báo gần đây</h3><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
+    <div class="card"><h3>🕒 Thay đổi gần đây</h3><p class="mut" style="margin-top:-4px">Ứng dụng vừa mở, trang web vừa vào — AI tự nhận ra web game / giải trí.</p><div id="evbox" class="mut">Chưa có.</div></div>
     <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div><div id="openbox"></div>
      <div class="bar" id="h-bar" style="margin-top:12px"></div><div class="mut" id="h-legend" style="margin-top:6px"></div></div>
    </div></div>
@@ -457,6 +458,10 @@ h3{margin:4px 0 10px}
     <div id="yt-kw-box"><label class="mut">Từ khóa cấm khi tìm / xem (cách nhau dấu phẩy)</label><textarea id="yt-kw" oninput="rulesTouched=true"></textarea>
     <div class="sw"><div><div class="t">Chặn YouTube Shorts</div><div class="d">Video ngắn lướt liên tục, dễ nghiện</div></div>
      <label class="tg"><input type="checkbox" id="yt-shorts" checked onchange="rulesTouched=true"><span></span></label></div></div></div>
+   <div class="card"><h3>🔔 Báo khi học sinh đổi việc</h3><p class="mut">Mỗi lần mở ứng dụng mới / vào trang web mới, hệ thống tự phân tích trang đó là học tập, game, mạng xã hội...</p>
+    <div class="seg" id="nv-mode"><button type="button" data-m="risky" onclick="nvMode(this)">⚠️ Chỉ trang đáng ngờ</button><button type="button" data-m="all" onclick="nvMode(this)">📣 Mọi thay đổi</button><button type="button" data-m="off" onclick="nvMode(this)">🔕 Tắt</button></div>
+    <div class="sw"><div><div class="t">Tự chặn web game mới phát hiện</div><div class="d">Trang được nhận ra là game sẽ tự thêm vào luật chặn và đóng tab</div></div>
+     <label class="tg"><input type="checkbox" id="opt-autogame" onchange="rulesTouched=true"><span></span></label></div></div>
    <div class="card"><h3>⚙️ Cách giám sát</h3>
     <div class="sw"><div><div class="t">Giám sát cả khi học sinh chưa đăng nhập</div><div class="d">Bật: chặn & báo mọi lúc máy bật. Tắt: chỉ khi học sinh vào chế độ học.</div></div>
      <label class="tg"><input type="checkbox" id="opt-always"><span></span></label></div>
@@ -552,7 +557,7 @@ function renderAll(){const v=cur();renderChips();renderSettings();
  $('h-legend').textContent=sum?`Hôm nay: ${fmtMin(t.Hoc_tap)} học · ${fmtMin(t.Giai_tri)} giải trí · ${fmtMin(t.Khac)} khác`:'Chưa có dữ liệu hôm nay';
  const n=v.now||{};$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.app||'')}</b></div><div class="mut">${esc(n.title)}</div></div>
   ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}</div>`:(n.category==='Idle'?'<span class="mut">💤 Đang rời máy</span>':'—');
- renderOpen(n.open||[],p);
+ renderOpen(n.open||[],p);renderEvents(v);
  $('alerts').innerHTML=(v.alerts||[]).slice(0,6).map(a=>`<div class="alert-row"><time>${esc(a.time)}</time><div>${esc(a.message)}</div></div>`).join('')||'Không có cảnh báo. 👍';
  const acks=v.acks||[];if(acks.length){$('acks').style.display='block';$('acks').innerHTML='<h3>✅ Kết quả lệnh</h3>'+acks.slice(0,3).map(a=>`<div class="${a.ok?'':'err'}" style="font-size:14px;padding:3px 0">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
   const k=acks[0].time+acks[0].msg;if(lastAck&&k!==lastAck)toast((acks[0].ok?'✅ ':'⚠️ ')+acks[0].msg);lastAck=k;}
@@ -622,6 +627,16 @@ const GROUPS={
  comics:{n:'📚 Truyện tranh',d:'Các web truyện tranh phổ biến',dom:['truyenqqto.com','nettruyenviet.com','blogtruyenmoi.com'],kw:['truyện tranh','manga'],apps:[]}};
 let rulesTouched=false;
 const YT_DEFAULT=['free fire','liên quân','minecraft','roblox','pubg','genshin','gameplay','game','mukbang','prank','asmr','tiktok','review phim','phim','anime','nhạc remix','livestream game'];
+function nvMode(b){document.querySelectorAll('#nv-mode button').forEach(x=>x.classList.toggle('act',x===b));rulesTouched=true;}
+const KCOL={game:'#dc2626',social:'#db2777',video:'#ea580c',shopping:'#ca8a04',comics:'#9333ea',study:'#16a34a',ai:'#2563eb',app:'#64748b',other:'#94a3b8'};
+function renderEvents(v){const ev=v.events||[];if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
+ $('evbox').innerHTML=ev.slice(0,15).map(e=>{const tm=new Date((e.t||0)*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+  const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖'}[e.cls]||'🌐'):'🪟';
+  const risky=['game','social','video','shopping','comics'].includes(e.cls);
+  const btn=e.kind==='web'&&!e.blocked&&e.cls!=='study'&&e.cls!=='ai'?`<button class="${risky?'danger':''}" style="padding:4px 10px;font-size:12px" onclick="blockDom('${esc(e.domain)}')">Chặn</button>`:(e.blocked?'<span class="pill">đã chặn</span>':'');
+  return `<div class="app-row"><div class="ic">${ic}</div><div class="nm"><div><b>${esc(name||'')}</b> <span class="tag" style="background:${KCOL[e.cls]||KCOL.other}">${esc(e.vi||'')}</span></div>
+   <div class="mut">${tm}${e.title?' · '+esc(e.title):''}${e.why?' · '+esc(e.why):''}</div></div>${btn}</div>`;}).join('');}
+async function blockDom(d){const v=cur();if(!v||!confirm('Chặn trang '+d+' trên máy này?'))return;const r=await api(`/api/parent/devices/${v.id}/block`,{domain:d});toast(r.message||r.error);load();}
 function ytMode(b){document.querySelectorAll('#yt-mode button').forEach(x=>x.classList.toggle('act',x===b));$('yt-kw-box').style.display=b.dataset.m==='keyword'?'block':'none';rulesTouched=true;}
 function ytSet(m){const b=document.querySelector(`#yt-mode button[data-m="${m}"]`)||document.querySelector('#yt-mode button');ytMode(b);}
 function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;const st=(v.status||{}),r=st.rules||{},srv=(v.rules||{});
@@ -635,7 +650,8 @@ function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;con
  $('opt-always').checked=!!(srv.monitor_always??st.monitor_always);$('opt-dns').checked=srv.dns_block!==false;
  const legacyYt=(srv.groups||[]).includes('youtube');ytSet(srv.youtube_mode||r.youtube_mode||(legacyYt?'block':'keyword'));
  const ykw=(srv.youtube_keywords&&srv.youtube_keywords.length?srv.youtube_keywords:(r.youtube_keywords&&r.youtube_keywords.length?r.youtube_keywords:YT_DEFAULT));
- $('yt-kw').value=ykw.join(', ');$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
+ $('yt-kw').value=ykw.join(', ');
+ const nb=document.querySelector(`#nv-mode button[data-m="${srv.notify_env||'risky'}"]`);if(nb)nvMode(nb);$('opt-autogame').checked=!!srv.auto_block_games;$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
  $('rmsg').textContent=st.dns_block?('Trên máy: '+st.dns_block):'';}
 async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
  const groups=[...document.querySelectorAll('[data-g]')].filter(i=>i.checked).map(i=>i.dataset.g);
@@ -645,7 +661,8 @@ async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.s
  ['youtube.com','youtu.be'].forEach(x=>{if(ym!=='block')dom.delete(x);else dom.add(x);});kw.delete('youtube');
  const r=await api(`/api/parent/devices/${v.id}/rules`,{apps:[...apps],domains:[...dom],keywords:[...kw],groups,
   monitor_always:$('opt-always').checked,dns_block:$('opt-dns').checked,youtube_mode:ym,youtube_keywords:sp('yt-kw'),
-  youtube_shorts:$('yt-shorts').checked});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
+  youtube_shorts:$('yt-shorts').checked,notify_env:(document.querySelector('#nv-mode button.act')||{}).dataset?.m||'risky',
+  auto_block_games:$('opt-autogame').checked});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
 // ---------- PWA ----------
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 let deferredPrompt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;$('installBtn').style.display='inline-block';});
@@ -758,6 +775,7 @@ def api_parent_devices():
             "ago": now() - int(dev.get("last_seen", 0) or 0),
             "status": dev.get("status") or {},
             "alerts": (dev.get("recent_alerts") or [])[:10],
+            "events": (dev.get("events") or [])[:25],
             "acks": (dev.get("acks") or [])[:5],
             "now": live_category(dev),
             "rules": {k: v for k, v in (dev.get("rules") or {}).items() if k != "by"},
@@ -821,10 +839,31 @@ def api_parent_rules(did):
              "groups": [str(g)[:30] for g in (data.get("groups") or [])][:20],
              "youtube_mode": data.get("youtube_mode") if data.get("youtube_mode") in ("keyword", "block", "allow") else "keyword",
              "youtube_keywords": clean(data.get("youtube_keywords")),
-             "youtube_shorts": bool(data.get("youtube_shorts", True))}
+             "youtube_shorts": bool(data.get("youtube_shorts", True)),
+             "notify_env": data.get("notify_env") if data.get("notify_env") in ("risky", "all", "off") else "risky",
+             "auto_block_games": bool(data.get("auto_block_games", False))}
     db.set(f"devices/{did}/rules", rules)
     mark_watching(did, force=True)
     return jsonify({"ok": True, "message": "Đã lưu. Máy sẽ áp dụng trong ≤30 giây."})
+
+
+@app.route("/api/parent/devices/<did>/block", methods=["POST"])
+@login_required
+def api_parent_block(did):
+    """Chặn nhanh 1 tên miền từ nhật ký thay đổi (thêm vào luật, máy áp dụng ở heartbeat kế tiếp)."""
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    dom = str((request.get_json(silent=True) or {}).get("domain", "")).strip().lower()[:80]
+    if not dom or "." not in dom or "/" in dom or " " in dom:
+        return jsonify({"error": "Tên miền không hợp lệ"}), 400
+    rules = dict(db.get(f"devices/{did}/rules") or {})
+    rules["domains"] = sorted(set(rules.get("domains") or []) | {dom})[:200]
+    rules["ver"] = int(time.time() * 1000)
+    rules["by"] = uid
+    db.set(f"devices/{did}/rules", rules)
+    mark_watching(did, force=True)
+    return jsonify({"ok": True, "message": f"Đã chặn {dom}. Máy áp dụng trong vài giây."})
 
 
 @app.route("/api/parent/devices/<did>/activity")
@@ -891,6 +930,152 @@ STUDY_HINTS = ("olm", "vietjack", "hocmai", "khan", "classroom", "classin", "zoo
 FUN_HINTS = ("youtube", "facebook", "tiktok", "instagram", "netflix", "game", "steam", "roblox", "minecraft",
              "valorant", "league", "genshin", "liên quân", "free fire", "phim", "truyện", "manga", "anime",
              "shopee", "lazada", "discord", "spotify", "twitch", "poki", "zing mp3", "nhạc")
+
+
+# ---------------- Phân tích tên miền: trang học / game / mạng xã hội / video / mua sắm / AI ----------------
+DOMAIN_KINDS: Dict[str, Tuple[str, ...]] = {
+    "game": ("poki.", "y8.com", "friv.", "crazygames.", "miniclip.", "roblox.", "coolmathgames.", "kizi.", "agame.",
+             "armorgames.", "addictinggames.", "newgrounds.", "itch.io", "krunker.io", "slither.io", "agar.io",
+             "zombs", "shellshock.io", "1v1.lol", "skribbl.io", "gartic", "chess.com", "lichess.org", "game24h.",
+             "gamevui.", "vuigame.", "trochoi.", "gamebai", "garena.", "lienquan.", "steampowered.", "epicgames.",
+             "minecraft.", "geometrydash", "subway-surfers", "gameplay", "playhop.", "yandex.com/games",
+             "game.", "games.", "-game", "playgame", "html5games"),
+    "social": ("facebook.", "fb.com", "messenger.", "instagram.", "tiktok.", "threads.net", "x.com", "twitter.",
+               "snapchat.", "pinterest.", "reddit.", "discord.", "zalo.me", "chat.zalo"),
+    "video": ("youtube.", "youtu.be", "netflix.", "fptplay.", "tv360.", "vieon.", "phimmoi", "motchill", "bilibili.",
+              "twitch.tv", "dailymotion.", "animevietsub", "hhpanda", "anime"),
+    "shopping": ("shopee.", "lazada.", "tiki.vn", "sendo.vn", "temu.", "aliexpress.", "amazon."),
+    "comics": ("truyenqq", "nettruyen", "blogtruyen", "truyentranh", "manga", "webtoon"),
+    "study": ("olm.vn", "vietjack.", "hocmai.", "loigiaihay.", "hoc247.", "khanacademy.", "quizlet.", "wikipedia.",
+              "classroom.google", "docs.google", "drive.google", "scholar.google", "moet.gov", "vndoc.", "tuyensinh247",
+              "duolingo.", "coursera.", "edx.org", "geogebra.", "desmos.", "violet.vn", "thuvienhoclieu", "azota.",
+              "shub.edu", "k12online", "vnedu.", "sgk", "hoc.", "edu.vn", "w3schools.", "codelearn", "britannica."),
+    "ai": ("chatgpt.com", "openai.com", "gemini.google", "claude.ai", "copilot.microsoft", "deepseek.", "perplexity.",
+           "poe.com", "grok.com", "qwen."),
+}
+KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / phim", "shopping": "Mua sắm",
+           "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "other": "Khác"}
+KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
+            "study": "Hoc_tap", "ai": "Hoc_tap", "other": "Khac"}
+RISKY_KINDS = ("game", "social", "video", "shopping", "comics")
+GAME_TITLE_HINTS = ("game", "chơi", "play ", "online free", "unblocked", ".io", "level", "điểm cao", "bắn súng",
+                    "đua xe", "minecraft", "roblox", "free fire", "liên quân")
+
+
+def classify_domain(domain: str, title: str = "") -> Dict[str, str]:
+    """
+    Tên miền -> {kind, vi, category, why}. Thứ tự: danh sách dựng sẵn -> dấu hiệu tiêu đề/tên miền ->
+    Gemini (nếu có khóa) -> 'other'. Kết quả lưu cache dùng chung ở domain_cat/<miền> nên mỗi trang chỉ phân tích 1 lần.
+    """
+    d = (domain or "").lower().strip()
+    t = (title or "").lower()
+    if not d:
+        return {"kind": "other", "vi": KIND_VI["other"], "category": "Khac", "why": ""}
+    for kind in ("study", "ai", "game", "social", "video", "shopping", "comics"):
+        if any(h in d for h in DOMAIN_KINDS[kind]):
+            return {"kind": kind, "vi": KIND_VI[kind], "category": KIND_CAT[kind], "why": "danh sách"}
+    key = fb_key(d)[:120]
+    cached = db.get(f"domain_cat/{key}")
+    if isinstance(cached, dict) and cached.get("kind") in KIND_VI:
+        return {**cached, "vi": KIND_VI[cached["kind"]], "category": KIND_CAT[cached["kind"]]}
+    kind, why = "other", ""
+    if d.endswith(".io") and any(h in t for h in ("game", "play", "io")) or any(h in t for h in GAME_TITLE_HINTS[:6]):
+        kind, why = "game", "tiêu đề giống web game"
+    if kind == "other" and GEMINI_API_KEY:
+        kind, why = _gemini_domain_kind(d, title) or ("other", "")
+    rec = {"kind": kind, "why": why[:80], "t": now()}
+    try:
+        db.set(f"domain_cat/{key}", rec)
+    except Exception:
+        pass
+    return {**rec, "vi": KIND_VI[kind], "category": KIND_CAT[kind]}
+
+
+def _gemini_domain_kind(domain: str, title: str) -> Optional[Tuple[str, str]]:
+    import json as _json
+
+    prompt = ("Một HỌC SINH vừa mở trang web. Xếp tên miền vào đúng 1 loại: study (học tập, tra cứu, tài liệu), "
+              "game (chơi game online), social (mạng xã hội, chat), video (xem video/phim/nhạc), shopping, comics "
+              "(truyện), ai (chatbot AI), other. Trả lời ngắn lý do tiếng Việt (≤10 từ).\n"
+              f"Tên miền: {domain}\nTiêu đề tab: {title[:120]}")
+    schema = {"type": "OBJECT", "properties": {"kind": {"type": "STRING", "enum": list(KIND_VI)},
+                                               "reason": {"type": "STRING"}}, "required": ["kind", "reason"]}
+    body = {"contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json", "responseSchema": schema}}
+    for model in GEMINI_MODELS:
+        try:
+            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                              json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=6)
+            if r.status_code == 404:
+                continue
+            r.raise_for_status()
+            out = _json.loads(r.json()["candidates"][0]["content"]["parts"][0]["text"])
+            if out.get("kind") in KIND_VI:
+                return out["kind"], "🤖 " + str(out.get("reason", ""))[:70]
+        except Exception as exc:
+            app.logger.warning("Gemini phân loại miền lỗi (%s): %s", model, exc)
+            return None
+    return None
+
+
+def _handle_events(did: str, dev: Dict[str, Any], events: List[Dict[str, Any]]) -> None:
+    """Sự kiện thay đổi môi trường (mở app / vào trang web mới): phân loại, lưu nhật ký, báo phụ huynh, tự chặn game."""
+    rules = dict(dev.get("rules") or {})
+    mode = rules.get("notify_env", "risky")          # risky | all | off
+    out, notify = [], []
+    blocked_new: List[str] = []
+    for ev in events[:30]:
+        kind = str(ev.get("kind", ""))
+        title = str(ev.get("title", ""))[:120]
+        rec = {"t": int(ev.get("t", 0) or now()), "kind": kind, "exe": str(ev.get("exe", ""))[:60], "title": title}
+        if kind == "web":
+            dom = str(ev.get("domain", ""))[:80].lower()
+            c = classify_domain(dom, title)
+            rec.update(domain=dom, cls=c["kind"], vi=c["vi"], category=c["category"], why=c.get("why", ""))
+            already = any(dom.endswith(x) for x in (rules.get("domains") or []))
+            rec["blocked"] = already
+            if c["kind"] == "game" and rules.get("auto_block_games") and not already:
+                blocked_new.append(dom)
+                rec["blocked"] = True
+                rec["auto"] = True
+        elif kind == "app":
+            cat, _ = classify_rules(rec["exe"], title)
+            rec.update(category=cat, cls="app", vi="Ứng dụng")
+        else:
+            continue
+        out.append(rec)
+        risky = rec.get("cls") in RISKY_KINDS or rec.get("category") == "Giai_tri"
+        if mode == "all" or (mode == "risky" and risky and not (rec.get("blocked") and not rec.get("auto"))):
+            notify.append(rec)
+    if not out:
+        return
+    log = (list(reversed(out)) + list(dev.get("events") or []))[:40]
+    upd: Dict[str, Any] = {"events": log}
+    if blocked_new:
+        rules["domains"] = sorted(set(rules.get("domains") or []) | set(blocked_new))[:200]
+        rules["ver"] = int(time.time() * 1000)
+        upd["rules"] = rules
+    db.update(f"devices/{did}", upd)
+    day = vn_date(out[-1]["t"])
+    for rec in out:
+        db.push(f"events/{did}/{day}", rec)
+    if notify:
+        chats = chats_of_device(did)
+        owners = list((dev.get("owners") or {}).keys())
+        name = dev.get("name") or did
+        for rec in notify[:5]:
+            if rec["kind"] == "web":
+                icon = "🎮" if rec["cls"] == "game" else ("🚫" if rec.get("category") == "Giai_tri" else "🌐")
+                msg = f"{icon} Vào trang {rec['domain']} — {rec['vi']}"
+                if rec.get("auto"):
+                    msg += " · ĐÃ TỰ CHẶN"
+                if rec.get("title"):
+                    msg += f"\n“{rec['title'][:80]}”"
+            else:
+                msg = f"🪟 Mở ứng dụng {rec['exe']}" + (f" — “{rec['title'][:60]}”" if rec.get("title") else "")
+            for chat in chats:
+                tg_send(chat, f"🖥️ <b>{html.escape(name)}</b>\n{html.escape(msg)}")
+            web_push_owners(owners, f"🖥️ {name}", msg, tag=f"{did}-env")
 
 
 def classify_rules(app_name: str, title: str) -> Tuple[str, str]:
@@ -1058,6 +1243,13 @@ def api_agent_heartbeat():
         db.push(f"activity/{did}/{day}",
                 {"start": int(batch.get("start", 0) or 0), "end": int(batch.get("end", 0) or 0), "items": items})
         _add_to_summary(did, day, int(batch.get("end", 0) or now()), items)
+    evs = [e for e in (data.get("events") or []) if isinstance(e, dict)][:30]
+    if evs:
+        try:
+            _handle_events(did, dev, evs)
+            dev = db.get(f"devices/{did}") or dev
+        except Exception as exc:
+            app.logger.warning("Lỗi xử lý sự kiện: %s", exc)
     if new_alerts:
         recent = (new_alerts + list(dev.get("recent_alerts") or []))[:20]
         updates["recent_alerts"] = recent

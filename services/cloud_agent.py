@@ -178,13 +178,16 @@ class CloudAgent:
         if first:
             alerts = []  # không bắn lại cảnh báo cũ khi vừa khởi động
         batch = self.tracker.drain_if_due()
+        events = self.tracker.drain_events()
         acks, self._acks = self._acks, []
         try:
             res = self._post("/api/agent/heartbeat", {"status": self._collect_status(), "alerts": alerts,
-                                                      "activity": batch, "acks": acks})
+                                                      "activity": batch, "acks": acks, "events": events})
         except Exception:
             if batch:
                 self.tracker.requeue(batch)  # gửi lỗi -> giữ lại số liệu cho lần sau
+            if events:
+                self.tracker.requeue_events(events)
             self._acks = acks + self._acks
             raise
         if res.get("rules"):
@@ -374,6 +377,8 @@ class CloudAgent:
     def _has_pending_event(self) -> bool:
         """Sự kiện đặc biệt cần báo NGAY: có cảnh báo mới chưa gửi (game, AI quá giờ, tư thế, đăng nhập sai...)."""
         alerts = (load_runtime_state().get("alerts") or [])[:5]
+        if self.tracker.urgent:      # vừa mở ứng dụng / trang web mới -> báo ngay (phụ huynh thấy gần thời gian thực)
+            return True
         return any(f"{a.get('time')}|{a.get('type')}|{a.get('message')}" not in self._sent_alert_keys for a in alerts)
 
     def run(self) -> None:
