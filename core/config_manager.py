@@ -17,6 +17,29 @@ from typing import Any, Dict
 _IO_LOCK = threading.RLock()
 
 
+def configure_utf8_stdio() -> None:
+    """Cấu hình UTF-8 an toàn cho stdout/stderr trên Windows và chống lỗi NoneType khi đóng gói --noconsole."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+configure_utf8_stdio()
+
+
+def safe_log(message: str) -> None:
+    """In log an toàn không bao giờ văng lỗi cp1252 UnicodeEncodeError hoặc lỗi stdout=None ở bản --noconsole."""
+    try:
+        if sys.stdout is not None:
+            print(message)
+    except Exception:
+        pass
+
+
 def get_app_dir() -> str:
     """Trả về thư mục gốc chứa file .exe (khi đã đóng gói) hoặc thư mục gốc dự án (khi chạy .py)."""
     if getattr(sys, "frozen", False):
@@ -246,7 +269,7 @@ def _safe_write_json(filepath: str, payload: Dict[str, Any]) -> bool:
                     pass
             return True
         except Exception as exc:
-            print(f"[WARN] Không thể ghi tệp {filepath}: {exc}")
+            safe_log(f"[WARN] Không thể ghi tệp {filepath}: {exc}")
             return False
 
 
