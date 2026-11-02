@@ -252,8 +252,19 @@ class PhanMemQuanLyBanHocEXE:
     # =====================================================================
     # MÀN HÌNH KHÓA ĐĂNG NHẬP 3 CẤP KIỂU GCAFE / CSM
     # =====================================================================
+    @staticmethod
+    def _hop_dt(on: bool) -> None:
+        """Báo cho hộp điện thoại biết đang / hết giờ học (vào học + đã cất điện thoại -> tự khóa)."""
+        try:
+            from services.phone_box import set_studying
+
+            threading.Thread(target=set_studying, args=(on,), daemon=True).start()
+        except Exception:
+            pass
+
     def hien_man_hinh_dang_nhap(self) -> None:
         self._current_mode = "locked"
+        self._hop_dt(False)
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
         update_runtime_state(current_role="locked", monitoring_active=False)
@@ -414,6 +425,12 @@ class PhanMemQuanLyBanHocEXE:
         if pwd == expected_pwd:
             self.so_lan_sai_mat_khau = 0
             if role == "student":
+                if load_config().get("phone_box_enabled") and load_config().get("phone_box_required"):
+                    st = load_runtime_state().get("phone_box") or {}
+                    if st.get("connected") and not st.get("phone"):
+                        messagebox.showwarning("Cất điện thoại", "📱 Hãy bỏ điện thoại vào hộp trước khi vào học nhé!\n"
+                                               "Hộp sẽ tự khóa khi bạn bắt đầu học.", parent=self.root)
+                        return
                 self.vao_che_do_hoc_sinh()
             elif role == "parent":
                 self.vao_che_do_phu_huynh()
@@ -438,6 +455,7 @@ class PhanMemQuanLyBanHocEXE:
     # =====================================================================
     def vao_che_do_hoc_sinh(self) -> None:
         self._current_mode = "student"
+        self._hop_dt(True)
         cfg = load_config()
         update_runtime_state(current_role="student", remote_lock_requested=False)
 
@@ -593,6 +611,8 @@ class PhanMemQuanLyBanHocEXE:
         self._dock_clock.pack(side="right", padx=12)
         self._dock_focus = tk.Label(dock, text="", bg="#0f172a", fg="#86efac", font=("Segoe UI", 10, "bold"))
         self._dock_focus.pack(side="right", padx=8)
+        self._dock_box = tk.Label(dock, text="", bg="#0f172a", fg="#cbd5e1", font=("Segoe UI", 10, "bold"))
+        self._dock_box.pack(side="right", padx=8)
         self._dock_alert = tk.Label(dock, text="", bg="#0f172a", fg="#fcd34d", font=("Segoe UI", 10, "bold"))
         self._dock_alert.pack(side="right", padx=8)
         alerts = load_runtime_state().get("alerts") or []
@@ -611,6 +631,11 @@ class PhanMemQuanLyBanHocEXE:
             from services.app_icons import emoji_for, get_icon_image
 
             self._dock_clock.config(text=time.strftime("%H:%M"))
+            bx = load_runtime_state().get("phone_box") or {}
+            if load_config().get("phone_box_enabled"):
+                self._dock_box.config(text=("📦 mất kết nối" if not bx.get("connected") else
+                                            ("📱🔒 đã cất" if bx.get("phone") and bx.get("lock") == "locked" else
+                                             ("📱 trong hộp" if bx.get("phone") else "📭 hộp trống"))))
             pt = load_runtime_state().get("posture_telemetry") or {}
             if pt.get("camera_connected") and pt.get("calibrated"):
                 cfi = float(pt.get("cfi_score", 100) or 0)
@@ -1303,6 +1328,7 @@ class PhanMemQuanLyBanHocEXE:
     # =====================================================================
     def vao_che_do_phu_huynh(self, start: str = "") -> None:
         self._current_mode = "parent"
+        self._hop_dt(False)
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
         restore_windows_normal_state()
@@ -1795,6 +1821,7 @@ class PhanMemQuanLyBanHocEXE:
     # =====================================================================
     def vao_che_do_admin(self, start: str = "") -> None:
         self._current_mode = "admin"
+        self._hop_dt(False)
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
         restore_windows_normal_state()
@@ -1804,11 +1831,98 @@ class PhanMemQuanLyBanHocEXE:
             [("system", "🛡️", "Hệ thống & kiosk", self._trang_he_thong),
              ("camera", "📷", "Camera AI", self._trang_camera),
              ("passwords", "🔑", "Mật khẩu", self._trang_mat_khau),
+             ("phonebox", "📦", "Hộp điện thoại", self._trang_hop_dien_thoai),
              ("exit", "🚪", "Thoát phần mềm", self._trang_thoat)],
             [("👪  Sang bảng Phụ huynh", self.vao_che_do_phu_huynh, "ghost"),
              ("🔒  Giao máy cho học sinh", self.hien_man_hinh_dang_nhap, "primary")],
             start=start,
         )
+
+    def _trang_hop_dien_thoai(self, page) -> None:
+        """Admin: hộp khóa điện thoại ESP32-S3 qua cổng USB/COM — bật, chọn cổng, ghép, thử lệnh."""
+        from services import phone_box
+
+        cfg = load_config()
+        self._page_header(page, "Hộp khóa điện thoại (ESP32-S3)",
+                          "Hộp cắm vào máy bằng cáp USB. Khi học sinh vào học và bỏ điện thoại vào hộp, hộp tự khóa; "
+                          "phụ huynh mở hộp từ web hoặc Telegram (/mohop).")
+        row = tk.Frame(page, bg=UI["bg"])
+        row.pack(fill="x")
+        c1 = self._card(row, "⚙️  Cài đặt", side="left", padx=(0, 8))
+        v_en = self._check(c1, "Bật hộp khóa điện thoại", cfg.get("phone_box_enabled", False))
+        v_req = self._check(c1, "Bắt buộc cất điện thoại vào hộp mới được vào học", cfg.get("phone_box_required", False))
+        v_auto = self._check(c1, "Tự khóa hộp khi học sinh đang học và đã cất điện thoại", cfg.get("phone_box_auto_lock", True))
+        self._label(c1, "Cổng kết nối", size=9)
+        ports = ["auto"] + [p["port"] for p in phone_box.find_box_ports()]
+        cur = str(cfg.get("esp32_com_port", "auto") or "auto")
+        v_port = tk.StringVar(value=cur if cur in ports else "auto")
+        ttk.Combobox(c1, textvariable=v_port, values=ports, state="readonly", width=20).pack(anchor="w", pady=(2, 6))
+        tk.Label(c1, text="“auto” = tự tìm cổng USB của ESP32 (bỏ qua cổng COM Bluetooth).", bg=UI["card"],
+                 fg=UI["mut"], font=("Segoe UI", 9)).pack(anchor="w")
+
+        c2 = self._card(row, "📡  Trạng thái", side="left", padx=(8, 0))
+        lbl = tk.Label(c2, text="—", bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 11), justify="left", anchor="w")
+        lbl.pack(anchor="w", fill="x")
+        out = tk.Label(c2, text="", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9), justify="left", anchor="w")
+        out.pack(anchor="w", fill="x", pady=(6, 0))
+
+        def chay(fn, ten) -> None:
+            def work():
+                try:
+                    r = fn()
+                except Exception as exc:
+                    r = {"ok": False, "err": str(exc)}
+                self._goi_ui(lambda: out.winfo_exists() and out.config(
+                    text=f"{ten}: " + ("✅ thành công" if r.get("ok") else f"❌ {r.get('err')}"),
+                    fg=UI["ok"] if r.get("ok") else UI["bad"]))
+            threading.Thread(target=work, daemon=True).start()
+
+        btns = tk.Frame(c2, bg=UI["card"])
+        btns.pack(anchor="w", pady=(10, 0))
+        box = phone_box.get_box()
+        self._ui_button(btns, "🔔 Kêu thử", lambda: chay(box.beep, "Kêu thử"), kind="ghost").pack(side="left")
+        self._ui_button(btns, "🔒 Khóa", lambda: chay(box.lock, "Khóa"), kind="ghost").pack(side="left", padx=6)
+        self._ui_button(btns, "🔓 Mở", lambda: chay(lambda: box.unlock(0), "Mở khóa"), kind="ghost").pack(side="left")
+        self._ui_button(c2, "🔗  Ghép hộp (giữ nút trên hộp 5 giây trước)", lambda: chay(box.pair, "Ghép hộp"),
+                        kind="ghost").pack(anchor="w", pady=(8, 0))
+
+        def refresh() -> None:
+            if not lbl.winfo_exists():
+                return
+            st = load_runtime_state().get("phone_box") or {}
+            if not load_config().get("phone_box_enabled"):
+                lbl.config(text="⚪ Chưa bật", fg=UI["mut"])
+            elif not st.get("connected"):
+                lbl.config(text="🔌 Chưa thấy hộp — kiểm tra cáp USB / cổng", fg=UI["warn"])
+            else:
+                lbl.config(fg=UI["txt"], text=(
+                    f"🟢 Đã kết nối {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n"
+                    f"{'📱 Có điện thoại trong hộp' if st.get('phone') else '📭 Hộp trống'} · "
+                    f"{'🔒 Đang khóa' if st.get('lock') == 'locked' else '🔓 Đang mở'} · "
+                    f"nắp {'đóng' if st.get('lid') == 'closed' else 'mở'} · "
+                    f"{'đã ghép' if load_config().get('phone_box_key') else 'CHƯA GHÉP'}"))
+            lbl.after(1000, refresh)
+
+        refresh()
+
+        def luu() -> None:
+            cfg["phone_box_enabled"] = bool(v_en.get())
+            cfg["phone_box_required"] = bool(v_req.get())
+            cfg["phone_box_auto_lock"] = bool(v_auto.get())
+            cfg["esp32_com_port"] = v_port.get()
+            save_config(cfg)
+            if cfg["phone_box_enabled"]:
+                phone_box.start_phone_box()
+            else:
+                phone_box.get_box().stop()
+            messagebox.showinfo("Đã lưu", "Đã lưu cài đặt hộp điện thoại.", parent=self.root)
+
+        tip = self._card(page, "🧰  Cách lắp & ghép", pady=(12, 0))
+        self._label(tip, "1. Nạp firmware firmware/hop_dien_thoai_esp32s3 cho ESP32-S3 (Arduino IDE, USB CDC On Boot = "
+                         "Enabled). 2. Cắm hộp vào máy bằng cáp USB. 3. Bật “Bật hộp khóa điện thoại”, Lưu. "
+                         "4. Mở nắp hộp, giữ nút trên hộp 5 giây (kêu 1 tiếng dài), bấm “Ghép hộp”. "
+                         "5. Nên có chìa khóa cơ dự phòng phòng khi mất điện.", bold=False, size=9)
+        self._ui_button(page, "💾  Lưu", luu).pack(anchor="e", pady=(12, 0))
 
     def _trang_he_thong(self, page) -> None:
         cfg = load_config()
@@ -1961,6 +2075,12 @@ def main() -> None:
     app_instance = PhanMemQuanLyBanHocEXE(root)
     install_all_failsafes(on_ui_emergency=app_instance.thoat_khan_cap_tu_luong_phu)
     start_web_server_in_background()
+    try:
+        from services.phone_box import start_phone_box
+
+        start_phone_box()
+    except Exception as exc:
+        safe_log(f"[HỘP] Không khởi động được kết nối hộp điện thoại: {exc}")
     root.mainloop()
 
 

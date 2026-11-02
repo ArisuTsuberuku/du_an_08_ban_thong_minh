@@ -68,6 +68,9 @@ COMMAND_TYPES = {
     "snapshot": "📸 Chụp 1 ảnh camera (gửi qua Telegram)",
     "live_on": "📺 Bật xem trực tiếp",
     "live_off": "⏹️ Tắt xem trực tiếp",
+    "box_unlock_30": "🔓 Mở hộp điện thoại 30 phút",
+    "box_unlock": "🔓 Mở hộp điện thoại (tới khi khóa lại)",
+    "box_lock": "🔒 Khóa hộp điện thoại",
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 # Web Push (thông báo trên điện thoại kể cả khi đã đóng web): tạo khóa bằng cloud/tao_khoa_vapid.py
@@ -419,6 +422,8 @@ h3{margin:4px 0 10px}
     <div id="acks" class="card" style="display:none"></div>
    </div><div>
     <div class="card"><h3>🔔 Cảnh báo gần đây</h3><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
+    <div class="card" id="boxcard" style="display:none"><h3>📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
+     <div class="row" style="margin-top:10px"><button onclick="boxCmd('box_unlock_30')">🔓 Mở 30 phút</button><button onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button onclick="cmd('box_lock')">🔒 Khóa hộp</button></div></div>
     <div class="card"><h3>🕒 Thay đổi gần đây</h3><p class="mut" style="margin-top:-4px">Ứng dụng vừa mở, trang web vừa vào — AI tự nhận ra web game / giải trí.</p><div id="evbox" class="mut">Chưa có.</div></div>
     <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div><div id="openbox"></div>
      <div class="bar" id="h-bar" style="margin-top:12px"></div><div class="mut" id="h-legend" style="margin-top:6px"></div></div>
@@ -557,7 +562,7 @@ function renderAll(){const v=cur();renderChips();renderSettings();
  $('h-legend').textContent=sum?`Hôm nay: ${fmtMin(t.Hoc_tap)} học · ${fmtMin(t.Giai_tri)} giải trí · ${fmtMin(t.Khac)} khác`:'Chưa có dữ liệu hôm nay';
  const n=v.now||{};$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.app||'')}</b></div><div class="mut">${esc(n.title)}</div></div>
   ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}</div>`:(n.category==='Idle'?'<span class="mut">💤 Đang rời máy</span>':'—');
- renderOpen(n.open||[],p);renderEvents(v);
+ renderOpen(n.open||[],p);renderEvents(v);renderBox(v);
  $('alerts').innerHTML=(v.alerts||[]).slice(0,6).map(a=>`<div class="alert-row"><time>${esc(a.time)}</time><div>${esc(a.message)}</div></div>`).join('')||'Không có cảnh báo. 👍';
  const acks=v.acks||[];if(acks.length){$('acks').style.display='block';$('acks').innerHTML='<h3>✅ Kết quả lệnh</h3>'+acks.slice(0,3).map(a=>`<div class="${a.ok?'':'err'}" style="font-size:14px;padding:3px 0">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
   const k=acks[0].time+acks[0].msg;if(lastAck&&k!==lastAck)toast((acks[0].ok?'✅ ':'⚠️ ')+acks[0].msg);lastAck=k;}
@@ -629,6 +634,10 @@ let rulesTouched=false;
 const YT_DEFAULT=['free fire','liên quân','minecraft','roblox','pubg','genshin','gameplay','game','mukbang','prank','asmr','tiktok','review phim','phim','anime','nhạc remix','livestream game'];
 function nvMode(b){document.querySelectorAll('#nv-mode button').forEach(x=>x.classList.toggle('act',x===b));rulesTouched=true;}
 const KCOL={game:'#dc2626',social:'#db2777',video:'#ea580c',shopping:'#ca8a04',comics:'#9333ea',study:'#16a34a',ai:'#2563eb',app:'#64748b',other:'#94a3b8'};
+function renderBox(v){const b=((v.status||{}).phone_box)||{};const c=$('boxcard');if(!b.enabled){c.style.display='none';return;}c.style.display='block';
+ if(!b.connected){$('boxst').innerHTML='🔌 <b>Mất kết nối hộp</b> — kiểm tra cáp USB';return;}
+ $('boxst').innerHTML=`${b.phone?'📱 <b>Điện thoại đang trong hộp</b>':'📭 <b>Hộp trống</b>'} · ${b.lock==='locked'?'🔒 đang khóa':'🔓 đang mở'} · nắp ${b.lid==='closed'?'đóng':'mở'}${b.unlock_left>0?' · tự khóa sau '+Math.ceil(b.unlock_left/60)+' phút':''}`;}
+async function boxCmd(t){if(confirm(t==='box_unlock_30'?'Mở hộp điện thoại 30 phút rồi tự khóa lại?':'Mở hộp điện thoại cho tới khi bạn khóa lại?'))cmd(t);}
 function renderEvents(v){const ev=v.events||[];if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
  $('evbox').innerHTML=ev.slice(0,15).map(e=>{const tm=new Date((e.t||0)*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
   const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖'}[e.cls]||'🌐'):'🪟';
@@ -1387,6 +1396,7 @@ HELP_TG = (
     "/lock [số] — Khóa màn hình\n"
     "/reset_ai [số] — Đặt lại giờ dùng AI\n"
     "/anh [số] — Chụp 1 ảnh camera\n"
+    "/mohop [số] — Mở hộp điện thoại 30 phút · /khoahop — Khóa hộp\n"
     "[số] = số thứ tự máy trong /may (bỏ trống nếu chỉ có 1 máy)."
 )
 
@@ -1437,11 +1447,12 @@ def telegram_webhook():
     name = html.escape(dev.get("name") or did)
     if cmd == "/status":
         tg_send(chat_id, _status_text(name, dev))
-    elif cmd in ("/lock", "/reset_ai", "/anh"):
-        ctype = {"/lock": "lock", "/reset_ai": "reset_ai", "/anh": "snapshot"}[cmd]
+    elif cmd in ("/lock", "/reset_ai", "/anh", "/mohop", "/khoahop"):
+        ctype = {"/lock": "lock", "/reset_ai": "reset_ai", "/anh": "snapshot", "/mohop": "box_unlock_30",
+                 "/khoahop": "box_lock"}[cmd]
         queue_command(did, ctype, by=uid, chat_id=chat_id)
         tg_send(chat_id, f"📨 Đã gửi lệnh <b>{COMMAND_TYPES[ctype]}</b> tới {name} (≤{HEARTBEAT_S}s).")
-    if cmd in ("/status", "/lock", "/reset_ai", "/anh"):
+    if cmd in ("/status", "/lock", "/reset_ai", "/anh", "/mohop", "/khoahop"):
         mark_watching(did, force=True)
     else:
         tg_send(chat_id, HELP_TG)

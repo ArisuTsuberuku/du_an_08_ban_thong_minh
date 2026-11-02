@@ -51,6 +51,7 @@ PACKAGES = [
     ("pygetwindow", "pygetwindow", True, "cửa sổ đang dùng"),
     ("pygrabber", "pygrabber", False, "đọc tên webcam"),
     ("ai_edge_litert", "ai-edge-litert", False, "nhận diện hành động MoViNet"),
+    ("serial", "pyserial", False, "hộp khóa điện thoại ESP32-S3"),
 ]
 
 MODELS = [
@@ -235,6 +236,28 @@ def check_cloudflared() -> None:
                             "winget install --id Cloudflare.cloudflared")
 
 
+def check_phone_box() -> None:
+    try:
+        with open(os.path.join(ROOT, "shared_config.json"), encoding="utf-8") as fh:
+            enabled = bool(json.load(fh).get("phone_box_enabled"))
+    except Exception:
+        enabled = False
+    try:
+        sys.path.insert(0, ROOT)
+        from services.phone_box import find_box_ports
+
+        ports = find_box_ports()
+    except Exception:
+        ports = []
+    esp = [p for p in ports if p.get("vid") in (0x303A, 0x1A86, 0x10C4, 0x0403)]
+    if esp:
+        ok("Hộp điện thoại (USB)", ", ".join(f"{p['port']} {p['desc']}" for p in esp[:3]))
+    elif enabled:
+        warn("Hộp điện thoại (USB)", "đã bật nhưng chưa thấy ESP32 cắm vào cổng USB")
+    else:
+        ok("Hộp điện thoại (USB)", "chưa dùng (tùy chọn)")
+
+
 def check_config() -> None:
     try:
         with open(os.path.join(ROOT, "shared_config.json"), encoding="utf-8") as fh:
@@ -263,7 +286,7 @@ def main() -> int:
         pass
     print("Đang kiểm tra cài đặt Bàn Học Thông Minh" + (" (chế độ tự sửa)" if FIX else "") + "…\n")
     for fn in (check_python, check_packages, check_models, check_admin, check_camera, check_cloud, check_port,
-               check_cloudflared, check_config):
+               check_cloudflared, check_phone_box, check_config):
         try:
             fn()
         except Exception as exc:

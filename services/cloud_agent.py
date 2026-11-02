@@ -141,6 +141,9 @@ class CloudAgent:
             "dns_block": cfg.get("dns_block_status", ""),
             "now": dict(self.tracker.current),
             "break": {k: (st.get("toilet_break") or {}).get(k) for k in ("active", "start", "left_t", "duration_s")},
+            "phone_box": {**{k: (st.get("phone_box") or {}).get(k) for k in ("connected", "phone", "lid", "lock",
+                                                                            "unlock_left", "box_id")},
+                          "enabled": bool(cfg.get("phone_box_enabled"))},
             "open_apps": self.tracker.open_apps,
             "hostname": socket.gethostname(),
             "version": AGENT_VERSION,
@@ -252,6 +255,18 @@ class CloudAgent:
 
                 stop_live()
                 msg = "Đã tắt xem trực tiếp"
+            elif ctype in ("box_unlock", "box_unlock_30", "box_lock"):
+                from services.phone_box import get_box
+
+                box = get_box()
+                if ctype == "box_lock":
+                    r = box.lock()
+                else:
+                    r = box.unlock(1800 if ctype == "box_unlock_30" else 0)
+                ok = bool(r.get("ok"))
+                msg = ({"box_lock": "Đã khóa hộp điện thoại", "box_unlock": "Đã mở hộp điện thoại",
+                        "box_unlock_30": "Đã mở hộp điện thoại 30 phút (tự khóa lại khi nắp đóng)"}[ctype]
+                       if ok else f"Không điều khiển được hộp: {r.get('err')}")
             elif ctype == "snapshot":
                 ok, msg = self._send_snapshot(cmd.get("chat_id") or "")
             else:

@@ -31,3 +31,7 @@ logs/
 _anh_test_ai.jpg
 # Vercel
 .vercel/
+
+# Bo cai mot file - TAO_BO_CAI.bat
+dist_installer/
+installer/redist/

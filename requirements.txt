@@ -17,3 +17,5 @@ ai-edge-litert>=2.0
 # Icon ứng dụng thật + ảnh xem trước camera
 pillow>=10.0
 comtypes>=1.2
+# Hộp khóa điện thoại ESP32-S3 qua cổng USB/COM
+pyserial>=3.5
