@@ -1,0 +1,17 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller temporary build directory (keep dist/ if tracking release exe)
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime transient flags & logs
+UNLOCK.txt
+*.log
+*.tmp
