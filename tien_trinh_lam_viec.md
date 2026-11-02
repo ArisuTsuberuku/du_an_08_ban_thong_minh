@@ -11,8 +11,8 @@
 | **Giai đoạn 1** | Chuẩn bị môi trường, đồng bộ Git Repo & Giao ước dữ liệu (`core/config_manager.py`, `shared_config.json`, `runtime_state.json`) | ✅ Đã hoàn thành |
 | **Giai đoạn 2** | 5 Lớp An toàn Khẩn cấp chống kẹt máy (`core/failsafe.py`, `KHOI_PHUC_KHAN_CAP.bat`, Global Hotkeys, Crash Hooks, PIN `999999`, `UNLOCK.txt`) | ✅ Đã hoàn thành |
 | **Giai đoạn 3** | Web Server Dashboard Trung tâm (`trang_web.py` chạy `0.0.0.0:5000`, giữ nguyên `/api/nhan_canh_bao`, hỗ trợ PC & Android) | ✅ Đã hoàn thành |
-| **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ⏳ Đang thực hiện |
-| **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ⏳ Chờ thực hiện |
+| **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ✅ Đã hoàn thành |
+| **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ⏳ Đang thực hiện |
 | **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ⏳ Chờ thực hiện |
 | **Giai đoạn 7** | *(Thành phần sau cùng)* Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ⏳ Chờ thực hiện |
 
@@ -61,3 +61,17 @@
      - Cổng Hook `_dispatch_telegram_hook()` chờ sẵn để tự động kích hoạt khi lắp Dịch vụ Bot Telegram ở **Giai đoạn 7**.
   4. Xây dựng hàm `start_web_server_in_background()` bằng `werkzeug.serving.make_server(..., threaded=True)` để nhúng êm ái vào trong `SmartDeskLauncher.exe` mà không xung đột nếu cổng `5000` đã mở sẵn bên ngoài.
 - **Kiểm thử:** Đã chạy kiểm thử thực tế khởi chạy luồng nền cổng `5000`, gọi `POST /api/nhan_canh_bao`, `GET /api/du_lieu_dashboard`, `POST /api/xoa_lich_su_canh_bao` và tắt server an toàn.
+
+---
+
+### ✅ Giai đoạn 4: Bộ Giám sát Ngầm Nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw`)
+- **Thời gian hoàn thành:** 02/11/2026
+- **Các công việc đã thực hiện:**
+  1. Bảo toàn 100% biến, hàm và cơ chế cốt lõi của nhóm: `BAD_TABS`, `BAD_APPS`, `pyautogui.FAILSAFE = False`, `pyautogui.hotkey('ctrl', 'w')`, `URL_WEB = "http://127.0.0.1:5000/api/nhan_canh_bao"`, hàm `gui_canh_bao_len_web(noi_dung)` và tệp chạy độc lập `giam_sat.pyw`.
+  2. Nâng cấp đọc trực tiếp **Link Address (URL)** trên thanh địa chỉ trình duyệt (`Chrome`, `Edge`, `Brave`, `Cốc Cốc`, `Firefox`) bằng `uiautomation` với khởi tạo COM (`CoInitialize`) chuẩn trong luồng nền và timeout `150ms` không gây trễ máy.
+  3. Xây dựng hàm phân loại `phan_loai_truy_cap_web()`:
+     - Miễn trừ tuyệt đối `Bảng Điều Khiển Bàn Học` (`127.0.0.1:5000`).
+     - Cho phép học bình thường trên `ALLOWED_URLS` (`olm.vn`, `vietjack.com`...) và **cho phép xem bài giảng YouTube hợp lệ** có chứa từ khóa học thuật (`ACADEMIC_KW`), đồng thời chặn cứng `youtube.com/shorts`, `facebook.com`, `poki.com` và các video YouTube giải trí/game.
+  4. Tích hợp bộ đếm thời gian tra cứu ChatGPT / Gemini / Claude / Copilot (`ai_seconds`), cảnh báo khi vượt `max_ai_minutes`.
+  5. Quét `psutil` mỗi giây để tiêu diệt tiến trình game ngầm (`BAD_APPS`) và cộng dồn chính xác thời gian mở từng ứng dụng học tập (khử trùng lặp đa tiến trình con của Chrome/Edge).
+- **Kiểm thử:** Đã vượt qua toàn bộ 7 kịch bản kiểm thử đơn vị (miễn trừ Dashboard, `olm.vn`, YouTube bài giảng Vật lý, YouTube giải trí, YouTube Shorts, Poki Games, ChatGPT quota) và chạy thử vòng lặp luồng nền thực tế.
