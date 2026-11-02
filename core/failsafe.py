@@ -164,6 +164,12 @@ def restore_windows_normal_state() -> None:
     3. Dừng toàn bộ luồng quét giam_sat và tiến trình con pythonw.exe.
     """
     set_windows_task_manager_lock(False)
+    try:
+        from services.kiosk_guard import stop_kiosk
+
+        stop_kiosk()          # hiện lại Taskbar + gỡ hook phím Windows
+    except Exception:
+        pass
     set_desktop_explorer_state(True)
     _terminate_child_pythonw_processes()
     try:
@@ -202,9 +208,11 @@ def generate_emergency_bat_file() -> str:
         "echo [2/4] Dang tat trinh khoa may va tien trinh giam sat ngam...\r\n"
         "taskkill /f /im SmartDeskLauncher.exe >nul 2>&1\r\n"
         "taskkill /f /im pythonw.exe >nul 2>&1\r\n"
-        "echo [3/4] Dang khoi phuc giao dien Windows Explorer (Taskbar/Desktop)...\r\n"
-        'tasklist /FI "IMAGENAME eq explorer.exe" 2>NUL | find /I /N "explorer.exe">NUL\r\n'
-        'if "%ERRORLEVEL%"=="1" start explorer.exe\r\n'
+        'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '
+        "'*he_thong_quan_ly_3_cap*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\" >nul 2>&1\r\n"
+        "echo [3/4] Dang khoi dong lai Windows Explorer (hien lai Taskbar/Desktop)...\r\n"
+        "taskkill /f /im explorer.exe >nul 2>&1\r\n"
+        "start explorer.exe\r\n"
         "echo [4/4] HOAN TAT! May tinh da tro ve trang thai binh thuong.\r\n"
         "timeout /t 3\r\n"
     )

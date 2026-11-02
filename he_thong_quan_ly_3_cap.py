@@ -12,11 +12,12 @@ Phần Mềm Trung Tâm Quản Lý Bàn Học Thông Minh 3 Cấp Quyền (he_th
 import os
 import subprocess
 import sys
+import threading
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 import webbrowser
-from typing import Any, Dict, Set
+from typing import Any, Dict, Optional, Set
 
 import psutil
 
@@ -131,6 +132,8 @@ class PhanMemQuanLyBanHocEXE:
 
     def thoat_khan_cap(self, ly_do: str = "Khẩn cấp", hien_thong_bao: bool = True) -> None:
         self._huy_bo_dem_ui()
+        self._dong_dock()
+        self._tat_kiosk()
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
         stop_web_server_in_background()
@@ -175,6 +178,7 @@ class PhanMemQuanLyBanHocEXE:
 
     def xoa_man_hinh(self) -> None:
         self._huy_bo_dem_ui()
+        self._dong_dock()
         for widget in self.root.winfo_children():
             widget.destroy()
 
@@ -238,170 +242,137 @@ class PhanMemQuanLyBanHocEXE:
         self.xoa_man_hinh()
         self.root.attributes("-fullscreen", True)
         self.root.attributes("-topmost", True)
+        self.root.configure(bg=UI["bg"])
+        self._bat_kiosk(set())   # màn hình khóa: ẩn taskbar + chặn phím Windows, không app nào được lên trước
         self.tao_thanh_an_toan_day_man_hinh()
 
-        box = tk.Frame(
-            self.root,
-            bg="#ffffff",
-            padx=42,
-            pady=30,
-            highlightbackground="#06b6d4",
-            highlightthickness=2,
-        )
-        box.place(relx=0.5, rely=0.47, anchor="center")
+        card = tk.Frame(self.root, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1)
+        card.place(relx=0.5, rely=0.46, anchor="center", width=960, height=560)
 
-        tk.Label(
-            box,
-            text="HỆ THỐNG BÀN HỌC THÔNG MINH (STEM)",
-            bg="#ffffff",
-            fg="#2563eb",
-            font=("Segoe UI", 18, "bold"),
-        ).pack()
-        tk.Label(
-            box,
-            text="Kiểm soát Kỷ luật Số & Phân quyền Truy cập 3 Cấp (Cơ chế Gcafe / CSM)",
-            bg="#ffffff",
-            fg="#64748b",
-            font=("Segoe UI", 10),
-        ).pack(pady=(4, 16))
+        # ---- Nửa trái: thương hiệu ----
+        brand = tk.Frame(card, bg="#1d4ed8", width=380)
+        brand.pack(side="left", fill="y")
+        brand.pack_propagate(False)
+        tk.Label(brand, text="📚", bg="#1d4ed8", fg="white", font=("Segoe UI Emoji", 40)).pack(anchor="w", padx=36, pady=(48, 6))
+        tk.Label(brand, text="Bàn Học\nThông Minh", bg="#1d4ed8", fg="white", justify="left",
+                 font=("Segoe UI", 26, "bold")).pack(anchor="w", padx=36)
+        tk.Label(brand, text="Góc học tập tập trung cho học sinh", bg="#1d4ed8", fg="#bfdbfe",
+                 font=("Segoe UI", 11)).pack(anchor="w", padx=36, pady=(6, 26))
+        for line in ("🧩  Chỉ mở ứng dụng & tài liệu được phép", "📷  Camera AI nhắc tư thế, chống ngủ gật",
+                     "📱  Phụ huynh theo dõi qua điện thoại"):
+            tk.Label(brand, text=line, bg="#1d4ed8", fg="#e0e7ff", font=("Segoe UI", 10)).pack(anchor="w", padx=36, pady=4)
+        self.lbl_lock_clock = tk.Label(brand, text="", bg="#1d4ed8", fg="white", font=("Segoe UI", 30, "bold"))
+        self.lbl_lock_clock.pack(side="bottom", anchor="w", padx=36, pady=(0, 6))
+        self.lbl_lock_date = tk.Label(brand, text="", bg="#1d4ed8", fg="#bfdbfe", font=("Segoe UI", 10))
+        self.lbl_lock_date.pack(side="bottom", anchor="w", padx=36)
 
-        # Khu vực 3 nút Điền nhanh Tài khoản Demo
-        demo_frame = tk.LabelFrame(
-            box,
-            text=" ⚡ Chọn nhanh Tài khoản Demo ",
-            bg="#f4f6fb",
-            fg="#b45309",
-            font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=8,
-        )
-        demo_frame.pack(fill="x", pady=(0, 14))
+        # ---- Nửa phải: biểu mẫu ----
+        form = tk.Frame(card, bg=UI["card"], padx=44, pady=36)
+        form.pack(side="left", fill="both", expand=True)
+        tk.Label(form, text="Đăng nhập", bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 20, "bold")).pack(anchor="w")
+        tk.Label(form, text="Chọn người dùng rồi nhập mật khẩu", bg=UI["card"], fg=UI["mut"],
+                 font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 16))
 
         self.role_var = tk.StringVar(value="student")
         self.user_var = tk.StringVar(value=cfg["usernames"].get("student", "hocsinh"))
+        roles = tk.Frame(form, bg=UI["card"])
+        roles.pack(fill="x")
+        role_desc = {"student": "Vào góc học tập", "parent": "Cài đặt & báo cáo", "admin": "Quản trị hệ thống"}
 
-        def dong_bo_theo_role(*_args) -> None:
+        def chon_role() -> None:
             r = self.role_var.get()
             self.user_var.set(cfg["usernames"].get(r, r))
-
-        def chon_demo(role: str, user_str: str, pwd_str: str) -> None:
-            self.role_var.set(role)
-            self.user_var.set(user_str)
             self.pwd_entry.delete(0, "end")
-            self.pwd_entry.insert(0, pwd_str)
             self.pwd_entry.focus_set()
+            lbl_role_desc.config(text=role_desc.get(r, ""))
 
-        tk.Button(
-            demo_frame,
-            text="👨‍🎓 Học sinh (hocsinh / hocsinh123)",
-            command=lambda: chon_demo("student", "hocsinh", cfg["passwords"].get("student", "hocsinh123")),
-            bg="#0284c7",
-            fg="white",
-            font=("Segoe UI", 9, "bold"),
-            relief="flat",
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=4, expand=True, fill="x")
+        for val, txt in (("student", "👨‍🎓\nHọc sinh"), ("parent", "👪\nPhụ huynh"), ("admin", "🛠️\nAdmin")):
+            tk.Radiobutton(roles, text=txt, value=val, variable=self.role_var, command=chon_role, indicatoron=0,
+                           font=("Segoe UI", 11, "bold"), bg="#f1f5f9", fg=UI["txt"], selectcolor="#dbeafe",
+                           activebackground="#e0e7ff", relief="flat", bd=0, padx=10, pady=10, cursor="hand2",
+                           highlightthickness=0).pack(side="left", expand=True, fill="x", padx=(0, 8))
+        lbl_role_desc = tk.Label(form, text=role_desc["student"], bg=UI["card"], fg=UI["acc"], font=("Segoe UI", 9, "bold"))
+        lbl_role_desc.pack(anchor="w", pady=(6, 10))
 
-        tk.Button(
-            demo_frame,
-            text="👪 Phụ huynh (phuhuynh / phuhuynh123)",
-            command=lambda: chon_demo("parent", "phuhuynh", cfg["passwords"].get("parent", "phuhuynh123")),
-            bg="#059669",
-            fg="white",
-            font=("Segoe UI", 9, "bold"),
-            relief="flat",
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=4, expand=True, fill="x")
+        def field(label: str) -> tk.Frame:
+            tk.Label(form, text=label, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(6, 3))
+            wrap = tk.Frame(form, bg=UI["card"], highlightbackground=UI["line"], highlightcolor=UI["acc"],
+                            highlightthickness=1)
+            wrap.pack(fill="x")
+            return wrap
 
-        tk.Button(
-            demo_frame,
-            text="🛠️ Admin (admin / admin123)",
-            command=lambda: chon_demo("admin", "admin", cfg["passwords"].get("admin", "admin123")),
-            bg="#7c3aed",
-            fg="white",
-            font=("Segoe UI", 9, "bold"),
-            relief="flat",
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=4, expand=True, fill="x")
-
-        tk.Label(
-            box,
-            text="Phân cấp quyền đăng nhập:",
-            bg="#ffffff",
-            fg="#0f172a",
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(2, 4))
-
-        for label, val in [
-            ("👨‍🎓 Học sinh (Khóa máy, chỉ mở App/Thư mục cho phép & Bật chạy nền kiểm soát Web)", "student"),
-            ("👪 Phụ huynh (Mở máy bình thường, Cài đặt App/Link cấm & Xem báo cáo)", "parent"),
-            ("🛠️ Admin (Toàn quyền hệ thống, Thiết lập bảo mật lõi & Thoát hoàn toàn)", "admin"),
-        ]:
-            tk.Radiobutton(
-                box,
-                text=label,
-                variable=self.role_var,
-                value=val,
-                command=dong_bo_theo_role,
-                bg="#ffffff",
-                fg="#0f172a",
-                selectcolor="#ffffff",
-                activebackground="#f1f5f9",
-                activeforeground="#38bdf8",
-                font=("Segoe UI", 9, "normal"),
-            ).pack(anchor="w", pady=2)
-
-        form_row = tk.Frame(box, bg="#ffffff")
-        form_row.pack(fill="x", pady=(12, 4))
-
-        left_f = tk.Frame(form_row, bg="#ffffff")
-        left_f.pack(side="left", expand=True, fill="x", padx=(0, 8))
-        tk.Label(left_f, text="Tài khoản:", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        user_entry = tk.Entry(left_f, textvariable=self.user_var, font=("Segoe UI", 12), bg="#f4f6fb", fg="#0f172a", insertbackground="#0f172a")
-        user_entry.pack(fill="x", pady=4, ipady=3)
-
-        right_f = tk.Frame(form_row, bg="#ffffff")
-        right_f.pack(side="left", expand=True, fill="x", padx=(8, 0))
-        tk.Label(right_f, text="Mật khẩu:", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        pwd_wrap = tk.Frame(right_f, bg="#ffffff")
-        pwd_wrap.pack(fill="x", pady=4)
-        self.pwd_entry = tk.Entry(pwd_wrap, show="*", font=("Segoe UI", 12), bg="#f4f6fb", fg="#0f172a", insertbackground="#0f172a")
-        self.pwd_entry.insert(0, cfg["passwords"].get("student", "hocsinh123"))
-        self.pwd_entry.pack(side="left", expand=True, fill="x", ipady=3)
+        w1 = field("Tài khoản")
+        tk.Entry(w1, textvariable=self.user_var, font=("Segoe UI", 12), bg=UI["card"], fg=UI["txt"], relief="flat",
+                 highlightthickness=0, insertbackground=UI["txt"]).pack(fill="x", padx=10, ipady=7)
+        w2 = field("Mật khẩu")
+        self.pwd_entry = tk.Entry(w2, show="•", font=("Segoe UI", 12), bg=UI["card"], fg=UI["txt"], relief="flat",
+                                  highlightthickness=0, insertbackground=UI["txt"])
+        self.pwd_entry.pack(side="left", fill="x", expand=True, padx=10, ipady=7)
         self.pwd_entry.bind("<Return>", lambda _e: self.xu_ly_dang_nhap())
-        self.pwd_entry.focus_set()
-
         self._show_pwd = False
 
         def toggle_pwd() -> None:
             self._show_pwd = not self._show_pwd
-            self.pwd_entry.config(show="" if self._show_pwd else "*")
+            self.pwd_entry.config(show="" if self._show_pwd else "•")
 
-        tk.Button(
-            pwd_wrap,
-            text="👁",
-            command=toggle_pwd,
-            bg="#eef2ff",
-            fg="#1e3a8a",
-            relief="flat",
-            padx=8,
-        ).pack(side="left", padx=(4, 0), fill="y")
+        tk.Button(w2, text="👁", command=toggle_pwd, bg=UI["card"], fg=UI["mut"], relief="flat", bd=0,
+                  highlightthickness=0, cursor="hand2", font=("Segoe UI Emoji", 11)).pack(side="right", padx=6)
 
-        tk.Button(
-            box,
-            text="🔓 ĐĂNG NHẬP HỆ THỐNG",
-            command=self.xu_ly_dang_nhap,
-            bg="#0891b2",
-            activebackground="#0e7490",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
-            pady=9,
-            relief="flat",
-            cursor="hand2",
-        ).pack(fill="x", pady=(16, 0))
+        tk.Button(form, text="Đăng nhập  →", command=self.xu_ly_dang_nhap, bg=UI["acc"], fg="white",
+                  activebackground="#1d4ed8", activeforeground="white", font=("Segoe UI", 12, "bold"),
+                  relief="flat", bd=0, pady=10, cursor="hand2").pack(fill="x", pady=(20, 10))
+
+        defaults = {"student": "hocsinh123", "parent": "phuhuynh123", "admin": "admin123"}
+        if any(cfg.get("passwords", {}).get(k) == v for k, v in defaults.items()):
+            tk.Label(form, bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9), justify="left", wraplength=470, text=(
+                "Tài khoản thử: hocsinh / hocsinh123 · phuhuynh / phuhuynh123 · admin / admin123\n"
+                "⚠️ Hãy đổi mật khẩu trong mục Admin → Mật khẩu trước khi giao máy cho học sinh.")).pack(anchor="w")
+        self.pwd_entry.focus_set()
+        self._cap_nhat_dong_ho_khoa()
+
+    def _cap_nhat_dong_ho_khoa(self) -> None:
+        if self._current_mode != "locked":
+            return
+        try:
+            self.lbl_lock_clock.config(text=time.strftime("%H:%M"))
+            thu = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"][time.localtime().tm_wday]
+            self.lbl_lock_date.config(text=f"{thu}, {time.strftime('%d/%m/%Y')}")
+        except Exception:
+            return
+        self._student_clock_job = self.root.after(10_000, self._cap_nhat_dong_ho_khoa)
+
+    # =====================================================================
+    # KIOSK: ẨN TASKBAR + CHẶN PHÍM WINDOWS + CANH CỬA SỔ NGOÀI DANH SÁCH
+    # =====================================================================
+    def _root_hwnd(self) -> int:
+        try:
+            return int(self.root.wm_frame(), 16)
+        except Exception:
+            return 0
+
+    def _bat_kiosk(self, allowed_exes: Set[str]) -> None:
+        from services import kiosk_guard
+
+        cfg = load_config()
+        if not cfg.get("kiosk_strict", True) or "--self-test" in sys.argv:
+            return
+        hwnd = self._root_hwnd()
+
+        def vi_pham(exe: str, title: str) -> None:
+            gui_canh_bao_len_web(f"🚫 Học sinh mở ứng dụng ngoài danh sách: {exe} ({title[:60]}) — đã tự thu nhỏ",
+                                 "GAME")
+
+        kiosk_guard.start_kiosk(allowed_exes, on_violation=vi_pham if self._current_mode == "student" else None,
+                                on_refocus=lambda: kiosk_guard.focus_window(hwnd))
+
+    @staticmethod
+    def _tat_kiosk() -> None:
+        try:
+            from services import kiosk_guard
+
+            kiosk_guard.stop_kiosk()
+        except Exception:
+            pass
 
     def xu_ly_dang_nhap(self) -> None:
         cfg = load_config()
@@ -455,7 +426,11 @@ class PhanMemQuanLyBanHocEXE:
         self.root.attributes("-fullscreen", True)
         self.root.attributes("-topmost", False)
         self.root.configure(bg=UI["bg"])
-        self.tao_thanh_an_toan_day_man_hinh()
+        # Taskbar Windows bị ẩn -> thay bằng thanh dock riêng (ứng dụng đang mở, đồng hồ, khóa, 🆘)
+        tk.Frame(self.root, bg=UI["bg"], height=56).pack(side="bottom", fill="x")
+        allowed_exes = {a.get("exe_name", "").lower() for a in cfg.get("allowed_apps", []) if a.get("exe_name")}
+        self._bat_kiosk(allowed_exes)
+        self._tao_dock_hoc_sinh(cfg)
 
         # ---------- Thanh đầu trang ----------
         header = tk.Frame(self.root, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1)
@@ -554,6 +529,106 @@ class PhanMemQuanLyBanHocEXE:
         self._alerts_sig = None
         self._cap_nhat_dong_ho_hoc_sinh()
 
+    # ---------- Thanh dock học sinh (thay Taskbar Windows đã bị ẩn) ----------
+    def _tao_dock_hoc_sinh(self, cfg: Dict[str, Any]) -> None:
+        self._dong_dock()
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        hgt = 56
+        dock = tk.Toplevel(self.root)
+        dock.overrideredirect(True)
+        dock.attributes("-topmost", True)
+        dock.geometry(f"{sw}x{hgt}+0+{sh - hgt}")
+        dock.configure(bg="#0f172a")
+        self._dock = dock
+        self._dock_apps_sig = None
+        self._dock_allowed = {a.get("exe_name", "").lower(): a for a in cfg.get("allowed_apps", []) if a.get("exe_name")}
+
+        def ve_goc_hoc_tap() -> None:
+            try:
+                self.root.deiconify()
+                self.root.lift()
+                from services import kiosk_guard
+
+                kiosk_guard.focus_window(self._root_hwnd())
+            except Exception:
+                pass
+
+        def nut(parent, text, cmd, bg="#1e293b", fg="white", bold=True):
+            return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg, activebackground="#334155",
+                             activeforeground="white", relief="flat", bd=0, padx=14, pady=8, cursor="hand2",
+                             font=("Segoe UI", 10, "bold" if bold else "normal"))
+
+        nut(dock, "🏠  Góc học tập", ve_goc_hoc_tap, bg=UI["acc"]).pack(side="left", padx=(10, 6), pady=8)
+        self._dock_apps = tk.Frame(dock, bg="#0f172a")
+        self._dock_apps.pack(side="left", fill="y", padx=4)
+        nut(dock, "🆘", self.nhap_pin_cuu_ho, bg="#9f1239").pack(side="right", padx=(4, 10), pady=8)
+        nut(dock, "🔒 Khóa", self.hien_man_hinh_dang_nhap).pack(side="right", padx=4, pady=8)
+        self._dock_clock = tk.Label(dock, text="", bg="#0f172a", fg="white", font=("Segoe UI", 12, "bold"))
+        self._dock_clock.pack(side="right", padx=12)
+        self._dock_focus = tk.Label(dock, text="", bg="#0f172a", fg="#86efac", font=("Segoe UI", 10, "bold"))
+        self._dock_focus.pack(side="right", padx=8)
+        self._cap_nhat_dock()
+
+    def _cap_nhat_dock(self) -> None:
+        dock = getattr(self, "_dock", None)
+        if dock is None or self._current_mode != "student":
+            return
+        try:
+            from services import kiosk_guard
+            from services.app_icons import emoji_for, get_icon_image
+
+            self._dock_clock.config(text=time.strftime("%H:%M"))
+            pt = load_runtime_state().get("posture_telemetry") or {}
+            if pt.get("camera_connected") and pt.get("calibrated"):
+                cfi = float(pt.get("cfi_score", 100) or 0)
+                self._dock_focus.config(text=f"🎯 {cfi:.0f}%", fg="#86efac" if cfi >= 75 else ("#fcd34d" if cfi >= 50 else "#fca5a5"))
+            wins = kiosk_guard.list_app_windows(self._dock_allowed.keys())[:8]
+            sig = tuple((w["hwnd"], w["title"]) for w in wins)
+            if sig != self._dock_apps_sig:
+                self._dock_apps_sig = sig
+                for w in self._dock_apps.winfo_children():
+                    w.destroy()
+                fg_hwnd = 0
+                try:
+                    import ctypes
+
+                    fg_hwnd = int(ctypes.windll.user32.GetForegroundWindow() or 0)
+                except Exception:
+                    pass
+                for w in wins:
+                    app = self._dock_allowed.get(w["exe"], {})
+                    img = get_icon_image(app.get("path", ""), 22) if app else None
+                    title = str(w["title"])
+                    title = title if len(title) <= 26 else title[:24] + "…"
+                    b = tk.Button(self._dock_apps, text=f" {title}", command=lambda h=w["hwnd"]: kiosk_guard.focus_window(h),
+                                  bg="#334155" if w["hwnd"] == fg_hwnd else "#1e293b", fg="white",
+                                  activebackground="#475569", relief="flat", bd=0, padx=10, pady=6, cursor="hand2",
+                                  font=("Segoe UI", 9), compound="left")
+                    if img is not None:
+                        b.config(image=img)
+                        b.image = img
+                    else:
+                        b.config(text=f"{emoji_for(w['exe'])} {title}")
+                    b.pack(side="left", padx=3, pady=9)
+        except Exception as exc:
+            safe_log(f"[UI] Lỗi cập nhật dock: {exc}")
+        self._dock_job = self.root.after(1500, self._cap_nhat_dock)
+
+    def _dong_dock(self) -> None:
+        job = getattr(self, "_dock_job", None)
+        if job is not None:
+            try:
+                self.root.after_cancel(job)
+            except Exception:
+                pass
+            self._dock_job = None
+        dock = getattr(self, "_dock", None)
+        if dock is not None:
+            try:
+                dock.destroy()
+            except Exception:
+                pass
+            self._dock = None
     # ---------- Bộ dựng giao diện dùng chung ----------
     def _ui_button(self, parent, text, cmd, kind="primary"):
         styles = {"primary": (UI["acc"], "white", "#1d4ed8"), "ghost": ("#eef2ff", "#1e3a8a", "#e0e7ff"),
@@ -826,387 +901,532 @@ class PhanMemQuanLyBanHocEXE:
         lam_moi()
 
     # =====================================================================
-    # CẤP 2: CHẾ ĐỘ PHỤ HUYNH (QUẢN LÝ WHITELIST, LINK WEB, AI & THỐNG KÊ)
+    # KHUNG QUẢN TRỊ DÙNG CHUNG (PHỤ HUYNH / ADMIN): THANH TRÊN + MENU TRÁI + NỘI DUNG
     # =====================================================================
-    def vao_che_do_phu_huynh(self) -> None:
+    def _khung_quan_tri(self, icon: str, title: str, subtitle: str, pages, actions, start: str = "") -> None:
+        self.xoa_man_hinh()
+        self._tat_kiosk()
+        self.root.attributes("-fullscreen", False)
+        self.root.attributes("-topmost", False)
+        self.root.configure(bg=UI["bg"])
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        self._can_giua_cua_so(min(1240, sw - 40), min(800, sh - 70))
+        self.root.minsize(min(1040, sw - 60), min(620, sh - 90))
+        self.tao_thanh_an_toan_day_man_hinh()
+
+        top = tk.Frame(self.root, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1)
+        top.pack(fill="x")
+        tk.Label(top, text=icon, bg=UI["card"], font=("Segoe UI Emoji", 18)).pack(side="left", padx=(20, 8), pady=12)
+        tt = tk.Frame(top, bg=UI["card"])
+        tt.pack(side="left")
+        tk.Label(tt, text=title, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        tk.Label(tt, text=subtitle, bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9)).pack(anchor="w")
+        for txt, cmd, kind in reversed(actions):
+            self._ui_button(top, txt, cmd, kind=kind).pack(side="right", padx=(0, 10), pady=12)
+
+        body = tk.Frame(self.root, bg=UI["bg"])
+        body.pack(fill="both", expand=True)
+        nav = tk.Frame(body, bg=UI["card"], width=252, highlightbackground=UI["line"], highlightthickness=1)
+        nav.pack(side="left", fill="y")
+        nav.pack_propagate(False)
+        tk.Label(nav, text="MENU", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=20, pady=(16, 6))
+        content = tk.Frame(body, bg=UI["bg"])
+        content.pack(side="left", fill="both", expand=True)
+        items: Dict[str, Any] = {}
+
+        def show(key: str) -> None:
+            for k, (row, bar, ic, lbl) in items.items():
+                on = k == key
+                bg = "#eff6ff" if on else UI["card"]
+                for wdg in (row, ic, lbl):
+                    wdg.configure(bg=bg)
+                bar.configure(bg=UI["acc"] if on else UI["card"])
+                lbl.configure(fg=UI["acc"] if on else UI["txt"])
+            for wdg in content.winfo_children():
+                wdg.destroy()
+            page = self._vung_cuon(content)
+            builder = next(b for k, _i, _l, b in pages if k == key)
+            try:
+                builder(page)
+            except Exception as exc:
+                safe_log(f"[UI] Lỗi dựng trang {key}: {exc}")
+                tk.Label(page, text=f"Lỗi hiển thị trang: {exc}", bg=UI["bg"], fg=UI["bad"]).pack(anchor="w")
+
+        for key, icon_txt, label, _builder in pages:
+            row = tk.Frame(nav, bg=UI["card"], cursor="hand2")
+            row.pack(fill="x", padx=8, pady=1)
+            bar = tk.Frame(row, bg=UI["card"], width=4)
+            bar.pack(side="left", fill="y")
+            ic = tk.Label(row, text=icon_txt, bg=UI["card"], font=("Segoe UI Emoji", 13), width=2)
+            ic.pack(side="left", padx=(12, 8), pady=9)
+            lbl = tk.Label(row, text=label, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 10, "bold"), anchor="w")
+            lbl.pack(side="left", fill="x", expand=True)
+            for wdg in (row, ic, lbl):
+                wdg.bind("<Button-1>", lambda _e, k=key: show(k))
+            items[key] = (row, bar, ic, lbl)
+        show(start or pages[0][0])
+
+    def _vung_cuon(self, parent) -> tk.Frame:
+        """Vùng nội dung cuộn dọc bằng con lăn chuột (trang dài không bị cắt trên màn hình nhỏ)."""
+        canvas = tk.Canvas(parent, bg=UI["bg"], highlightthickness=0, bd=0)
+        sb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        page = tk.Frame(canvas, bg=UI["bg"], padx=28, pady=22)
+        win = canvas.create_window((0, 0), window=page, anchor="nw")
+        page.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+
+        def wheel(e) -> None:
+            if page.winfo_height() > canvas.winfo_height():
+                canvas.yview_scroll(int(-e.delta / 120) if e.delta else (-1 if e.num == 4 else 1), "units")
+        canvas.bind_all("<MouseWheel>", wheel)
+        canvas.bind_all("<Button-4>", wheel)
+        canvas.bind_all("<Button-5>", wheel)
+        return page
+
+    def _page_header(self, page, title: str, desc: str = "") -> None:
+        tk.Label(page, text=title, bg=UI["bg"], fg=UI["txt"], font=("Segoe UI", 17, "bold")).pack(anchor="w")
+        if desc:
+            tk.Label(page, text=desc, bg=UI["bg"], fg=UI["mut"], font=("Segoe UI", 10), justify="left",
+                     wraplength=880).pack(anchor="w", pady=(2, 14))
+
+    def _card(self, parent, title: str = "", side: Optional[str] = None, **pack):
+        card = tk.Frame(parent, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1, padx=18, pady=14)
+        if side:
+            card.pack(side=side, fill="both", expand=True, **pack)
+        else:
+            card.pack(fill="x", **pack)
+        if title:
+            tk.Label(card, text=title, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 8))
+        return card
+
+    def _entry(self, parent, value: str = "", show: str = "") -> tk.Entry:
+        wrap = tk.Frame(parent, bg=UI["card"], highlightbackground=UI["line"], highlightcolor=UI["acc"], highlightthickness=1)
+        wrap.pack(fill="x", pady=(2, 10))
+        ent = tk.Entry(wrap, font=("Segoe UI", 10), bg=UI["card"], fg=UI["txt"], relief="flat", show=show,
+                       highlightthickness=0, insertbackground=UI["txt"])
+        ent.insert(0, value)
+        ent.pack(fill="x", padx=8, ipady=6)
+        return ent
+
+    def _label(self, parent, text: str, bold: bool = True, mut: bool = False, size: int = 10) -> tk.Label:
+        lbl = tk.Label(parent, text=text, bg=parent.cget("bg"), fg=UI["mut"] if mut else UI["txt"], justify="left",
+                       font=("Segoe UI", size, "bold" if bold else "normal"), wraplength=820)
+        lbl.pack(anchor="w")
+        return lbl
+
+    def _check(self, parent, text: str, value: bool) -> tk.BooleanVar:
+        var = tk.BooleanVar(value=bool(value))
+        tk.Checkbutton(parent, text=text, variable=var, bg=parent.cget("bg"), fg=UI["txt"], selectcolor=UI["card"],
+                       activebackground=parent.cget("bg"), font=("Segoe UI", 10), anchor="w", justify="left",
+                       wraplength=420, highlightthickness=0, bd=0).pack(anchor="w", pady=3)
+        return var
+
+    # =====================================================================
+    # CẤP 2: CHẾ ĐỘ PHỤ HUYNH
+    # =====================================================================
+    def vao_che_do_phu_huynh(self, start: str = "") -> None:
         self._current_mode = "parent"
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
         restore_windows_normal_state()
         update_runtime_state(current_role="parent", monitoring_active=False)
+        port = int(load_config().get("web_port", 5000))
+        self._khung_quan_tri(
+            "👪", "Bảng điều khiển Phụ huynh", "Cài đặt góc học tập, camera AI và xem báo cáo",
+            [("phone", "📱", "Điện thoại phụ huynh", self._trang_ket_noi),
+             ("apps", "🧩", "Ứng dụng & thư mục", self._trang_ung_dung),
+             ("rules", "🛡️", "Luật chặn & giới hạn", self._trang_luat),
+             ("camera", "📷", "Camera AI", self._trang_camera),
+             ("stats", "📊", "Thống kê & vi phạm", self._trang_thong_ke),
+             ("telegram", "💬", "Telegram (nâng cao)", self._trang_telegram)],
+            [("🌐  Web nội bộ", lambda: webbrowser.open(f"http://127.0.0.1:{port}"), "ghost"),
+             ("🔒  Giao máy cho học sinh", self.hien_man_hinh_dang_nhap, "primary")],
+            start=start,
+        )
 
-        self.xoa_man_hinh()
-        self.root.attributes("-fullscreen", False)
-        self.root.attributes("-topmost", False)
-        self._can_giua_cua_so(1080, 700)
-        self.tao_thanh_an_toan_day_man_hinh()
+    def _trang_ket_noi(self, page) -> None:
+        self._page_header(page, "Điện thoại phụ huynh",
+                          "Ghép máy này với web phụ huynh để xem tình hình học, nhận cảnh báo và điều khiển từ xa.")
+        self._dung_tab_ket_noi_cloud(page)
+
+    def _trang_ung_dung(self, page) -> None:
+        from services.app_icons import emoji_for, get_icon_image
 
         cfg = load_config()
-        port = int(cfg.get("web_port", 5000))
+        self._page_header(page, "Ứng dụng & thư mục được phép",
+                          "Học sinh chỉ thấy và mở được những mục dưới đây. Ứng dụng khác mở lên sẽ bị thu nhỏ ngay "
+                          "và báo về phụ huynh.")
+        row = tk.Frame(page, bg=UI["bg"])
+        row.pack(fill="both", expand=True)
+        c_apps = self._card(row, "🧩  Ứng dụng học tập", side="left", padx=(0, 8))
+        c_dirs = self._card(row, "📁  Thư mục tài liệu", side="left", padx=(8, 0))
+        apps_box = tk.Frame(c_apps, bg=UI["card"])
+        apps_box.pack(fill="both", expand=True)
+        dirs_box = tk.Frame(c_dirs, bg=UI["card"])
+        dirs_box.pack(fill="both", expand=True)
 
-        header = tk.Frame(self.root, bg="#ffffff", pady=12)
-        header.pack(fill="x")
-        tk.Label(
-            header,
-            text="👪 Bảng điều khiển Phụ huynh",
-            bg="#ffffff",
-            fg="#2563eb",
-            font=("Segoe UI", 13, "bold"),
-        ).pack(side="left", padx=20)
+        def dong_muc(parent, icon_img, emoji, title, sub, on_delete):
+            r = tk.Frame(parent, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1)
+            r.pack(fill="x", pady=3)
+            if icon_img is not None:
+                ic = tk.Label(r, image=icon_img, bg=UI["card"])
+                ic.image = icon_img
+            else:
+                ic = tk.Label(r, text=emoji, bg=UI["card"], font=("Segoe UI Emoji", 16))
+            ic.pack(side="left", padx=10, pady=6)
+            t = tk.Frame(r, bg=UI["card"])
+            t.pack(side="left", fill="x", expand=True)
+            tk.Label(t, text=title, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 10, "bold"), anchor="w").pack(anchor="w")
+            tk.Label(t, text=sub if len(sub) < 60 else "…" + sub[-58:], bg=UI["card"], fg=UI["mut"],
+                     font=("Segoe UI", 8), anchor="w").pack(anchor="w")
+            tk.Button(r, text="✕", command=on_delete, bg=UI["card"], fg=UI["bad"], relief="flat", bd=0,
+                      cursor="hand2", font=("Segoe UI", 11, "bold")).pack(side="right", padx=10)
 
-        tk.Button(
-            header,
-            text="🔒 Bật lại Khóa màn hình Học sinh",
-            command=self.hien_man_hinh_dang_nhap,
-            bg="#e11d48",
-            fg="white",
-            font=("Segoe UI", 10, "bold"),
-            padx=14,
-            pady=5,
-            relief="flat",
-            cursor="hand2",
-        ).pack(side="right", padx=18)
+        def ve_lai() -> None:
+            for box in (apps_box, dirs_box):
+                for wdg in box.winfo_children():
+                    wdg.destroy()
+            if not cfg.get("allowed_apps"):
+                self._label(apps_box, "Chưa có ứng dụng nào.", bold=False, mut=True)
+            for i, a in enumerate(cfg.get("allowed_apps", [])):
+                dong_muc(apps_box, get_icon_image(a.get("path", ""), 28), emoji_for(a.get("exe_name", "")),
+                         a.get("name", "?"), f"{a.get('exe_name', '')} · {a.get('path', '')}", lambda i=i: xoa_app(i))
+            if not cfg.get("allowed_folders"):
+                self._label(dirs_box, "Chưa có thư mục nào.", bold=False, mut=True)
+            for i, fd in enumerate(cfg.get("allowed_folders", [])):
+                dong_muc(dirs_box, None, "📁", os.path.basename(os.path.normpath(fd)) or fd, fd, lambda i=i: xoa_dir(i))
 
-        tk.Button(
-            header,
-            text="🌐 Web nội bộ",
-            command=lambda: webbrowser.open(f"http://127.0.0.1:{port}"),
-            bg="#0284c7",
-            fg="white",
-            font=("Segoe UI", 10, "bold"),
-            padx=14,
-            pady=5,
-            relief="flat",
-            cursor="hand2",
-        ).pack(side="right", padx=6)
-
-        self.root.configure(bg=UI["bg"])
-        _st = ttk.Style(self.root)
-        try:
-            _st.theme_use("clam")
-        except Exception:
-            pass
-        _st.configure("TNotebook", background=UI["bg"], borderwidth=0)
-        _st.configure("TNotebook.Tab", background="#e2e8f0", foreground=UI["txt"], padding=(14, 8),
-                      font=("Segoe UI", 10, "bold"))
-        _st.map("TNotebook.Tab", background=[("selected", UI["card"])], foreground=[("selected", UI["acc"])])
-        notebook = ttk.Notebook(self.root)
-        notebook.pack(fill="both", expand=True, padx=16, pady=12)
-
-        # --- TAB 1: QUẢN LÝ ỨNG DỤNG & THƯ MỤC CHO PHÉP ---
-        tab_apps = tk.Frame(notebook, bg="#f4f6fb", padx=18, pady=16)
-        notebook.add(tab_apps, text="  📦 Ứng dụng & Thư mục  ")
-
-        left_box = tk.LabelFrame(
-            tab_apps,
-            text=" Danh sách Ứng dụng (.exe) cho phép Học sinh sử dụng ",
-            bg="#ffffff",
-            fg="#2563eb",
-            font=("Segoe UI", 10, "bold"),
-            padx=12,
-            pady=12,
-        )
-        left_box.pack(side="left", fill="both", expand=True, padx=(0, 8))
-
-        app_list = tk.Listbox(left_box, bg="#f8fafc", fg="#0f172a", font=("Segoe UI", 10), height=14)
-        app_list.pack(fill="both", expand=True, pady=6)
-
-        def refresh_apps_ui() -> None:
-            app_list.delete(0, "end")
-            for a in cfg.get("allowed_apps", []):
-                app_list.insert("end", f"{a['name']}  [{a['exe_name']}]  ->  {a['path']}")
-
-        def them_ung_dung() -> None:
-            fpath = filedialog.askopenfilename(
-                title="Chọn file thực thi (.exe) cho phép Học sinh mở",
-                filetypes=[("Ứng dụng Windows (*.exe)", "*.exe")],
-                parent=self.root,
-            )
+        def them_app() -> None:
+            fpath = filedialog.askopenfilename(title="Chọn file ứng dụng (.exe) cho phép học sinh mở",
+                                               filetypes=[("Ứng dụng Windows (*.exe)", "*.exe")], parent=self.root)
             if not fpath:
                 return
             exe_name = os.path.basename(fpath)
             if exe_name.lower() in FORBIDDEN_STUDENT_PROCESSES:
-                messagebox.showwarning(
-                    "Tiến trình hệ thống",
-                    f"Không được thêm tiến trình hệ thống '{exe_name}' vào menu Học sinh!",
-                    parent=self.root,
-                )
+                messagebox.showwarning("Tiến trình hệ thống", f"Không thể thêm '{exe_name}'.", parent=self.root)
                 return
-            default_label = os.path.splitext(exe_name)[0].capitalize()
-            custom_name = simpledialog.askstring(
-                "Tên hiển thị ứng dụng",
-                "Nhập tên hiển thị trên màn hình Học sinh:",
-                initialvalue=default_label,
-                parent=self.root,
-            )
-            if not custom_name:
+            name = simpledialog.askstring("Tên hiển thị", "Tên hiển thị trên màn hình học sinh:",
+                                          initialvalue=os.path.splitext(exe_name)[0].capitalize(), parent=self.root)
+            if not name:
                 return
-            cfg["allowed_apps"].append({"name": custom_name.strip(), "exe_name": exe_name, "path": fpath})
+            cfg.setdefault("allowed_apps", []).append({"name": name.strip(), "exe_name": exe_name, "path": fpath})
             save_config(cfg)
-            refresh_apps_ui()
+            ve_lai()
 
-        def xoa_ung_dung() -> None:
-            sel = app_list.curselection()
-            if not sel:
-                return
-            cfg["allowed_apps"].pop(sel[0])
-            save_config(cfg)
-            refresh_apps_ui()
-
-        app_btns = tk.Frame(left_box, bg="#ffffff")
-        app_btns.pack(fill="x", pady=6)
-        tk.Button(app_btns, text="➕ Thêm ứng dụng (.exe)", command=them_ung_dung, bg="#0284c7", fg="white", padx=10, pady=5, relief="flat").pack(side="left", padx=4)
-        tk.Button(app_btns, text="🗑️ Xóa ứng dụng đã chọn", command=xoa_ung_dung, bg="#eef2ff", fg="#1e3a8a", padx=10, pady=5, relief="flat").pack(side="left", padx=4)
-        refresh_apps_ui()
-
-        right_box = tk.LabelFrame(
-            tab_apps,
-            text=" Danh sách Thư mục Tài liệu được phép mở ",
-            bg="#ffffff",
-            fg="#b45309",
-            font=("Segoe UI", 10, "bold"),
-            padx=12,
-            pady=12,
-        )
-        right_box.pack(side="right", fill="both", expand=True, padx=(8, 0))
-
-        folder_list = tk.Listbox(right_box, bg="#f8fafc", fg="#b45309", font=("Segoe UI", 10), height=14)
-        folder_list.pack(fill="both", expand=True, pady=6)
-
-        def refresh_folders_ui() -> None:
-            folder_list.delete(0, "end")
-            for fd in cfg.get("allowed_folders", []):
-                folder_list.insert("end", fd)
-
-        def them_thu_muc() -> None:
-            dpath = filedialog.askdirectory(title="Chọn thư mục học tập cho phép truy cập", parent=self.root)
-            if dpath:
-                norm_d = os.path.normpath(dpath)
-                if norm_d not in cfg["allowed_folders"]:
-                    cfg["allowed_folders"].append(norm_d)
-                    save_config(cfg)
-                    refresh_folders_ui()
-
-        def xoa_thu_muc() -> None:
-            sel = folder_list.curselection()
-            if sel:
-                cfg["allowed_folders"].pop(sel[0])
+        def xoa_app(i: int) -> None:
+            a = cfg["allowed_apps"][i]
+            if messagebox.askyesno("Xóa ứng dụng", f"Bỏ '{a.get('name')}' khỏi danh sách được phép?", parent=self.root):
+                cfg["allowed_apps"].pop(i)
                 save_config(cfg)
-                refresh_folders_ui()
+                ve_lai()
 
-        fd_btns = tk.Frame(right_box, bg="#ffffff")
-        fd_btns.pack(fill="x", pady=6)
-        tk.Button(fd_btns, text="📁 Thêm thư mục", command=them_thu_muc, bg="#059669", fg="white", padx=10, pady=5, relief="flat").pack(side="left", padx=4)
-        tk.Button(fd_btns, text="🗑️ Xóa thư mục", command=xoa_thu_muc, bg="#eef2ff", fg="#1e3a8a", padx=10, pady=5, relief="flat").pack(side="left", padx=4)
-        refresh_folders_ui()
+        def them_dir() -> None:
+            d = filedialog.askdirectory(title="Chọn thư mục tài liệu cho phép", parent=self.root)
+            if d and os.path.normpath(d) not in cfg.setdefault("allowed_folders", []):
+                cfg["allowed_folders"].append(os.path.normpath(d))
+                save_config(cfg)
+                ve_lai()
 
-        # --- TAB 2: CHÍNH SÁCH WEB, GAME & GIỚI HẠN AI ---
-        tab_policy = tk.Frame(notebook, bg="#ffffff", padx=22, pady=16)
-        notebook.add(tab_policy, text="  🌐 Luật web, game & AI  ")
+        def xoa_dir(i: int) -> None:
+            cfg["allowed_folders"].pop(i)
+            save_config(cfg)
+            ve_lai()
 
-        def make_policy_field(label_txt: str, init_val: str) -> tk.Entry:
-            tk.Label(tab_policy, text=label_txt, bg="#ffffff", fg="#0f172a", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(6, 2))
-            ent = tk.Entry(tab_policy, font=("Segoe UI", 10), bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
-            ent.insert(0, init_val)
-            ent.pack(fill="x", ipady=4)
-            return ent
+        self._ui_button(c_apps, "➕  Thêm ứng dụng", them_app).pack(anchor="w", pady=(10, 0))
+        self._ui_button(c_dirs, "➕  Thêm thư mục", them_dir).pack(anchor="w", pady=(10, 0))
+        ve_lai()
 
-        ent_bad_urls = make_policy_field("Danh sách Link Address (URL) bị cấm (cách nhau dấu phẩy):", ", ".join(cfg.get("bad_urls", [])))
-        ent_good_urls = make_policy_field("Danh sách Link Học tập được phép (ALLOWED_URLS):", ", ".join(cfg.get("allowed_urls", [])))
-        ent_bad_tabs = make_policy_field("Từ khóa Tiêu đề Tab cấm (BAD_TABS gốc):", ", ".join(cfg.get("bad_tabs", [])))
-        ent_acad_kw = make_policy_field("Từ khóa Bài giảng miễn trừ trên YouTube (ACADEMIC_KW):", ", ".join(cfg.get("academic_keywords", [])))
-        ent_bad_apps = make_policy_field("Từ khóa Tiến trình Game bị tiêu diệt tự động (BAD_APPS):", ", ".join(cfg.get("bad_apps", [])))
-        ent_ai_min = make_policy_field("Thời gian tối đa cho phép dùng ChatGPT / Chatbot AI (Phút/phiên):", str(cfg.get("max_ai_minutes", 15)))
+    def _trang_luat(self, page) -> None:
+        cfg = load_config()
+        self._page_header(page, "Luật chặn & giới hạn",
+                          "Nhập nhiều mục, cách nhau bằng dấu phẩy. Thay đổi trên web phụ huynh cũng tự đồng bộ về đây.")
+        grid = tk.Frame(page, bg=UI["bg"])
+        grid.pack(fill="both", expand=True)
+        left = self._card(grid, "⛔  Chặn", side="left", padx=(0, 8))
+        right = self._card(grid, "✅  Cho phép & giới hạn", side="left", padx=(8, 0))
+        self._label(left, "Trang web bị chặn (vd: facebook.com, tiktok.com)")
+        e_urls = self._entry(left, ", ".join(cfg.get("bad_urls", [])))
+        self._label(left, "Từ khóa tiêu đề tab bị chặn (vd: game, phim)")
+        e_tabs = self._entry(left, ", ".join(cfg.get("bad_tabs", [])))
+        self._label(left, "Game / ứng dụng bị tự đóng (tên tiến trình, vd: roblox, steam)")
+        e_apps = self._entry(left, ", ".join(cfg.get("bad_apps", [])))
+        self._label(right, "Trang học tập luôn cho phép")
+        e_good = self._entry(right, ", ".join(cfg.get("allowed_urls", [])))
+        self._label(right, "Từ khóa bài giảng YouTube được miễn chặn")
+        e_kw = self._entry(right, ", ".join(cfg.get("academic_keywords", [])))
+        self._label(right, "Thời gian tối đa dùng ChatGPT / chatbot AI (phút mỗi phiên)")
+        e_ai = self._entry(right, str(cfg.get("max_ai_minutes", 15)))
 
-        def luu_chinh_sach() -> None:
-            cfg["bad_urls"] = [x.strip() for x in ent_bad_urls.get().split(",") if x.strip()]
-            cfg["allowed_urls"] = [x.strip() for x in ent_good_urls.get().split(",") if x.strip()]
-            cfg["bad_tabs"] = [x.strip() for x in ent_bad_tabs.get().split(",") if x.strip()]
-            cfg["academic_keywords"] = [x.strip() for x in ent_acad_kw.get().split(",") if x.strip()]
-            cfg["bad_apps"] = [x.strip() for x in ent_bad_apps.get().split(",") if x.strip()]
+        def luu() -> None:
+            split = lambda e: [x.strip() for x in e.get().split(",") if x.strip()]  # noqa: E731
+            cfg["bad_urls"], cfg["bad_tabs"], cfg["bad_apps"] = split(e_urls), split(e_tabs), split(e_apps)
+            cfg["allowed_urls"], cfg["academic_keywords"] = split(e_good), split(e_kw)
             try:
-                cfg["max_ai_minutes"] = max(1, int(ent_ai_min.get().strip()))
+                cfg["max_ai_minutes"] = max(1, int(e_ai.get().strip()))
             except ValueError:
                 cfg["max_ai_minutes"] = 15
+            cfg["rules_ver"] = int(cfg.get("rules_ver", 0) or 0)
             save_config(cfg)
-            messagebox.showinfo("Đã lưu", "Đã lưu chính sách kiểm soát Web, Game và Quota AI vào shared_config.json!", parent=self.root)
+            messagebox.showinfo("Đã lưu", "Đã lưu luật chặn và giới hạn AI.", parent=self.root)
 
-        tk.Button(
-            tab_policy,
-            text="💾 Lưu Toàn Bộ Chính Sách Web & AI",
-            command=luu_chinh_sach,
-            bg="#16a34a",
-            fg="white",
-            font=("Segoe UI", 10, "bold"),
-            pady=8,
-            relief="flat",
-            cursor="hand2",
-        ).pack(fill="x", pady=(16, 4))
+        self._ui_button(page, "💾  Lưu luật", luu).pack(anchor="e", pady=(12, 0))
 
-        # --- TAB 3: THỐNG KÊ THỜI GIAN DÙNG & LỊCH SỬ VI PHẠM ---
-        tab_stats = tk.Frame(notebook, bg="#ffffff", padx=20, pady=16)
-        notebook.add(tab_stats, text="  📊 Thống kê & Vi phạm  ")
+    def _trang_camera(self, page) -> None:
+        """Chọn camera theo TÊN + ảnh xem trước, tự nhận diện camera chính / mặt bàn; tùy chọn AI."""
+        from services import camera_setup
 
-        txt_report = tk.Text(tab_stats, bg="#f8fafc", fg="#0f172a", font=("Consolas", 10), height=20)
-        txt_report.pack(fill="both", expand=True, pady=(0, 10))
+        cfg = load_config()
+        self._page_header(page, "Camera AI",
+                          "Chọn camera bằng ảnh xem trước — không cần nhớ số thứ tự. Có 2 camera: bấm “Tự nhận diện”, "
+                          "camera thấy khuôn mặt sẽ là camera chính, camera còn lại dùng soi mặt bàn (tay + vở).")
+        cams = [c for c in camera_setup.list_cameras(cfg) if not c["virtual"]]
+        cur_main = (cfg.get("camera_preferred_names") or [""])[0]
+        cur_desk = cfg.get("desk_camera_name", "") if cfg.get("desk_camera_enabled") else ""
+        row = tk.Frame(page, bg=UI["bg"])
+        row.pack(fill="x")
+        role_vars: Dict[str, tk.StringVar] = {}
+        previews: Dict[str, Any] = {}
+        if not cams:
+            self._label(row, "Không tìm thấy webcam nào. Hãy cắm webcam rồi mở lại trang này.", bold=False, mut=True)
+        for i, c in enumerate(cams[:3]):
+            card = self._card(row, "", side="left", padx=(0 if i == 0 else 8, 0))
+            tk.Label(card, text=f"📷  {c['name']}", bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 11, "bold")).pack(anchor="w")
+            pv_box = tk.Frame(card, bg="#e2e8f0", width=320, height=200)
+            pv_box.pack(anchor="w", pady=8)
+            pv_box.pack_propagate(False)
+            pv = tk.Label(pv_box, text="Bấm “Xem thử” để chụp 1 ảnh", bg="#e2e8f0", fg=UI["mut"])
+            pv.pack(fill="both", expand=True)
+            st = tk.Label(card, text="", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9))
+            st.pack(anchor="w")
+            default = "main" if c["name"] == cur_main or (not cur_main and i == 0) else ("desk" if c["name"] == cur_desk else "off")
+            var = tk.StringVar(value=default)
+            role_vars[c["name"]] = var
+            seg = tk.Frame(card, bg=UI["card"])
+            seg.pack(fill="x", pady=(6, 0))
+            for val, txt in (("main", "🙂 Camera chính"), ("desk", "✍️ Mặt bàn"), ("off", "Không dùng")):
+                tk.Radiobutton(seg, text=txt, value=val, variable=var, indicatoron=0, bg="#f1f5f9", fg=UI["txt"],
+                               selectcolor="#dbeafe", relief="flat", bd=0, padx=8, pady=6, cursor="hand2",
+                               font=("Segoe UI", 9, "bold")).pack(side="left", expand=True, fill="x", padx=2)
+            previews[c["name"]] = (pv, st, c["index"])
 
-        def tai_bao_cao() -> None:
-            state = load_runtime_state()
-            txt_report.delete("1.0", "end")
-            ai_sec = int(state.get("ai_seconds", 0))
-            txt_report.insert("end", "=== THỜI GIAN SỬ DỤNG ỨNG DỤNG & CHATBOT AI ===\n")
-            txt_report.insert("end", f"• Tra cứu ChatGPT / Chatbot AI: {round(ai_sec / 60.0, 1)} phút ({ai_sec} giây)\n")
-            app_u = state.get("app_usage", {})
-            if not app_u:
-                txt_report.insert("end", "• Chưa có dữ liệu mở ứng dụng trong phiên này.\n")
+        def show_result(name: str, img, info: Dict[str, Any]) -> None:
+            pv, st, _idx = previews[name]
+            if not pv.winfo_exists():
+                return
+            if img is not None:
+                try:
+                    from PIL import Image, ImageTk
+
+                    import cv2 as _cv2
+
+                    ph = ImageTk.PhotoImage(Image.fromarray(_cv2.cvtColor(img, _cv2.COLOR_BGR2RGB)))
+                    pv.config(image=ph, text="")
+                    pv.image = ph
+                except Exception:
+                    pv.config(text="(không hiển thị được ảnh)")
+            if info.get("ok"):
+                st.config(text=(f"✅ Thấy {info['faces']} khuôn mặt" if info.get("faces") else "Không thấy khuôn mặt (hợp làm camera mặt bàn)")
+                          + (" · ⚠️ Ảnh quá tối / nắp che?" if info.get("dark") else ""),
+                          fg=UI["ok"] if info.get("faces") else UI["mut"])
             else:
-                for k, sec in app_u.items():
-                    txt_report.insert("end", f"• {k}: {round(sec / 60.0, 1)} phút ({sec} giây)\n")
+                st.config(text="❌ " + str(info.get("error", "Không mở được")), fg=UI["bad"])
 
-            pt = state.get("posture_telemetry") or {}
-            txt_report.insert("end", "\n=== CHỈ SỐ AI NHẬN DIỆN TƯ THẾ NGỒI HỌC 3D (MEDIAPIPE) ===\n")
-            txt_report.insert(
-                "end",
-                f"• Điểm tập trung thị giác (CFI): {pt.get('visual_focus_score', 100)}% | "
-                f"EAR: {pt.get('ear', 0.30)} | PERCLOS: {pt.get('perclos', 0)}% | "
-                f"MAR: {pt.get('mar', 0.10)} (Ngáp: {pt.get('yawn_count', 0)} lần)\n"
-                f"• Góc Euler đầu 3D (solvePnP): Pitch={pt.get('pitch_deg', 0)}°, "
-                f"Yaw={pt.get('yaw_deg', 0)}°, Roll={pt.get('roll_deg', 0)}°\n",
-            )
+        def chay_nen(fn) -> None:
+            lbl_busy.config(text="⏳ Đang mở camera…")
 
-            txt_report.insert("end", "\n=== LỊCH SỬ CẢNH BÁO VI PHẠM GẦN NHẤT ===\n")
-            alerts = state.get("alerts", [])
-            if not alerts:
-                txt_report.insert("end", "✅ Chưa ghi nhận vi phạm nào.\n")
-            else:
-                for item in alerts:
-                    txt_report.insert("end", f"[{item.get('time', '')}] {item.get('message', '')}\n")
+            def work():
+                try:
+                    out = fn()
+                except Exception as exc:
+                    out = exc
+                self.root.after(0, lambda: xong(out))
 
-        stat_btns = tk.Frame(tab_stats, bg="#ffffff")
-        stat_btns.pack(fill="x")
-        tk.Button(stat_btns, text="🔄 Làm mới số liệu", command=tai_bao_cao, bg="#0284c7", fg="white", padx=12, pady=6, relief="flat").pack(side="left", padx=4)
-        tk.Button(
-            stat_btns,
-            text="🧹 Đặt lại bộ đếm & Xóa cảnh báo",
-            command=lambda: (
-                setattr(self.bo_giam_sat, "app_usage", {}),
-                setattr(self.bo_giam_sat, "ai_seconds", 0),
-                update_runtime_state(alerts=[], app_usage={}, ai_seconds=0),
-                tai_bao_cao(),
-            ),
-            bg="#eef2ff",
-            fg="#1e3a8a",
-            padx=12,
-            pady=6,
-            relief="flat",
-        ).pack(side="left", padx=6)
-        tai_bao_cao()
+            def xong(out):
+                if lbl_busy.winfo_exists():
+                    lbl_busy.config(text="" if not isinstance(out, Exception) else f"Lỗi: {out}")
 
-        # --- TAB 4: CẤU HÌNH BOT TELEGRAM 2 CHIỀU (GIAI ĐOẠN 7) ---
-        tab_tg = tk.Frame(notebook, bg="#ffffff", padx=22, pady=16)
-        notebook.add(tab_tg, text="  💬 Telegram  ")
+            threading.Thread(target=work, daemon=True).start()
 
-        tg_cfg = cfg.get("telegram", {})
-        tk.Label(
-            tab_tg,
-            text="🤖 THIẾT LẬP BOT TELEGRAM CẢNH BÁO & ĐIỀU KHIỂN TỪ XA (/status, /lock, /reset_ai)",
-            bg="#ffffff",
-            fg="#15803d",
-            font=("Segoe UI", 11, "bold"),
-        ).pack(anchor="w", pady=(0, 8))
+        def xem_thu() -> None:
+            def fn():
+                for name, (_pv, _st, idx) in previews.items():
+                    img, info = camera_setup.grab_preview(idx)
+                    self.root.after(0, lambda n=name, im=img, inf=info: show_result(n, im, inf))
+            chay_nen(fn)
 
-        tk.Label(tab_tg, text="1. Telegram Bot Token (Lấy từ @BotFather):", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        ent_tg_token = tk.Entry(tab_tg, font=("Segoe UI", 10), bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
-        ent_tg_token.insert(0, tg_cfg.get("bot_token", ""))
-        ent_tg_token.pack(fill="x", ipady=4, pady=(2, 8))
+        def tu_nhan_dien() -> None:
+            def fn():
+                res = camera_setup.auto_assign(cfg)
+                for r in res["results"]:
+                    if r["name"] in previews:
+                        self.root.after(0, lambda r=r: show_result(r["name"], r.get("image"), r))
 
-        tk.Label(tab_tg, text="2. Telegram Chat ID của Phụ huynh:", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        ent_tg_chat = tk.Entry(tab_tg, font=("Segoe UI", 10), bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
-        ent_tg_chat.insert(0, tg_cfg.get("chat_id", ""))
-        ent_tg_chat.pack(fill="x", ipady=4, pady=(2, 8))
+                def gan():
+                    for name, var in role_vars.items():
+                        var.set("main" if name == res["main"] else ("desk" if name == res["desk"] else "off"))
+                self.root.after(0, gan)
+            chay_nen(fn)
 
-        tk.Label(tab_tg, text="3. Thời gian giãn cách chống spam giữa 2 cảnh báo cùng loại (Giây):", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        ent_tg_cd = tk.Entry(tab_tg, font=("Segoe UI", 10), bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
-        ent_tg_cd.insert(0, str(tg_cfg.get("cooldown_seconds", 30)))
-        ent_tg_cd.pack(fill="x", ipady=4, pady=(2, 10))
+        bar = tk.Frame(page, bg=UI["bg"])
+        bar.pack(fill="x", pady=10)
+        self._ui_button(bar, "✨  Tự nhận diện camera", tu_nhan_dien).pack(side="left")
+        self._ui_button(bar, "👁  Xem thử", xem_thu, kind="ghost").pack(side="left", padx=8)
+        lbl_busy = tk.Label(bar, text="", bg=UI["bg"], fg=UI["mut"], font=("Segoe UI", 9))
+        lbl_busy.pack(side="left", padx=8)
 
-        v_en = tk.BooleanVar(value=bool(tg_cfg.get("enable_alerts", True)))
-        v_gm = tk.BooleanVar(value=bool(tg_cfg.get("alert_on_game", True)))
-        v_wl = tk.BooleanVar(value=bool(tg_cfg.get("alert_on_wrong_login", True)))
-        v_ai = tk.BooleanVar(value=bool(tg_cfg.get("alert_on_ai_overuse", True)))
+        opts = tk.Frame(page, bg=UI["bg"])
+        opts.pack(fill="both", expand=True)
+        c_ai = self._card(opts, "🤖  Tùy chọn nhận diện", side="left", padx=(0, 8))
+        v_ai = self._check(c_ai, "Bật Camera AI khi học sinh vào học", cfg.get("enable_posture_ai", True))
+        v_obj = self._check(c_ai, "Nhận diện đồ vật: điện thoại, tay cầm game, đồ chơi (sách/vở được miễn)",
+                            cfg.get("posture_object_detection", True))
+        v_photo = self._check(c_ai, "Tự gửi 1 ảnh bằng chứng qua Telegram khi học sinh cầm điện thoại/đồ chơi "
+                                    "(tối đa 1 ảnh / 5 phút)", cfg.get("auto_photo_on_object", True))
+        v_draw = self._check(c_ai, "Vẽ điểm mốc AI trên màn hình giám sát nội bộ", cfg.get("posture_draw_landmarks", True))
+        self._label(c_ai, "Loại ống kính camera chính", size=9)
+        fov_opts = {"Webcam thường (~70°)": 70.0, "Góc rộng (~90°)": 90.0, "Siêu rộng (~120°)": 120.0}
+        cur_fov = float(cfg.get("camera_hfov_deg", 70.0))
+        v_fov = tk.StringVar(value=min(fov_opts, key=lambda k: abs(fov_opts[k] - cur_fov)))
+        ttk.Combobox(c_ai, textvariable=v_fov, values=list(fov_opts), state="readonly", width=28).pack(anchor="w", pady=(2, 8))
+        self._label(c_ai, "Độ phân giải", size=9)
+        res_opts = {"HD 1280×720 (khuyên dùng)": (1280, 720), "Full HD 1920×1080 (góc rộng, máy mạnh)": (1920, 1080)}
+        v_res = tk.StringVar(value=next((k for k, v in res_opts.items() if v[0] == int(cfg.get("camera_width", 1280))),
+                                        list(res_opts)[0]))
+        ttk.Combobox(c_ai, textvariable=v_res, values=list(res_opts), state="readonly", width=34).pack(anchor="w", pady=(2, 0))
 
-        for txt_c, var_c in [
-            ("Kích hoạt gửi cảnh báo tự động qua Bot Telegram", v_en),
-            ("Báo cáo khi học sinh mở Web Game / Ứng dụng Game", v_gm),
-            ("Báo cáo khi học sinh thử đăng nhập vượt quyền Phụ huynh / Admin thất bại", v_wl),
-            ("Báo cáo khi học sinh dùng ChatGPT / Chatbot AI quá thời gian quy định", v_ai),
-        ]:
-            tk.Checkbutton(
-                tab_tg,
-                text=txt_c,
-                variable=var_c,
-                bg="#ffffff",
-                fg="#0f172a",
-                selectcolor="#ffffff",
-                activebackground="#f1f5f9",
-                font=("Segoe UI", 9),
-            ).pack(anchor="w", pady=2)
+        c_tip = self._card(opts, "📐  Đặt camera chuẩn", side="left", padx=(8, 0))
+        tk.Label(c_tip, bg=UI["card"], fg=UI["txt"], justify="left", font=("Segoe UI", 10), wraplength=360, text=(
+            "Camera chính (trên màn hình):\n"
+            "  • Ngang tầm mắt, chúc xuống 10–15° để thấy cả mặt, 2 vai và mép bàn.\n"
+            "  • Học sinh ngồi cách 50–70 cm, ở giữa khung hình.\n"
+            "  • Webcam góc rộng 90–120° thấy được tay khi viết.\n\n"
+            "Camera mặt bàn (tùy chọn):\n"
+            "  • Kẹp lên đèn bàn / giá đỡ, cao 40–60 cm, chúc thẳng xuống vở.\n"
+            "  • AI dùng camera này để biết đang viết hay đang cầm đồ chơi.\n\n"
+            "Sau khi đổi vị trí camera: vào máy học sinh, AI tự hiệu chỉnh lại trong 5 giây.")).pack(anchor="w")
 
-        def luu_va_test_tg(gui_test: bool = False) -> None:
+        def luu() -> None:
+            main = next((n for n, v in role_vars.items() if v.get() == "main"), None)
+            desk = next((n for n, v in role_vars.items() if v.get() == "desk"), None)
+            if role_vars and not main:
+                messagebox.showwarning("Thiếu camera chính", "Hãy chọn 1 camera làm “Camera chính”.", parent=self.root)
+                return
+            camera_setup.apply_assignment(cfg, main, desk)
+            cfg["enable_posture_ai"] = bool(v_ai.get())
+            cfg["posture_object_detection"] = bool(v_obj.get())
+            cfg["auto_photo_on_object"] = bool(v_photo.get())
+            cfg["posture_draw_landmarks"] = bool(v_draw.get())
+            cfg["camera_hfov_deg"] = fov_opts.get(v_fov.get(), 70.0)
+            cfg["camera_width"], cfg["camera_height"] = res_opts.get(v_res.get(), (1280, 720))
+            save_config(cfg)
+            messagebox.showinfo("Đã lưu", f"Camera chính: {main or '—'}\nCamera mặt bàn: {desk or 'không dùng'}",
+                                parent=self.root)
+
+        self._ui_button(page, "💾  Lưu cài đặt camera", luu).pack(anchor="e", pady=(12, 0))
+
+    def _trang_thong_ke(self, page) -> None:
+        self._page_header(page, "Thống kê & vi phạm", "Số liệu phiên học trên máy này.")
+        state = load_runtime_state()
+        cfg = load_config()
+        pt = state.get("posture_telemetry") or {}
+        alerts = state.get("alerts", [])
+        kpi = tk.Frame(page, bg=UI["bg"])
+        kpi.pack(fill="x")
+        ai_min = round(int(state.get("ai_seconds", 0)) / 60.0, 1)
+        app_u = state.get("app_usage", {}) or {}
+        for i, (lbl, val, sub) in enumerate((
+                ("🤖 Dùng chatbot AI", f"{ai_min} phút", f"giới hạn {cfg.get('max_ai_minutes', 15)} phút"),
+                ("🧩 Ứng dụng đã mở", str(len(app_u)), "trong phiên"),
+                ("🎯 Mức tập trung", f"{pt.get('cfi_score', '—')}%", pt.get("activity_state_vi") or "Camera AI"),
+                ("🔔 Cảnh báo", str(len(alerts)), "gần nhất"))):
+            c = self._card(kpi, "", side="left", padx=(0 if i == 0 else 8, 0))
+            tk.Label(c, text=lbl, bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9, "bold")).pack(anchor="w")
+            tk.Label(c, text=val, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 20, "bold")).pack(anchor="w")
+            tk.Label(c, text=sub, bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9)).pack(anchor="w")
+        row = tk.Frame(page, bg=UI["bg"])
+        row.pack(fill="both", expand=True, pady=(12, 0))
+        c1 = self._card(row, "⏱️  Thời gian dùng ứng dụng", side="left", padx=(0, 8))
+        for k, sec in sorted(app_u.items(), key=lambda kv: -kv[1])[:10]:
+            r = tk.Frame(c1, bg=UI["card"])
+            r.pack(fill="x", pady=2)
+            tk.Label(r, text=k[:40], bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 10)).pack(side="left")
+            tk.Label(r, text=f"{round(sec / 60.0, 1)} phút", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 10)).pack(side="right")
+        if not app_u:
+            self._label(c1, "Chưa có dữ liệu.", bold=False, mut=True)
+        c2 = self._card(row, "🔔  Cảnh báo gần đây", side="left", padx=(8, 0))
+        box = tk.Text(c2, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 9), relief="flat", height=14, wrap="word")
+        box.pack(fill="both", expand=True)
+        for a in alerts[:40]:
+            box.insert("end", f"{a.get('time', '')}   {a.get('message', '')}\n")
+        if not alerts:
+            box.insert("end", "✅ Chưa ghi nhận vi phạm nào.")
+        box.config(state="disabled")
+
+        def dat_lai() -> None:
+            if messagebox.askyesno("Đặt lại", "Xóa bộ đếm thời gian và lịch sử cảnh báo?", parent=self.root):
+                self.bo_giam_sat.app_usage = {}
+                self.bo_giam_sat.ai_seconds = 0
+                update_runtime_state(alerts=[], app_usage={}, ai_seconds=0)
+                self.vao_che_do_phu_huynh(start="stats")
+
+        self._ui_button(page, "🧹  Đặt lại bộ đếm & cảnh báo", dat_lai, kind="danger").pack(anchor="e", pady=(12, 0))
+
+    def _trang_telegram(self, page) -> None:
+        cfg = load_config()
+        tg = cfg.setdefault("telegram", {})
+        self._page_header(page, "Telegram (nâng cao)",
+                          "Thường không cần: web phụ huynh đã có nút “Kết nối Telegram” dùng bot chung. "
+                          "Chỉ điền ở đây nếu muốn máy gửi thẳng qua bot riêng của gia đình.")
+        c = self._card(page, "🤖  Bot riêng")
+        self._label(c, "Bot Token (từ @BotFather)")
+        e_tok = self._entry(c, tg.get("bot_token", ""), show="•")
+        self._label(c, "Chat ID của phụ huynh")
+        e_chat = self._entry(c, tg.get("chat_id", ""))
+        self._label(c, "Giãn cách chống spam giữa 2 cảnh báo cùng loại (giây)")
+        e_cd = self._entry(c, str(tg.get("cooldown_seconds", 30)))
+        v_en = self._check(c, "Gửi cảnh báo tự động", tg.get("enable_alerts", True))
+        v_gm = self._check(c, "Báo khi mở web/ứng dụng game", tg.get("alert_on_game", True))
+        v_wl = self._check(c, "Báo khi đăng nhập Phụ huynh/Admin sai nhiều lần", tg.get("alert_on_wrong_login", True))
+        v_ai = self._check(c, "Báo khi dùng chatbot AI quá giờ", tg.get("alert_on_ai_overuse", True))
+
+        def luu(test: bool) -> None:
             try:
-                cd_val = max(5, int(ent_tg_cd.get().strip() or 30))
+                cd = max(5, int(e_cd.get().strip() or 30))
             except ValueError:
-                cd_val = 30
-            cfg["telegram"].update(
-                {
-                    "bot_token": ent_tg_token.get().strip(),
-                    "chat_id": ent_tg_chat.get().strip(),
-                    "cooldown_seconds": cd_val,
-                    "enable_alerts": bool(v_en.get()),
-                    "alert_on_game": bool(v_gm.get()),
-                    "alert_on_wrong_login": bool(v_wl.get()),
-                    "alert_on_ai_overuse": bool(v_ai.get()),
-                }
-            )
+                cd = 30
+            tg.update({"bot_token": e_tok.get().strip(), "chat_id": e_chat.get().strip(), "cooldown_seconds": cd,
+                       "enable_alerts": bool(v_en.get()), "alert_on_game": bool(v_gm.get()),
+                       "alert_on_wrong_login": bool(v_wl.get()), "alert_on_ai_overuse": bool(v_ai.get())})
             save_config(cfg)
-            if gui_test:
+            if test:
                 from services.telegram_service import trigger_parent_alert
 
-                ok = trigger_parent_alert(
-                    "SYSTEM_TEST",
-                    "Kết nối từ Phần mềm Quản lý Bàn Học Thông Minh (.EXE) thành công! Gửi /help để xem lệnh điều khiển.",
-                    sync=True,
-                )
-                if ok:
-                    messagebox.showinfo("Thành công", "📨 Đã lưu & gửi tin nhắn thử nghiệm về Telegram Phụ huynh!", parent=self.root)
-                else:
-                    messagebox.showwarning("Chưa thể gửi", "Đã lưu cấu hình! Vui lòng kiểm tra lại Bot Token & Chat ID hợp lệ.", parent=self.root)
+                ok = trigger_parent_alert("SYSTEM_TEST", "Kết nối từ Bàn Học Thông Minh thành công!", sync=True)
+                (messagebox.showinfo if ok else messagebox.showwarning)(
+                    "Telegram", "📨 Đã gửi tin thử!" if ok else "Đã lưu, nhưng chưa gửi được — kiểm tra Token / Chat ID.",
+                    parent=self.root)
             else:
-                messagebox.showinfo("Đã lưu", "Đã lưu cấu hình Bot Telegram thành công!", parent=self.root)
+                messagebox.showinfo("Đã lưu", "Đã lưu cấu hình Telegram.", parent=self.root)
 
-        tg_btn_row = tk.Frame(tab_tg, bg="#ffffff")
-        tg_btn_row.pack(fill="x", pady=(14, 0))
-        tk.Button(tg_btn_row, text="💾 Lưu Cấu Hình Telegram", command=lambda: luu_va_test_tg(False), bg="#0284c7", fg="white", font=("Segoe UI", 10, "bold"), padx=16, pady=8, relief="flat").pack(side="left", padx=(0, 8))
-        tk.Button(tg_btn_row, text="📨 Lưu & Gửi Tin Nhắn Test", command=lambda: luu_va_test_tg(True), bg="#059669", fg="white", font=("Segoe UI", 10, "bold"), padx=16, pady=8, relief="flat").pack(side="left")
-
-        # --- TAB 0: KẾT NỐI PHỤ HUYNH QUA CLOUD (đặt lên đầu) ---
-        tab_cloud = tk.Frame(notebook, bg=UI["bg"], padx=22, pady=18)
-        notebook.insert(0, tab_cloud, text="  ☁️ Kết nối phụ huynh (điện thoại)  ")
-        notebook.select(0)
-        self._dung_tab_ket_noi_cloud(tab_cloud)
+        bar = tk.Frame(page, bg=UI["bg"])
+        bar.pack(fill="x", pady=(12, 0))
+        self._ui_button(bar, "📨  Lưu & gửi thử", lambda: luu(True), kind="ghost").pack(side="right")
+        self._ui_button(bar, "💾  Lưu", lambda: luu(False)).pack(side="right", padx=8)
 
     def _dung_tab_ket_noi_cloud(self, tab) -> None:
         """Mã ghép máy + trạng thái kết nối web phụ huynh / Telegram, cập nhật mỗi 3 giây."""
-        card = tk.Frame(tab, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1, padx=24, pady=18)
+        card = tk.Frame(tab, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1, padx=26, pady=20)
         card.pack(fill="x")
-        tk.Label(card, text="📱 Ghép máy này với điện thoại phụ huynh", bg=UI["card"], fg=UI["txt"],
-                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        lbl_status = tk.Label(card, text="", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 10))
-        lbl_status.pack(anchor="w", pady=(4, 10))
-        lbl_code = tk.Label(card, text="······", bg=UI["card"], fg=UI["acc"], font=("Consolas", 40, "bold"))
+        lbl_status = tk.Label(card, text="", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 10, "bold"))
+        lbl_status.pack(anchor="w")
+        tk.Label(card, text="MÃ GHÉP MÁY", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(14, 0))
+        lbl_code = tk.Label(card, text="······", bg=UI["card"], fg=UI["acc"], font=("Consolas", 44, "bold"))
         lbl_code.pack(anchor="w")
         lbl_exp = tk.Label(card, text="", bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 10))
-        lbl_exp.pack(anchor="w", pady=(0, 10))
+        lbl_exp.pack(anchor="w", pady=(0, 12))
         row = tk.Frame(card, bg=UI["card"])
         row.pack(anchor="w")
 
@@ -1219,13 +1439,18 @@ class PhanMemQuanLyBanHocEXE:
             (load_runtime_state().get("cloud") or {}).get("url") or "https://banhocthongminh.vercel.app"),
             kind="ghost").pack(side="left")
 
-        steps = tk.Frame(tab, bg="#eff6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=18, pady=12)
+        steps = tk.Frame(tab, bg="#eff6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=20, pady=14)
         steps.pack(fill="x", pady=14)
-        tk.Label(steps, bg="#eff6ff", fg="#1e293b", justify="left", font=("Segoe UI", 10), text=(
-            "1️⃣  Trên điện thoại, mở web phụ huynh và đăng nhập bằng Google.\n"
-            "2️⃣  Bấm  ➕ Thêm máy học sinh  → nhập mã 6 số ở trên (mã đổi sau 15 phút).\n"
-            "3️⃣  Bấm  Kết nối Telegram  để nhận cảnh báo, gõ /status /lock /anh ngay trong Telegram.\n"
-            "📲  Trên Android: menu Chrome → “Thêm vào màn hình chính” để dùng như một ứng dụng.")).pack(anchor="w")
+        tk.Label(steps, text="Cách ghép", bg="#eff6ff", fg="#1e3a8a", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        for i, line in enumerate((
+                "Trên điện thoại, mở web phụ huynh và đăng nhập bằng Google.",
+                "Bấm “➕ Thêm máy học sinh” rồi nhập mã 6 số ở trên (mã đổi sau 15 phút).",
+                "Bấm “Kết nối Telegram” để nhận cảnh báo; gõ /status /lock /anh ngay trong Telegram.",
+                "Android: menu Chrome → “Thêm vào màn hình chính” để dùng như một ứng dụng."), 1):
+            r = tk.Frame(steps, bg="#eff6ff")
+            r.pack(anchor="w", pady=3)
+            tk.Label(r, text=str(i), bg=UI["acc"], fg="white", font=("Segoe UI", 9, "bold"), width=2).pack(side="left")
+            tk.Label(r, text="  " + line, bg="#eff6ff", fg="#1e293b", font=("Segoe UI", 10)).pack(side="left")
 
         def refresh() -> None:
             if not tab.winfo_exists():
@@ -1238,7 +1463,7 @@ class PhanMemQuanLyBanHocEXE:
             else:
                 ago = int(time.time()) - int(c.get("last_ok", 0) or 0)
                 lbl_status.config(text=("🟢 Đã ghép với phụ huynh" if c.get("paired") else "🟡 Chưa có phụ huynh nào ghép")
-                                  + f"  ·  đồng bộ {ago}s trước  ·  mã máy {c.get('device_id', '')}",
+                                  + f"   ·   đồng bộ {ago}s trước   ·   mã máy {c.get('device_id', '')}",
                                   fg=UI["ok"] if c.get("paired") else UI["warn"])
             left = int(c.get("pair_expires", 0) or 0) - int(time.time())
             if c.get("pair_code") and left > 0:
@@ -1254,195 +1479,96 @@ class PhanMemQuanLyBanHocEXE:
         refresh()
 
     # =====================================================================
-    # CẤP 1: CHẾ ĐỘ ADMIN (QUẢN TRỊ HỆ THỐNG LÕI & MỞ TOÀN QUYỀN WINDOWS)
+    # CẤP 1: CHẾ ĐỘ ADMIN
     # =====================================================================
-    def vao_che_do_admin(self) -> None:
+    def vao_che_do_admin(self, start: str = "") -> None:
         self._current_mode = "admin"
         self.bo_giam_sat.dung_lai()
         posture_manager.stop()
         restore_windows_normal_state()
         update_runtime_state(current_role="admin", monitoring_active=False)
+        self._khung_quan_tri(
+            "🛠️", "Quản trị hệ thống", "Quyền cao nhất: bảo mật Windows, camera, mật khẩu, thoát phần mềm",
+            [("system", "🛡️", "Hệ thống & kiosk", self._trang_he_thong),
+             ("camera", "📷", "Camera AI", self._trang_camera),
+             ("passwords", "🔑", "Mật khẩu", self._trang_mat_khau),
+             ("exit", "🚪", "Thoát phần mềm", self._trang_thoat)],
+            [("👪  Sang bảng Phụ huynh", self.vao_che_do_phu_huynh, "ghost"),
+             ("🔒  Giao máy cho học sinh", self.hien_man_hinh_dang_nhap, "primary")],
+            start=start,
+        )
 
-        self.xoa_man_hinh()
-        self.root.attributes("-fullscreen", False)
-        self.root.attributes("-topmost", False)
-        self._can_giua_cua_so(980, 640)
-        self.tao_thanh_an_toan_day_man_hinh()
-
+    def _trang_he_thong(self, page) -> None:
         cfg = load_config()
+        self._page_header(page, "Hệ thống & kiosk", "Mức khóa máy khi học sinh đăng nhập.")
+        row = tk.Frame(page, bg=UI["bg"])
+        row.pack(fill="both", expand=True)
+        c1 = self._card(row, "🔐  Khóa máy (kiosk)", side="left", padx=(0, 8))
+        v_strict = self._check(c1, "Ẩn thanh Taskbar, chặn phím Windows và tự thu nhỏ ứng dụng ngoài danh sách "
+                                   "(khuyên dùng)", cfg.get("kiosk_strict", True))
+        v_exp = self._check(c1, "Tắt hẳn explorer.exe (Desktop) khi học sinh học — chặn mạnh nhất, máy khởi lại "
+                                "Desktop khi thoát", cfg.get("kiosk_hide_explorer", False))
+        v_always = self._check(c1, "Giám sát web/game luôn bật, kể cả khi chưa đăng nhập học sinh",
+                               cfg.get("monitor_always", False))
+        tk.Label(c1, text="Thoát khẩn cấp luôn hoạt động: Ctrl+Alt+Shift+F12 · nút 🆘 PIN 999999 · KHOI_PHUC_KHAN_CAP.bat",
+                 bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9), wraplength=420, justify="left").pack(anchor="w", pady=(10, 0))
+        c2 = self._card(row, "⚙️  Kết nối", side="left", padx=(8, 0))
+        self._label(c2, "Cổng web nội bộ")
+        e_port = self._entry(c2, str(cfg.get("web_port", 5000)))
+        self._label(c2, "Cổng COM hộp khóa điện thoại (ESP32-S3)")
+        e_com = self._entry(c2, str(cfg.get("esp32_com_port", "COM3")))
+        tools = tk.Frame(c2, bg=UI["card"])
+        tools.pack(fill="x", pady=(6, 0))
+        self._ui_button(tools, "🧰 Task Manager", lambda: subprocess.Popen(["taskmgr.exe"]), kind="ghost").pack(side="left")
+        self._ui_button(tools, "📂 Thư mục phần mềm", lambda: os.startfile(get_app_dir()), kind="ghost").pack(side="left", padx=6)
 
-        header = tk.Frame(self.root, bg="#ffffff", pady=12)
-        header.pack(fill="x")
-        tk.Label(
-            header,
-            text="🛠️ BẢNG QUẢN TRỊ HỆ THỐNG (QUYỀN ADMIN CAO NHẤT)",
-            bg="#ffffff",
-            fg="#7c3aed",
-            font=("Segoe UI", 13, "bold"),
-        ).pack(side="left", padx=20)
-
-        tk.Button(
-            header,
-            text="👪 Sang Bảng Phụ Huynh",
-            command=self.vao_che_do_phu_huynh,
-            bg="#059669",
-            fg="white",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=5,
-            relief="flat",
-        ).pack(side="right", padx=8)
-        tk.Button(
-            header,
-            text="🔒 Bật lại Màn hình Khóa",
-            command=self.hien_man_hinh_dang_nhap,
-            bg="#eef2ff",
-            fg="#1e3a8a",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=5,
-            relief="flat",
-        ).pack(side="right", padx=8)
-
-        body = tk.Frame(self.root, bg="#f8fafc", padx=24, pady=20)
-        body.pack(fill="both", expand=True)
-
-        col1 = tk.LabelFrame(
-            body,
-            text=" 1. Thiết lập Bảo mật Hệ điều hành & Kiosk Shell ",
-            bg="#ffffff",
-            fg="#2563eb",
-            font=("Segoe UI", 10, "bold"),
-            padx=16,
-            pady=14,
-        )
-        col1.pack(side="left", fill="both", expand=True, padx=(0, 10))
-
-        var_hide_exp = tk.BooleanVar(value=bool(cfg.get("kiosk_hide_explorer", False)))
-        tk.Checkbutton(
-            col1,
-            text="Ẩn hoàn toàn Taskbar & Desktop (explorer.exe) khi ở chế độ Học sinh",
-            variable=var_hide_exp,
-            bg="#ffffff",
-            fg="#0f172a",
-            selectcolor="#ffffff",
-            activebackground="#f1f5f9",
-            font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=4)
-
-        var_posture_ai = tk.BooleanVar(value=bool(cfg.get("enable_posture_ai", True)))
-        tk.Checkbutton(
-            col1,
-            text="Tự động bật AI Camera nhận diện tư thế 3D (MediaPipe) khi Học sinh vào học",
-            variable=var_posture_ai,
-            bg="#ffffff",
-            fg="#15803d",
-            selectcolor="#ffffff",
-            activebackground="#f1f5f9",
-            font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=4)
-
-        tk.Label(col1, text="Chỉ số Webcam USB cho AI Tư thế (Mặc định: 0):", bg="#ffffff", fg="#334155").pack(anchor="w", pady=(6, 2))
-        ent_cam = tk.Entry(col1, bg="#f4f6fb", fg="#0f172a", font=("Segoe UI", 10))
-        ent_cam.insert(0, str(cfg.get("camera_index", 0)))
-        ent_cam.pack(fill="x", ipady=2)
-
-        tk.Label(col1, text="Cổng Web Server nội bộ (Mặc định: 5000):", bg="#ffffff", fg="#334155").pack(anchor="w", pady=(10, 2))
-        ent_port = tk.Entry(col1, bg="#f4f6fb", fg="#0f172a", font=("Segoe UI", 10))
-        ent_port.insert(0, str(cfg.get("web_port", 5000)))
-        ent_port.pack(fill="x", ipady=3)
-
-        tk.Label(col1, text="Cổng COM kết nối vi điều khiển ESP32-S3 (Hộp khóa điện thoại):", bg="#ffffff", fg="#334155").pack(anchor="w", pady=(10, 2))
-        ent_com = tk.Entry(col1, bg="#f4f6fb", fg="#0f172a", font=("Segoe UI", 10))
-        ent_com.insert(0, str(cfg.get("esp32_com_port", "COM3")))
-        ent_com.pack(fill="x", ipady=3)
-
-        tk.Label(col1, text="Công cụ bảo trì hệ thống nhanh:", bg="#ffffff", fg="#b45309", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(16, 6))
-        tk.Button(
-            col1,
-            text="🧰 Mở Task Manager gốc của Windows",
-            command=lambda: subprocess.Popen(["taskmgr.exe"]),
-            bg="#eef2ff",
-            fg="#1e3a8a",
-            relief="flat",
-            pady=5,
-        ).pack(fill="x", pady=3)
-        tk.Button(
-            col1,
-            text="📂 Mở thư mục gốc chứa shared_config.json & File cứu hộ .bat",
-            command=lambda: os.startfile(get_app_dir()),
-            bg="#eef2ff",
-            fg="#1e3a8a",
-            relief="flat",
-            pady=5,
-        ).pack(fill="x", pady=3)
-
-        col2 = tk.LabelFrame(
-            body,
-            text=" 2. Quản lý Mật khẩu 3 Cấp & Thoát Hệ Thống ",
-            bg="#ffffff",
-            fg="#15803d",
-            font=("Segoe UI", 10, "bold"),
-            padx=16,
-            pady=14,
-        )
-        col2.pack(side="right", fill="both", expand=True, padx=(10, 0))
-
-        tk.Label(col2, text="Mật khẩu cấp ADMIN:", bg="#ffffff", fg="#334155").pack(anchor="w", pady=(4, 2))
-        ent_pw_admin = tk.Entry(col2, bg="#f4f6fb", fg="#0f172a", font=("Segoe UI", 10))
-        ent_pw_admin.insert(0, cfg["passwords"].get("admin", "admin123"))
-        ent_pw_admin.pack(fill="x", ipady=3)
-
-        tk.Label(col2, text="Mật khẩu cấp PHỤ HUYNH:", bg="#ffffff", fg="#334155").pack(anchor="w", pady=(10, 2))
-        ent_pw_parent = tk.Entry(col2, bg="#f4f6fb", fg="#0f172a", font=("Segoe UI", 10))
-        ent_pw_parent.insert(0, cfg["passwords"].get("parent", "phuhuynh123"))
-        ent_pw_parent.pack(fill="x", ipady=3)
-
-        tk.Label(col2, text="Mật khẩu cấp HỌC SINH:", bg="#ffffff", fg="#334155").pack(anchor="w", pady=(10, 2))
-        ent_pw_student = tk.Entry(col2, bg="#f4f6fb", fg="#0f172a", font=("Segoe UI", 10))
-        ent_pw_student.insert(0, cfg["passwords"].get("student", "hocsinh123"))
-        ent_pw_student.pack(fill="x", ipady=3)
-
-        def luu_admin() -> None:
-            cfg["kiosk_hide_explorer"] = bool(var_hide_exp.get())
-            cfg["enable_posture_ai"] = bool(var_posture_ai.get())
+        def luu() -> None:
+            cfg["kiosk_strict"] = bool(v_strict.get())
+            cfg["kiosk_hide_explorer"] = bool(v_exp.get())
+            cfg["monitor_always"] = bool(v_always.get())
             try:
-                cfg["camera_index"] = max(0, int(ent_cam.get().strip() or 0))
-            except ValueError:
-                cfg["camera_index"] = 0
-            try:
-                cfg["web_port"] = int(ent_port.get().strip() or 5000)
+                cfg["web_port"] = int(e_port.get().strip() or 5000)
             except ValueError:
                 cfg["web_port"] = 5000
-            cfg["esp32_com_port"] = ent_com.get().strip() or "COM3"
-            cfg["passwords"]["admin"] = ent_pw_admin.get().strip() or "admin123"
-            cfg["passwords"]["parent"] = ent_pw_parent.get().strip() or "phuhuynh123"
-            cfg["passwords"]["student"] = ent_pw_student.get().strip() or "hocsinh123"
+            cfg["esp32_com_port"] = e_com.get().strip() or "COM3"
             save_config(cfg)
-            messagebox.showinfo("Thành công", "Đã cập nhật cấu hình hệ thống Admin!", parent=self.root)
+            messagebox.showinfo("Đã lưu", "Đã lưu cấu hình hệ thống.", parent=self.root)
 
-        tk.Button(
-            col2,
-            text="💾 Lưu Thiết Lập Hệ Thống Admin",
-            command=luu_admin,
-            bg="#0284c7",
-            fg="white",
-            font=("Segoe UI", 10, "bold"),
-            pady=7,
-            relief="flat",
-        ).pack(fill="x", pady=(18, 12))
+        self._ui_button(page, "💾  Lưu", luu).pack(anchor="e", pady=(12, 0))
 
-        tk.Button(
-            col2,
-            text="🚪 THOÁT HOÀN TOÀN PHẦN MỀM (TRẢ LẠI WINDOWS CHUẨN)",
-            command=lambda: self.thoat_khan_cap("Admin chủ động đóng phần mềm", hien_thong_bao=True),
-            bg="#e11d48",
-            fg="white",
-            font=("Segoe UI", 10, "bold"),
-            pady=10,
-            relief="flat",
-            cursor="hand2",
-        ).pack(fill="x", side="bottom", pady=4)
+    def _trang_mat_khau(self, page) -> None:
+        cfg = load_config()
+        self._page_header(page, "Mật khẩu 3 cấp", "Đổi mật khẩu mặc định trước khi giao máy cho học sinh.")
+        c = self._card(page, "🔑  Mật khẩu")
+        ents = {}
+        for role, label in (("admin", "Admin"), ("parent", "Phụ huynh"), ("student", "Học sinh")):
+            self._label(c, f"Mật khẩu {label}")
+            ents[role] = self._entry(c, cfg["passwords"].get(role, ""), show="•")
+        v_show = tk.BooleanVar(value=False)
+        tk.Checkbutton(c, text="Hiện mật khẩu", variable=v_show, bg=UI["card"], selectcolor=UI["card"],
+                       command=lambda: [e.config(show="" if v_show.get() else "•") for e in ents.values()]).pack(anchor="w")
+
+        def luu() -> None:
+            vals = {k: e.get().strip() for k, e in ents.items()}
+            if any(len(v) < 4 for v in vals.values()):
+                messagebox.showwarning("Mật khẩu quá ngắn", "Mỗi mật khẩu cần tối thiểu 4 ký tự.", parent=self.root)
+                return
+            cfg["passwords"].update(vals)
+            save_config(cfg)
+            messagebox.showinfo("Đã lưu", "Đã đổi mật khẩu.", parent=self.root)
+
+        self._ui_button(page, "💾  Lưu mật khẩu", luu).pack(anchor="e", pady=(12, 0))
+
+    def _trang_thoat(self, page) -> None:
+        self._page_header(page, "Thoát phần mềm",
+                          "Mở khóa Task Manager, hiện lại Taskbar/Desktop, dừng giám sát và đóng hẳn phần mềm.")
+        c = self._card(page, "")
+        self._label(c, "Máy sẽ trở về Windows bình thường. Học sinh có thể dùng mọi ứng dụng cho tới khi bật lại "
+                       "phần mềm.", bold=False)
+        tk.Button(c, text="🚪  Thoát hoàn toàn phần mềm", command=lambda: self.thoat_khan_cap(
+            "Admin chủ động đóng phần mềm", hien_thong_bao=True), bg=UI["bad"], fg="white", activebackground="#b91c1c",
+            activeforeground="white", font=("Segoe UI", 11, "bold"), relief="flat", bd=0, padx=18, pady=10,
+            cursor="hand2").pack(anchor="w", pady=(12, 0))
 
 
 def run_self_test() -> int:

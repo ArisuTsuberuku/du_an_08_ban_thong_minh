@@ -86,6 +86,8 @@ class CloudAgent:
         self.tracker = ActivityTracker(batch_s=30.0)
         self._monitor = None          # bộ giám sát "luôn bật" do agent quản lý (khi học sinh chưa đăng nhập)
         self._last_monitor_check = 0.0
+        self._last_auto_snap_req = float((load_runtime_state().get("auto_snapshot_request") or {}).get("t", 0) or 0)
+        self._last_auto_snap_sent = 0.0
 
     # ---------------- HTTP ----------------
     def _auth(self) -> Dict[str, str]:
@@ -136,6 +138,7 @@ class CloudAgent:
             "monitoring": bool(st.get("monitoring_active")),
             "dns_block": cfg.get("dns_block_status", ""),
             "now": dict(self.tracker.current),
+            "open_apps": self.tracker.open_apps,
             "hostname": socket.gethostname(),
             "version": AGENT_VERSION,
             "role": st.get("current_role", "?"),
@@ -148,6 +151,9 @@ class CloudAgent:
                 "state": pt.get("activity_state"),
                 "state_vi": pt.get("activity_state_vi"),
                 "distance_cm": pt.get("distance_cm"),
+                "held_object": pt.get("held_object"),
+                "camera_score": (pt.get("camera_setup") or {}).get("score"),
+                "camera_hint": ((pt.get("camera_setup") or {}).get("hints") or [""])[0],
                 "alerts": (pt.get("alerts") or [])[:3],
             },
         }
@@ -306,6 +312,29 @@ class CloudAgent:
                                   f"{'luôn bật' if cfg.get('monitor_always') else 'khi học sinh đăng nhập'}"})
         self._urgent = True
 
+    def _auto_snapshot(self) -> None:
+        """Camera AI phát hiện học sinh cầm điện thoại/đồ chơi -> gửi 1 ảnh gốc cho MỌI phụ huynh (tối đa 1 ảnh/5 phút)."""
+        req = load_runtime_state().get("auto_snapshot_request") or {}
+        t = float(req.get("t", 0) or 0)
+        if not t or t <= self._last_auto_snap_req:
+            return
+        self._last_auto_snap_req = t
+        if time.time() - t > 60 or time.time() - self._last_auto_snap_sent < 300:
+            return
+        from services.posture_controller import get_latest_raw_frame
+
+        jpg = get_latest_raw_frame("full", max_age_sec=5.0)
+        if not jpg:
+            return
+        self._last_auto_snap_sent = time.time()
+        try:
+            self._post("/api/agent/snapshot", {"jpg_b64": base64.b64encode(jpg).decode("ascii"), "broadcast": True,
+                                               "caption": "📸 Bằng chứng: " + str(req.get("reason", ""))[:180]},
+                       timeout=20.0)
+            safe_log("[CLOUD] Đã gửi ảnh bằng chứng (nghịch đồ) cho phụ huynh.")
+        except Exception as exc:
+            safe_log(f"[CLOUD] Gửi ảnh bằng chứng lỗi: {exc}")
+
     def _send_snapshot(self, chat_id: str) -> None:
         from services.posture_controller import get_latest_raw_frame, has_live_posture_stream, posture_manager
 
@@ -354,6 +383,8 @@ class CloudAgent:
                     update_runtime_state(cloud_pair_refresh=False)
                     self.refresh_pair_code()
                     _publish_local(self.ident)
+                if self.ident.get("paired"):
+                    self._auto_snapshot()
                 due = time.time() - last_sent >= self.heartbeat_s
                 urgent = (not first) and time.time() - last_sent >= 3.0 and (self._urgent or self._has_pending_event())
                 if first or due or urgent:

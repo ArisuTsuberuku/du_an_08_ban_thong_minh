@@ -19,6 +19,7 @@ import os
 import threading
 import time
 import unicodedata
+from collections import deque
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -73,7 +74,21 @@ OUTER_CANTHAL_CM = 8.8         # khoảng cách 2 đuôi mắt trung bình (dự
 # Tai: lấy từ viền lưới mặt (ngang tragus) thay cho Pose 7/8 vốn lệch khi đeo kính / tóc che
 FACE_EAR_IDS = (234, 454)
 LABEL_KEYS = {ord("1"): "SCREEN", ord("2"): "WRITING", ord("3"): "READING",
-              ord("4"): "LOOK_AWAY", ord("5"): "DROWSY", ord("6"): "ABSENT", ord("0"): ""}
+              ord("4"): "LOOK_AWAY", ord("5"): "DROWSY", ord("6"): "ABSENT", ord("7"): "PLAYING", ord("0"): ""}
+
+OBJECT_MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/object_detector/"
+                    "efficientdet_lite0/int8/latest/efficientdet_lite0.tflite")
+# Lớp COCO quan tâm -> (nhãn tiếng Việt, loại). phone/toy = giải trí; book = học tập (miễn trừ)
+OBJECT_CLASSES = {
+    "cell phone": ("điện thoại", "phone"),
+    "remote": ("tay cầm game / điều khiển", "toy"),
+    "teddy bear": ("gấu bông / thú nhồi bông", "toy"),
+    "sports ball": ("quả bóng", "toy"),
+    "frisbee": ("đĩa ném đồ chơi", "toy"),
+    "kite": ("đồ chơi", "toy"),
+    "book": ("sách / vở", "book"),
+}
+POSE_HAND_IDS = (15, 16, 17, 18, 19, 20, 21, 22)   # cổ tay + ngón (Pose) dùng khi không có điểm bàn tay chi tiết
 
 
 def to_ascii(text: str) -> str:
@@ -106,29 +121,120 @@ def resolve_models_dir() -> str:
     return candidates[0]
 
 
-def ensure_holistic_task_model() -> str:
-    """Đảm bảo tệp models/holistic_landmarker.task tồn tại cục bộ (tự tải 1 lần duy nhất nếu thiếu)."""
+def ensure_model_file(filename: str, url: str, min_bytes: int = 1_000_000) -> str:
+    """Đảm bảo tệp mô hình models/<filename> tồn tại cục bộ (tự tải 1 lần duy nhất nếu thiếu)."""
     models_dir = resolve_models_dir()
-    model_path = os.path.join(models_dir, "holistic_landmarker.task")
-    if os.path.exists(model_path) and os.path.getsize(model_path) > 1_000_000:
+    model_path = os.path.join(models_dir, filename)
+    if os.path.exists(model_path) and os.path.getsize(model_path) > min_bytes:
         return model_path
-
-    safe_log("[AI] Đang tải mô hình MediaPipe Holistic chuẩn về lưu trữ cục bộ (chỉ tải 1 lần đầu)...")
-    resp = requests.get(HOLISTIC_MODEL_URL, timeout=30)
+    safe_log(f"[AI] Đang tải mô hình {filename} về lưu trữ cục bộ (chỉ tải 1 lần đầu)...")
+    resp = requests.get(url, timeout=60)
     resp.raise_for_status()
     with open(model_path, "wb") as f:
         f.write(resp.content)
     return model_path
 
 
+def ensure_holistic_task_model() -> str:
+    return ensure_model_file("holistic_landmarker.task", HOLISTIC_MODEL_URL)
+
+
+def _blendshape_dict(raw: Any) -> Dict[str, float]:
+    """Chuẩn hóa blendshape MediaPipe (List[Category] hoặc List[List[Category]]) -> {tên: điểm}."""
+    if not raw:
+        return {}
+    cats = raw[0] if isinstance(raw, (list, tuple)) and raw and isinstance(raw[0], (list, tuple)) else raw
+    out: Dict[str, float] = {}
+    for c in cats or []:
+        name = getattr(c, "category_name", None) or getattr(c, "display_name", None)
+        if name:
+            out[name] = float(getattr(c, "score", 0.0) or 0.0)
+    return out
+
+
+class ObjectWatcher:
+    """
+    Nhận diện đồ vật (EfficientDet-Lite0, 80 lớp COCO) ~1 lần/giây trên ảnh 640px:
+    điện thoại, tay cầm game/điều khiển, gấu bông, bóng... (giải trí) và sách/vở (học tập).
+    Chạy được độc lập cho camera chính lẫn camera mặt bàn.
+    """
+
+    def __init__(self, interval_s: float = 1.0, score_threshold: float = 0.42):
+        self.interval_s = interval_s
+        self._last_t = 0.0
+        self.last: List[Dict[str, Any]] = []
+        self.ok = False
+        try:
+            import mediapipe as mp
+            from mediapipe.tasks.python.core import base_options
+            from mediapipe.tasks.python import vision
+
+            path = ensure_model_file("efficientdet_lite0.tflite", OBJECT_MODEL_URL, min_bytes=1_000_000)
+            with open(path, "rb") as fh:
+                buf = fh.read()
+            opts = vision.ObjectDetectorOptions(
+                base_options=base_options.BaseOptions(model_asset_buffer=buf),
+                running_mode=vision.RunningMode.IMAGE,
+                max_results=8,
+                score_threshold=score_threshold,
+                category_allowlist=list(OBJECT_CLASSES.keys()),
+            )
+            self._mp = mp
+            self._det = vision.ObjectDetector.create_from_options(opts)
+            self.ok = True
+        except Exception as exc:
+            safe_log(f"[AI] Không bật được nhận diện đồ vật: {exc}")
+            self._det = None
+
+    def detect(self, bgr: np.ndarray, now: float, force: bool = False) -> List[Dict[str, Any]]:
+        if not self.ok or (not force and now - self._last_t < self.interval_s):
+            return self.last
+        self._last_t = now
+        h, w = bgr.shape[:2]
+        try:
+            img = self._mp.Image(image_format=self._mp.ImageFormat.SRGB,
+                                 data=np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
+            res = self._det.detect(img)
+        except Exception:
+            return self.last
+        out = []
+        for d in res.detections or []:
+            cat = d.categories[0] if d.categories else None
+            if cat is None or cat.category_name not in OBJECT_CLASSES:
+                continue
+            bb = d.bounding_box
+            vi, kind = OBJECT_CLASSES[cat.category_name]
+            out.append({"label": cat.category_name, "vi": vi, "kind": kind, "score": round(float(cat.score), 2),
+                        "box": (bb.origin_x / w, bb.origin_y / h, (bb.origin_x + bb.width) / w,
+                                (bb.origin_y + bb.height) / h), "t": now})
+        self.last = out
+        return out
+
+    @staticmethod
+    def held_by(obj: Dict[str, Any], hand_pts: Sequence[Tuple[float, float]], pad: float = 0.06) -> bool:
+        """Đồ vật được coi là ĐANG CẦM khi khung bao (nới 6%) chứa >= 1 điểm bàn tay / cổ tay."""
+        x0, y0, x1, y1 = obj["box"]
+        return any(x0 - pad <= x <= x1 + pad and y0 - pad <= y <= y1 + pad for x, y in hand_pts)
+
+    def close(self) -> None:
+        if self._det is not None:
+            try:
+                self._det.close()
+            except Exception:
+                pass
+            self._det = None
+            self.ok = False
+
+
 class _UnifiedHolisticResult:
     """Cấu trúc kết quả chuẩn hóa giữa MediaPipe Tasks API (1.x) và Solutions API (0.10.x)."""
 
-    def __init__(self, face_lm=None, pose_lm=None, left_hand_lm=None, right_hand_lm=None):
+    def __init__(self, face_lm=None, pose_lm=None, left_hand_lm=None, right_hand_lm=None, blendshapes=None):
         self.face_landmarks = face_lm
         self.pose_landmarks = pose_lm
         self.left_hand_landmarks = left_hand_lm
         self.right_hand_landmarks = right_hand_lm
+        self.blendshapes: Dict[str, float] = blendshapes or {}
 
 
 class PostureAIEngine:
@@ -167,7 +273,7 @@ class PostureAIEngine:
             with open(model_path, "rb") as f:
                 model_bytes = f.read()
 
-            opts = vision.HolisticLandmarkerOptions(
+            opt_kw = dict(
                 base_options=base_options.BaseOptions(model_asset_buffer=model_bytes),
                 running_mode=vision.RunningMode.VIDEO,
                 min_face_detection_confidence=0.55,
@@ -176,6 +282,11 @@ class PostureAIEngine:
                 min_pose_landmarks_confidence=0.55,
                 min_hand_landmarks_confidence=0.50,
             )
+            # Blendshape eyeBlink / eyeLookDown: phân biệt NHẮM MẮT với LIẾC XUỐNG BÀN (EAR không làm được)
+            try:
+                opts = vision.HolisticLandmarkerOptions(output_face_blendshapes=True, **opt_kw)
+            except TypeError:
+                opts = vision.HolisticLandmarkerOptions(**opt_kw)
             self._landmarker = vision.HolisticLandmarker.create_from_options(opts)
             self._legacy_holistic = None
         else:
@@ -187,6 +298,27 @@ class PostureAIEngine:
 
         # Tùy chọn ghép nối mô hình Google Teachable Machine (nếu thành viên nhóm đặt keras_model.h5 vào models/)
         self._tm_model = self._try_load_teachable_machine_model()
+
+        # Nhận diện đồ vật (điện thoại / đồ chơi / sách) + camera mặt bàn tùy chọn
+        try:
+            _ocfg = load_config()
+        except Exception:
+            _ocfg = {}
+        self.objects: Optional[ObjectWatcher] = None
+        if self._use_tasks_api and _ocfg.get("posture_object_detection", True):
+            self.objects = ObjectWatcher(interval_s=float(_ocfg.get("object_detect_interval_s", 1.0)))
+        self.desk_cam = None
+        if _ocfg.get("desk_camera_enabled") and open_camera:
+            try:
+                from services.desk_camera import DeskCamera
+
+                self.desk_cam = DeskCamera(_ocfg, main_camera_name=lambda: self.camera_info.get("name", ""))
+                self.desk_cam.start()
+            except Exception as exc:
+                safe_log(f"[DESK-CAM] Không khởi động được camera mặt bàn: {exc}")
+        self.camera_setup: Dict[str, Any] = {"score": None, "hints": []}
+        self._last_setup_check = 0.0
+        self._hand_vis_hist: "deque[Tuple[float, bool]]" = deque()
 
         # Trạng thái hiệu chỉnh gốc cá nhân hóa (5 giây đầu)
         self.calibrated = False
@@ -201,6 +333,9 @@ class PostureAIEngine:
         self.base_face_ratio = 0.45
         self.base_eye_span_px = 0.0
         self.base_distance_cm: Optional[float] = None
+        self.base_pose_yaw = 0.0
+        self.base_sh_y = 0.0
+        self.base_sh_w = 0.0
         try:
             _cfg = load_config()
         except Exception:
@@ -400,6 +535,7 @@ class PostureAIEngine:
                 pose_lm=res.pose_landmarks if res.pose_landmarks else None,
                 left_hand_lm=res.left_hand_landmarks if res.left_hand_landmarks else None,
                 right_hand_lm=res.right_hand_landmarks if res.right_hand_landmarks else None,
+                blendshapes=_blendshape_dict(getattr(res, "face_blendshapes", None)),
             )
         else:
             res = self._legacy_holistic.process(rgb_frame)
@@ -418,7 +554,8 @@ class PostureAIEngine:
             self.calib_start_time = time.time()
         self.calib_samples.append((eye_span_px, neck_height, shoulder_diff, raw_pitch,
                                    kw.get("face_ratio", 0.45), kw.get("ear", 0.30), kw.get("yaw", 0.0),
-                                   kw.get("roll", 0.0), kw.get("distance_cm") or 0.0))
+                                   kw.get("roll", 0.0), kw.get("distance_cm") or 0.0,
+                                   kw.get("pose_yaw") or 0.0, kw.get("sh_y") or 0.0, kw.get("sh_w") or 0.0))
         elapsed = time.time() - self.calib_start_time
         # Hoàn tất hiệu chỉnh khi đủ trọn 5 giây VÀ có tối thiểu 15 mẫu hợp lệ (dùng trung vị chống nhiễu)
         if elapsed >= CALIBRATION_SECONDS and len(self.calib_samples) >= 15:
@@ -431,13 +568,17 @@ class PostureAIEngine:
             self.base_yaw_deg = float(arr[6])
             self.base_roll_deg = float(arr[7])
             self.base_distance_cm = float(arr[8]) or None
+            self.base_pose_yaw = float(arr[9])
+            self.base_sh_y = float(arr[10])
+            self.base_sh_w = float(arr[11])
             self.attn = AttentionModel(self.attn.th)
             self.attn.set_baseline(float(arr[5]))
             self.calibrated = True
             safe_log(
                 f"[CALIBRATED] Gốc: EAR={arr[5]:.3f} FaceRatio={self.base_face_ratio:.3f} "
                 f"Neck={self.base_neck_height:.3f} Yaw0={self.base_yaw_deg:.1f}° "
-                f"Roll0={self.base_roll_deg:.1f}° Khoảng cách={arr[8]:.0f}cm"
+                f"Roll0={self.base_roll_deg:.1f}° Khoảng cách={arr[8]:.0f}cm PoseYaw0={arr[9]:.0f}° "
+                f"Camera={self.camera_setup.get('score')}/100 {'; '.join(self.camera_setup.get('hints') or [])}"
             )
 
     def estimate_distance_cm(self, lm: Sequence[Any], w: int, h: int) -> Optional[float]:
@@ -612,11 +753,171 @@ class PostureAIEngine:
                 for lm in hand:
                     cv2.circle(frame, pt(lm), 2, color, -1)
 
+    # =====================================================================
+    # ĐẶC TRƯNG v3: HƯỚNG NHÌN DỌC, QUAY ĐẦU TỪ POSE, VÙNG TAY, ĐỒ VẬT, KIỂM TRA GÓC CAMERA
+    # =====================================================================
+    @staticmethod
+    def compute_iris_down(lm: Sequence[Any]) -> Optional[float]:
+        """Con ngươi lệch xuống so với đường nối 2 khóe mắt (chuẩn hóa theo bề rộng mắt). ~0 nhìn thẳng, >0.15 nhìn xuống."""
+        if len(lm) < 478:
+            return None
+        vals = []
+        for c1, c2, iris in ((33, 133, 468), (362, 263, 473)):
+            ew = abs(lm[c2].x - lm[c1].x)
+            if ew > 1e-4:
+                vals.append((lm[iris].y - (lm[c1].y + lm[c2].y) / 2.0) / ew)
+        return float(np.mean(vals)) if vals else None
+
+    @staticmethod
+    def compute_pose_yaw(plm: Sequence[Any], w: int, sw_px: float) -> Optional[float]:
+        """
+        Góc quay đầu ngang chỉ từ Pose (mũi + 2 tai) -> chạy được cả khi mất lưới mặt (quay nghiêng hẳn).
+        Mô hình đầu: tai ở ±R, mũi nhô ra trước ~R => lệch mũi / khoảng cách 2 tai ≈ 0.5·tan(θ) => θ = atan(2·tỉ lệ).
+        """
+        nose, le, re = plm[0], plm[7], plm[8]
+        ear_dist = abs(le.x - re.x) * w
+        off = (nose.x - (le.x + re.x) / 2.0) * w
+        ratio = off / max(ear_dist, 0.08 * sw_px, 1.0)
+        return float(np.degrees(np.arctan(2.0 * ratio)))
+
+    def _body_features(self, res: "_UnifiedHolisticResult", w: int, h: int, feats: FrameFeatures) -> Dict[str, Any]:
+        """Vai -> thước đo chuẩn (bề rộng vai). Suy vùng tay kể cả khi bàn tay nằm ngoài khung (qua khuỷu tay)."""
+        plm = res.pose_landmarks
+        ls, rs, nose = plm[11], plm[12], plm[0]
+        sw = max(1.0, abs(ls.x - rs.x) * w)
+        sy = (ls.y + rs.y) / 2.0 * h
+        info: Dict[str, Any] = {"sw": sw, "sy": sy, "hand_pts": [], "pose_yaw": self.compute_pose_yaw(plm, w, sw)}
+        if feats.nose_xy is None and getattr(nose, "visibility", 1.0) > 0.3:
+            feats.nose_xy, feats.nose_src = (nose.x * w / sw, nose.y * h / sw), "pose"
+        zones: List[str] = []
+        wr: List[Tuple[float, float, bool, str]] = []
+        for side, wi, ei, hand in (("L", 15, 13, res.left_hand_landmarks), ("R", 16, 14, res.right_hand_landmarks)):
+            pw, pe = plm[wi], plm[ei]
+            cand = None
+            if hand and len(hand) >= 21:
+                wx, wy, inframe = hand[0].x * w, hand[0].y * h, True
+                info["hand_pts"] += [(p.x, p.y) for p in hand]
+                cand = (hand[8].x * w / sw, hand[8].y * h / sw)        # đầu ngón trỏ: nhạy với nét viết
+            else:
+                inframe = getattr(pw, "visibility", 1.0) > 0.5 and 0.0 <= pw.y <= 1.0 and 0.0 <= pw.x <= 1.0
+                wx, wy = pw.x * w, pw.y * h
+                if inframe:
+                    info["hand_pts"] += [(plm[i].x, plm[i].y) for i in (wi, wi + 2, wi + 4, wi + 6)]
+                    if getattr(pw, "visibility", 1.0) > 0.9:
+                        cand = (wx / sw, wy / sw)
+                elif getattr(pe, "visibility", 1.0) > 0.9 and 0.0 <= pe.y <= 1.0:
+                    cand = (pe.x * w / sw, pe.y * h / sw)               # tay ngoài khung -> theo dõi khuỷu tay
+            y_rel = (wy - sy) / sw
+            if inframe:
+                zone = "raised" if y_rel < 0.55 else "desk"
+            else:
+                e_rel = (pe.y * h - sy) / sw
+                zone = "below" if (pw.y > 1.0 or e_rel > 0.25) else "unknown"
+            zones.append(zone)
+            wr.append((wx, wy, inframe, zone))
+            if cand is not None:
+                feats.arm_pts[side] = cand
+        feats.hands_zone = ("desk" if "desk" in zones else "below" if "below" in zones
+                            else "raised" if "raised" in zones else "unknown")
+        if len(wr) == 2 and wr[0][2] and wr[1][2]:
+            d = float(np.hypot(wr[0][0] - wr[1][0], wr[0][1] - wr[1][1])) / sw
+            feats.hands_together = d < self.attn.th["hands_together"] and wr[0][3] == wr[1][3] == "raised"
+        info["hands_in_frame"] = any(x[2] for x in wr)
+        return info
+
+    def _object_features(self, frame: np.ndarray, now: float, hand_pts: List[Tuple[float, float]],
+                         feats: FrameFeatures) -> List[Dict[str, Any]]:
+        objs: List[Dict[str, Any]] = []
+        if self.objects is not None and self.objects.ok:
+            for o in self.objects.detect(frame, now):
+                o = dict(o)
+                o["held"] = bool(hand_pts) and ObjectWatcher.held_by(o, hand_pts)
+                o["cam"] = "main"
+                objs.append(o)
+        if self.desk_cam is not None:
+            d = self.desk_cam.latest(max_age=2.5)
+            if d:
+                for o in d.get("objects", []):
+                    objs.append({**o, "cam": "desk"})
+                if d.get("hands", 0) > 0:
+                    feats.hands_zone = "desk" if feats.hands_zone in ("unknown", "below", "desk") else feats.hands_zone
+                    feats.ext_motion = 0.02 if d.get("writing") else 0.0
+        held = near = book = None
+        for o in objs:
+            if o["kind"] in ("phone", "toy"):
+                if o.get("held") and (held is None or o["score"] > held["score"]):
+                    held = o
+                elif not o.get("held") and near is None:
+                    near = o
+            elif o["kind"] == "book" and o.get("held"):
+                book = o
+        if held is not None:
+            feats.held_object, feats.held_kind = held["vi"], held["kind"]
+        elif book is not None:
+            feats.held_kind = "book"
+        if near is not None:
+            feats.near_object = near["vi"]
+        return objs
+
+    def _camera_setup_check(self, res: "_UnifiedHolisticResult", w: int, h: int,
+                            raw_pitch: Optional[float], hands_in_frame: Optional[bool]) -> Dict[str, Any]:
+        """Chấm điểm vị trí/góc webcam & gợi ý chỉnh (mặt + 2 vai + vùng tay/mặt bàn phải nằm trong khung)."""
+        hints: List[str] = []
+        score = 100
+
+        def vis(p) -> float:
+            return float(getattr(p, "visibility", 1.0))
+
+        if res.face_landmarks:
+            fl = res.face_landmarks
+            cx, cy = (fl[33].x + fl[263].x) / 2.0, (fl[33].y + fl[263].y) / 2.0
+            if cy < 0.15:
+                hints.append("Mặt sát mép trên khung: chúc camera xuống một chút")
+                score -= 15
+            elif cy > 0.50:
+                hints.append("Mặt quá thấp trong khung: nâng camera lên ngang tầm mắt")
+                score -= 15
+            if abs(cx - 0.5) > 0.22:
+                hints.append("Ngồi lệch khỏi tâm camera: dời camera hoặc ghế vào giữa")
+                score -= 10
+        if res.pose_landmarks and len(res.pose_landmarks) >= 25:
+            plm = res.pose_landmarks
+            ls, rs = plm[11], plm[12]
+            if min(vis(ls), vis(rs)) < 0.5:
+                hints.append("Chưa thấy đủ 2 vai: lùi ghế ra hoặc dùng webcam góc rộng (≥ 90°)")
+                score -= 20
+            else:
+                sy = (ls.y + rs.y) / 2.0
+                if 1.0 - sy < 0.20:
+                    hints.append("Không thấy vùng tay/mặt bàn: chúc camera xuống 10-15°, lùi ghế, "
+                                 "hoặc bật camera mặt bàn")
+                    score -= 25
+                ang = abs(float(np.degrees(np.arctan2((ls.y - rs.y) * h, (ls.x - rs.x) * w))))
+                dev = min(ang, abs(180.0 - ang))
+                if dev > 8.0:
+                    hints.append(f"Khung hình nghiêng {dev:.0f}°: chỉnh webcam cho thẳng ngang")
+                    score -= 10
+        else:
+            hints.append("Chưa thấy thân người: ngồi lùi để camera thấy cả đầu và 2 vai")
+            score -= 30
+        if hands_in_frame is not None:
+            self._hand_vis_hist.append((time.time(), bool(hands_in_frame)))
+            while self._hand_vis_hist and time.time() - self._hand_vis_hist[0][0] > 120.0:
+                self._hand_vis_hist.popleft()
+        pct = None
+        if len(self._hand_vis_hist) >= 30:
+            pct = round(100.0 * sum(1 for _, v in self._hand_vis_hist if v) / len(self._hand_vis_hist))
+            if pct < 25 and self.desk_cam is None and not any("vùng tay" in x for x in hints):
+                hints.append(f"Camera chỉ thấy tay {pct}% thời gian: chúc camera xuống / dùng góc rộng / camera mặt bàn")
+                score -= 10
+        return {"score": max(0, score), "hints": hints[:3], "hands_visible_pct": pct,
+                "desk_camera": bool(self.desk_cam is not None and self.desk_cam.ok)}
+
     def process_bgr_frame(self, frame: np.ndarray) -> Tuple[bytes, Dict[str, Any]]:
         """
         Xử lý 1 khung hình BGR -> (annotated_jpeg_bytes, telemetry_dict).
-        Pipeline: điểm mốc MediaPipe -> trích đặc trưng chuẩn hóa (khoảng cách cm, tỉ lệ cúi, EAR, gaze,
-        vi chuyển động) -> AttentionModel (ngữ cảnh + tích lũy bằng chứng) -> CFI & cảnh báo.
+        Pipeline: điểm mốc + blendshape MediaPipe -> đặc trưng chuẩn hóa (khoảng cách cm, tỉ lệ cúi, nhắm/nhìn xuống,
+        quay đầu Pose, vùng tay, đồ vật) -> AttentionModel v3 (ngữ cảnh + tích lũy bằng chứng) -> CFI & cảnh báo.
         """
         now = time.time()
         h, w = frame.shape[:2]
@@ -628,6 +929,8 @@ class PostureAIEngine:
         extra_alerts: List[str] = []
         ear, mar = 0.30, 0.10
         pitch_deg = yaw_deg = roll_deg = 0.0
+        raw_pitch: Optional[float] = None
+        raw_yaw = 0.0
         distance_cm: Optional[float] = None
         face_ok = bool(res.face_landmarks and len(res.face_landmarks) >= 468)
         pose_ok = bool(res.pose_landmarks and len(res.pose_landmarks) >= 25
@@ -642,6 +945,7 @@ class PostureAIEngine:
         feats = FrameFeatures(t=now, face_ok=face_ok, pose_ok=pose_ok)
         eye_span_px = None
         face_ratio = None
+        bs = res.blendshapes or {}
 
         # 2. Đặc trưng khuôn mặt
         if face_ok:
@@ -668,12 +972,18 @@ class PostureAIEngine:
             if self.calibrated and face_ratio is not None:
                 feats.face_down_delta = face_ratio - self.base_face_ratio
             feats.gaze_dev = self.compute_gaze_dev(lm)
+            feats.iris_down = self.compute_iris_down(lm)
+            if bs:
+                feats.blink = (bs.get("eyeBlinkLeft", 0.0) + bs.get("eyeBlinkRight", 0.0)) / 2.0
+                feats.look_down = (bs.get("eyeLookDownLeft", 0.0) + bs.get("eyeLookDownRight", 0.0)) / 2.0
             if eye_span_px > 1:
-                feats.nose_xy = (lm[1].x * w / eye_span_px, lm[1].y * h / eye_span_px)
+                # Mũi lưới mặt (ít rung hơn Pose ~5 lần), quy về đơn vị ~bề rộng vai (≈ 2.8 lần khoảng cách 2 mắt)
+                feats.nose_xy = (lm[1].x * w / (eye_span_px * 2.8), lm[1].y * h / (eye_span_px * 2.8))
+                feats.nose_src = "face"
                 if self.calibrated and self.base_eye_span_px > 1:
                     feats.eye_span_rel = eye_span_px / self.base_eye_span_px
 
-            # Ngáp: MAR > 0.60 liên tục >= 1.5s
+            # Ngáp: MAR > 0.60 liên tục >= 1.5s (mô hình chỉ cộng bằng chứng khi >= 2 lần / 5 phút)
             if mar > 0.60:
                 if self.yawn_start_time is None:
                     self.yawn_start_time = now
@@ -681,32 +991,38 @@ class PostureAIEngine:
                 elif now - self.yawn_start_time >= 1.5 and not self.yawn_counted_current:
                     self.yawn_count += 1
                     self.yawn_counted_current = True
-                    self.attn.b_drowsy.bump(1.5)
+                    feats.yawn_event = True
             else:
                 self.yawn_start_time = None
                 self.yawn_counted_current = False
 
-        # 3. Đặc trưng thân người (vai, cổ, cổ tay)
+        # 3. Đặc trưng thân người (vai, cổ, quay đầu Pose, vùng tay) — mọi đơn vị theo bề rộng vai
         neck_height = sh_diff = None
+        body: Dict[str, Any] = {}
         if pose_ok:
             plm = res.pose_landmarks
             left_sh, right_sh, nose = plm[11], plm[12], plm[0]
             neck_height = (left_sh.y + right_sh.y) / 2.0 - nose.y
             sh_diff = left_sh.y - right_sh.y
+            body = self._body_features(res, w, h, feats)
             if self.calibrated:
                 feats.neck_drop = (self.base_neck_height - neck_height) / max(0.05, self.base_neck_height)
                 feats.shoulder_tilt_delta = sh_diff - self.base_shoulder_diff
-            scale = eye_span_px or (abs(left_sh.x - right_sh.x) * w * 0.35)
-            if scale and scale > 1:
-                for hand in (res.left_hand_landmarks, res.right_hand_landmarks):
-                    if hand:
-                        feats.wrist_xy.append((hand[0].x * w / scale, hand[0].y * h / scale))
-                if feats.nose_xy is None and getattr(nose, "visibility", 1.0) > 0.3:
-                    feats.nose_xy = (nose.x * w / scale, nose.y * h / scale)
+                if body.get("pose_yaw") is not None:
+                    feats.pose_yaw_deg = body["pose_yaw"] - self.base_pose_yaw
 
         hands_detected = bool(res.left_hand_landmarks or res.right_hand_landmarks)
-        if hands_detected:
+        if hands_detected or body.get("hands_in_frame"):
             self.last_hand_time = now
+
+        # 3b. Đồ vật trên tay / trong tầm tay (1 lần/giây)
+        objs = self._object_features(frame, now, body.get("hand_pts", []), feats)
+
+        # 3c. Kiểm tra góc đặt webcam (liên tục trong lúc hiệu chỉnh, sau đó 2s/lần)
+        if not self.calibrated or now - self._last_setup_check >= 2.0:
+            self._last_setup_check = now
+            self.camera_setup = self._camera_setup_check(res, w, h, raw_pitch,
+                                                         body.get("hands_in_frame") if pose_ok else None)
 
         # 4. Hiệu chỉnh gốc 5s: chỉ nhận mẫu khi ngồi đúng vùng khoảng cách chuẩn
         calib_hint = ""
@@ -719,21 +1035,24 @@ class PostureAIEngine:
             else:
                 self._calibrate_step(eye_span_px or 0.0, neck_height, sh_diff, raw_pitch,
                                      face_ratio=face_ratio, ear=ear, yaw=raw_yaw,
-                                     roll=roll_deg, distance_cm=distance_cm)
+                                     roll=roll_deg, distance_cm=distance_cm, pose_yaw=body.get("pose_yaw"),
+                                     sh_y=body.get("sy"), sh_w=body.get("sw"))
 
         # 5. Bộ máy trạng thái chú ý (chỉ chạy sau khi đã có gốc)
         if self.calibrated:
             ar = self.attn.update(feats)
         else:
             ar = {"state": "NO_DATA", "state_ascii": "DANG HIEU CHINH", "state_vi": "Đang hiệu chỉnh",
-                  "focused": True, "cfi": 100.0, "alerts": [], "head_down_level": 0, "ear_norm": None,
-                  "eyes_closed": False, "closure_s": 0.0, "perclos_rel": 0.0, "motion": 0.0, "nod_count": 0,
-                  "evidence": {}, "distance_cm": distance_cm, "low_quality": False}
+                  "focused": True, "cfi": 100.0, "alerts": [], "alert_codes": [], "head_down_level": 0,
+                  "ear_norm": None, "eyes_closed": False, "closure_s": 0.0, "perclos_rel": 0.0, "motion": 0.0,
+                  "nod_count": 0, "evidence": {}, "distance_cm": distance_cm, "low_quality": False,
+                  "hands_zone": feats.hands_zone}
 
         # Chống ảnh tĩnh PAD: chỉ xét khi nhìn thẳng (cúi đầu khó thấy chớp mắt)
         if ar.get("eyes_closed"):
             self.last_blink_time = now
-        if face_ok and self.calibrated and ar.get("head_down_level", 0) == 0 and now - self.last_blink_time > 40.0:
+        if (face_ok and self.calibrated and ar.get("head_down_level", 0) == 0 and not ar.get("eyes_down")
+                and now - self.last_blink_time > 40.0):
             extra_alerts.append("CẢNH BÁO PAD: Không chớp mắt >40s (nghi ảnh tĩnh)")
 
         alerts = extra_alerts + list(ar["alerts"])
@@ -753,6 +1072,23 @@ class PostureAIEngine:
             plm = res.pose_landmarks
             col = (52, 211, 153) if not alerts else (94, 63, 244)
             cv2.line(frame, (int(plm[11].x * w), int(plm[11].y * h)), (int(plm[12].x * w), int(plm[12].y * h)), col, 2)
+            # Ranh giới vùng mặt bàn (0.55 bề rộng vai dưới đường vai)
+            desk_y = int(body.get("sy", 0) + 0.55 * body.get("sw", 0))
+            if 0 < desk_y < h:
+                for x0 in range(0, w, 18):
+                    cv2.line(frame, (x0, desk_y), (min(w, x0 + 9), desk_y), (148, 163, 184), 1)
+                cv2.putText(frame, f"VUNG BAN ({to_ascii(feats.hands_zone)})", (8, max(98, desk_y - 6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (203, 213, 225), 1)
+        if self.draw_landmarks:
+            for o in objs:
+                if o.get("cam") != "main":
+                    continue
+                x0, y0, x1, y1 = o["box"]
+                col = (52, 211, 153) if o["kind"] == "book" else ((60, 60, 240) if o.get("held") else (0, 165, 255))
+                p0, p1 = (int(x0 * w), int(y0 * h)), (int(x1 * w), int(y1 * h))
+                cv2.rectangle(frame, p0, p1, col, 2)
+                tag = f"{to_ascii(o['vi'])} {o['score'] * 100:.0f}%" + (" [CAM TAY]" if o.get("held") else "")
+                cv2.putText(frame, tag, (p0[0], max(96, p0[1] - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 2)
         cv2.rectangle(frame, (0, 0), (w, 84), (15, 23, 42), -1)
         dist_txt = f" | {distance_cm:.0f}cm" if distance_cm else ""
         if not self.calibrated:
@@ -767,18 +1103,24 @@ class PostureAIEngine:
             status_txt = f"CANH BAO {visual_focus:.0f}%: {to_ascii(alerts[0])[:50]}"
             color = (113, 113, 248)
         cv2.putText(frame, status_txt, (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.52, color, 2)
-        metrics_txt = (f"EAR:{ear:.2f}({ar.get('ear_norm') or 0:.2f}) MAR:{mar:.2f} Pitch:{pitch_deg:.0f} "
-                       f"Yaw:{yaw_deg:.0f} Roll:{roll_deg:.0f} Cui:{ar.get('head_down_level', 0)} "
-                       f"VD:{ar.get('motion', 0):.3f}")
+        blink_txt = f"Nham:{feats.blink:.2f} NhinXuong:{feats.look_down:.2f}" if feats.blink is not None else \
+            f"EAR:{ear:.2f}({ar.get('ear_norm') or 0:.2f})"
+        metrics_txt = (f"{blink_txt} Yaw:{yaw_deg:.0f}/{feats.pose_yaw_deg or 0:.0f} Cui:{ar.get('head_down_level', 0)} "
+                       f"VD:{ar.get('motion', 0):.3f} Tay:{to_ascii(feats.hands_zone)}")
         cv2.putText(frame, metrics_txt, (12, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (203, 213, 225), 1)
         ev = ar.get("evidence") or {}
-        ev_txt = (f"Bang chung -> MatTT:{ev.get('look_away', 0) * 100:.0f}% BuonNgu:{ev.get('drowsy', 0) * 100:.0f}% "
-                  f"GucDau:{ev.get('idle', 0) * 100:.0f}% Vang:{ev.get('absent', 0) * 100:.0f}%")
+        if not self.calibrated and self.camera_setup.get("hints"):
+            ev_txt = "CAMERA: " + to_ascii(self.camera_setup["hints"][0])[:70]
+        else:
+            ev_txt = (f"Bang chung -> MatTT:{ev.get('look_away', 0) * 100:.0f}% BuonNgu:{ev.get('drowsy', 0) * 100:.0f}% "
+                      f"Nghich:{ev.get('play', 0) * 100:.0f}% GucDau:{ev.get('idle', 0) * 100:.0f}% "
+                      f"| PERCLOS {ar.get('perclos_rel', 0):.0f}%")
         if self.current_label:
             ev_txt += f" | NHAN: {self.current_label}"
         cv2.putText(frame, ev_txt, (12, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (148, 163, 184), 1)
 
         _, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
+        held = next((o for o in objs if o.get("held") and o["kind"] in ("phone", "toy")), None)
         telemetry = {
             "status": "OK",
             "camera_connected": True,
@@ -792,18 +1134,30 @@ class PostureAIEngine:
             "yaw_deg": round(yaw_deg, 1),
             "roll_deg": round(roll_deg, 1),
             "drowsy_nod": ar.get("nod_count", 0) > 0,
-            "hands_on_desk": (now - self.last_hand_time <= 15.0),
+            "hands_on_desk": feats.hands_zone in ("desk", "below") or (now - self.last_hand_time <= 15.0),
             "visual_focus_score": round(visual_focus, 1),
             "cfi_score": round(visual_focus, 1),
             "alerts": alerts,
-            # Trường mới của bộ máy trạng thái chú ý
+            "alert_codes": ar.get("alert_codes", []),
+            # Bộ máy trạng thái chú ý v3
             "activity_state": ar["state"],
             "activity_state_vi": ar["state_vi"],
             "head_down_level": ar.get("head_down_level", 0),
+            "head_turned": ar.get("head_turned", False),
             "distance_cm": None if distance_cm is None else round(distance_cm, 1),
             "ear_norm": ar.get("ear_norm"),
             "eyes_closed": ar.get("eyes_closed", False),
+            "blink_score": None if feats.blink is None else round(feats.blink, 2),
+            "look_down": None if feats.look_down is None else round(feats.look_down, 2),
+            "blinks_60s": ar.get("blinks_60s", 0),
+            "slow_blinks_60s": ar.get("slow_blinks_60s", 0),
+            "nod_count": ar.get("nod_count", 0),
             "motion": ar.get("motion", 0.0),
+            "hands_zone": feats.hands_zone,
+            "objects": [{"vi": o["vi"], "kind": o["kind"], "score": o["score"], "held": bool(o.get("held")),
+                         "cam": o.get("cam", "main")} for o in objs],
+            "held_object": held["vi"] if held else None,
+            "camera_setup": self.camera_setup,
             "evidence": ar.get("evidence", {}),
         }
         self._log_features(feats, telemetry)
@@ -879,6 +1233,15 @@ class PostureAIEngine:
         return enc.tobytes() if ok else b""
 
     def release(self) -> None:
+        if getattr(self, "desk_cam", None) is not None:
+            try:
+                self.desk_cam.stop()
+            except Exception:
+                pass
+            self.desk_cam = None
+        if getattr(self, "objects", None) is not None:
+            self.objects.close()
+            self.objects = None
         if self.cap is not None:
             try:
                 self.cap.release()
@@ -926,6 +1289,8 @@ class PostureAIServiceWorker:
         self.latest_telemetry: Dict[str, Any] = {}
         self._low_cfi_since: Optional[float] = None
         self._last_posture_alert_time: float = 0.0
+        self._active_codes: set = set()
+        self._code_last: Dict[str, float] = {}
 
     def start(self) -> None:
         if self.running:
@@ -964,11 +1329,31 @@ class PostureAIServiceWorker:
                 except Exception:
                     pass
 
-    def _emit_posture_violation(self, telemetry: Dict[str, Any], cfg: Dict[str, Any]) -> None:
+    # Sự kiện báo NGAY cho phụ huynh khi vừa xuất hiện (mỗi loại cách nhau >= 2 phút)
+    INSTANT_CODES = {"PLAYING": "🎮", "DROWSY": "😴", "PHONE_NEAR": "📱", "IDLE": "💤"}
+
+    def _emit_instant_events(self, telemetry: Dict[str, Any], cfg: Dict[str, Any], now: float) -> None:
+        codes = list(telemetry.get("alert_codes") or [])
+        alerts = telemetry.get("alerts") or []
+        for code in codes:
+            if code not in self.INSTANT_CODES or code in self._active_codes:
+                continue
+            if now - self._code_last.get(code, 0.0) < 120.0:
+                continue
+            self._code_last[code] = now
+            prefix = {"PLAYING": "NGHỊCH ĐỒ", "DROWSY": "BUỒN NGỦ", "PHONE_NEAR": "XAO NHÃNG", "IDLE": "GỤC ĐẦU"}[code]
+            text = next((a for a in alerts if a.startswith(prefix)), code)
+            self._emit_posture_violation(telemetry, cfg, message=f"{self.INSTANT_CODES[code]} Camera AI: {text}")
+            if code == "PLAYING" and cfg.get("auto_photo_on_object", True):
+                # Cloud agent sẽ gửi 1 ảnh gốc (không lớp AI) cho phụ huynh qua Telegram làm bằng chứng
+                update_runtime_state(auto_snapshot_request={"t": now, "reason": text})
+        self._active_codes = set(codes)
+
+    def _emit_posture_violation(self, telemetry: Dict[str, Any], cfg: Dict[str, Any], message: str = "") -> None:
         cfi = float(telemetry.get("visual_focus_score", 100.0))
         alerts = telemetry.get("alerts") or []
         detail = alerts[0] if alerts else "Tư thế ngồi thiếu tập trung kéo dài"
-        msg = f"⚠️ Cảnh báo Tư thế AI 3D: Điểm tập trung giảm xuống {cfi}% ({detail})"
+        msg = message or f"⚠️ Cảnh báo Tư thế AI 3D: Điểm tập trung giảm xuống {cfi}% ({detail})"
 
         port = int(cfg.get("web_port", 5000))
         try:
@@ -999,6 +1384,8 @@ class PostureAIServiceWorker:
                 port = int(cfg.get("web_port", 5000))
                 self._publish_raw(now, port)
 
+                if telemetry.get("calibrated"):
+                    self._emit_instant_events(telemetry, cfg, now)
                 # Theo dõi ngưỡng CFI < 50% duy trì liên tục > 15 giây để bắn cảnh báo POSTURE_OR_HW
                 cfi = float(telemetry.get("visual_focus_score", 100.0))
                 if telemetry.get("camera_connected") and telemetry.get("calibrated") and cfi < 50.0:

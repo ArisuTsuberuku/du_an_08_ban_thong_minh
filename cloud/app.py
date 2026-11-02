@@ -355,6 +355,11 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .app-row .ic{font-size:22px;width:30px;text-align:center}.app-row .nm{flex:1;min-width:0}
 .app-row .nm div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.app-row .mn{font-weight:700}
 .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;color:#fff}
+.open-app{border-bottom:1px solid var(--line);padding:6px 0}.open-app summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none}
+.open-app summary::-webkit-details-marker{display:none}.open-app .ic{font-size:20px;width:28px;text-align:center}
+.open-app .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+.tab-row{display:flex;gap:6px;align-items:center;font-size:13px;padding:4px 0 4px 38px;color:var(--txt)}
+.tab-row .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sw{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
 .sw .t{font-weight:600}.sw .d{font-size:12.5px;color:var(--mut)}
 .tg{position:relative;width:50px;height:28px;flex:none}.tg input{opacity:0;width:0;height:0}
@@ -408,7 +413,7 @@ h3{margin:4px 0 10px}
     <div id="acks" class="card" style="display:none"></div>
    </div><div>
     <div class="card"><h3>🔔 Cảnh báo gần đây</h3><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
-    <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div>
+    <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div><div id="openbox"></div>
      <div class="bar" id="h-bar" style="margin-top:12px"></div><div class="mut" id="h-legend" style="margin-top:6px"></div></div>
    </div></div>
   </section>
@@ -493,6 +498,7 @@ function appIcon(app,title){const t=(app+' '+title).toLowerCase();
 function statusOf(v){const s=v.status||{},p=s.posture||{},n=v.now||{};
  if(!v.online) return ['off','⚪ Máy đang tắt / mất mạng','Cập nhật lần cuối '+Math.round(v.ago/60)+' phút trước'];
  if(p.camera&&p.state==='ABSENT') return ['warn','🟠 Học sinh đang vắng mặt','Không thấy ai trước camera'];
+ if(p.camera&&p.state==='PLAYING') return ['bad','🔴 '+(p.state_vi||'Nghịch đồ'),p.held_object?('Đang cầm '+p.held_object):(n.title||'')];
  if(n.category==='Giai_tri') return ['bad','🔴 Đang giải trí',n.title];
  if(p.camera&&['LOOK_AWAY','DROWSY','IDLE'].includes(p.state)) return ['warn','🟡 '+(p.state_vi||'Mất tập trung'),n.title||''];
  if(n.category==='Hoc_tap') return ['ok','🟢 Đang học',n.title];
@@ -512,11 +518,21 @@ function renderAll(){const v=cur();renderChips();renderSettings();
  $('h-bar').innerHTML=sum?['Hoc_tap','Giai_tri','Khac'].map(k=>`<span style="width:${100*(t[k]||0)/sum}%;background:${CAT[k][1]}"></span>`).join(''):'';
  $('h-legend').textContent=sum?`Hôm nay: ${fmtMin(t.Hoc_tap)} học · ${fmtMin(t.Giai_tri)} giải trí · ${fmtMin(t.Khac)} khác`:'Chưa có dữ liệu hôm nay';
  const n=v.now||{};$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.app||'')}</b></div><div class="mut">${esc(n.title)}</div></div>
-  ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}</div>`:'—';
+  ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}</div>`:(n.category==='Idle'?'<span class="mut">💤 Đang rời máy</span>':'—');
+ renderOpen(n.open||[],p);
  $('alerts').innerHTML=(v.alerts||[]).slice(0,6).map(a=>`<div class="alert-row"><time>${esc(a.time)}</time><div>${esc(a.message)}</div></div>`).join('')||'Không có cảnh báo. 👍';
  const acks=v.acks||[];if(acks.length){$('acks').style.display='block';$('acks').innerHTML='<h3>✅ Kết quả lệnh</h3>'+acks.slice(0,3).map(a=>`<div class="${a.ok?'':'err'}" style="font-size:14px;padding:3px 0">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
   const k=acks[0].time+acks[0].msg;if(lastAck&&k!==lastAck)toast((acks[0].ok?'✅ ':'⚠️ ')+acks[0].msg);lastAck=k;}
  if(VIEW==='camera')showLive();}
+function renderOpen(list,p){const box=$('openbox');let h='';
+ if(p&&p.held_object)h+=`<div class="alert-row" style="margin-top:8px"><time>📷 AI</time><div>Đang cầm <b>${esc(p.held_object)}</b></div></div>`;
+ if(list.length){const tag=c=>CAT[c]?`<span class="tag" style="background:${CAT[c][1]}">${CAT[c][0]}</span>`:'';
+  h+=`<div class="mut" style="margin:12px 0 4px;font-size:13px;font-weight:700">ĐANG MỞ · ${list.length} ứng dụng</div>`+list.map(a=>{
+   const items=(a.tabs.length?a.tabs:a.windows);const sub=a.tabs.length?`${a.tabs.length} tab`:(a.windows[0]?a.windows[0].title:'');
+   return `<details class="open-app"${a.focused?' open':''}><summary><span class="ic">${appIcon(a.exe,(a.windows[0]||{}).title||'')}</span>
+    <span class="nm"><b>${esc(a.exe)}</b>${a.focused?' <span class="pill on" style="font-size:11px">đang dùng</span>':''}<br><span class="mut">${esc(sub)}</span></span>${tag(a.category)}</summary>
+    ${items.length>1||a.tabs.length?items.map(t=>`<div class="tab-row">${a.tabs.length?'🗂️':'🪟'} <span class="tt">${esc(t.title)}</span>${t.category!=='Khac'?tag(t.category):''}</div>`).join(''):''}</details>`}).join('');}
+ box.innerHTML=h;}
 function renderSettings(){$('devlist').innerHTML=DEV.map(d=>`<div class="app-row"><div class="ic">${d.online?'🟢':'⚪'}</div><div class="nm"><div><b>${esc(d.name)}</b></div>
  <div class="mut">${esc((d.status||{}).hostname||'')} · ${d.online?'trực tuyến':'ngoại tuyến'}</div></div><button class="danger" onclick="unlink('${d.id}')">Bỏ</button></div>`).join('')||'<span class="mut">Chưa có máy.</span>';}
 async function load(){const d=await api('/api/parent/devices');if(!d.devices)return;DEV=d.devices;
@@ -911,14 +927,35 @@ def _add_to_summary(did: str, day: str, end_ts: int, items: List[Dict[str, Any]]
     db.set(path, {"totals": totals, "hours": hours, "apps": apps, "updated": now()})
 
 
+def _sanitize_open_apps(apps: List[Any]) -> List[Dict[str, Any]]:
+    """Giới hạn kích thước danh sách ứng dụng/tab đang mở trước khi lưu (giữ Firebase nhẹ)."""
+    out = []
+    for a in apps[:12]:
+        if not isinstance(a, dict):
+            continue
+        out.append({"exe": str(a.get("exe", ""))[:60], "focused": bool(a.get("focused")),
+                    "windows": [str(w)[:90] for w in (a.get("windows") or [])[:4]],
+                    "tabs": [str(t)[:90] for t in (a.get("tabs") or [])[:20]]})
+    return out
+
+
 def live_category(dev: Dict[str, Any]) -> Dict[str, Any]:
-    """Phân loại nhanh cửa sổ đang dùng NGAY LÚC NÀY (theo luật) cho thẻ trạng thái phụ huynh."""
-    nw = ((dev.get("status") or {}).get("now")) or {}
+    """Cửa sổ đang FOCUS + danh sách ứng dụng / tab đang mở (phân loại theo luật) cho thẻ "Đang dùng gì"."""
+    st = dev.get("status") or {}
+    nw = st.get("now") or {}
+    opened = []
+    for a in st.get("open_apps") or []:
+        tabs = [{"title": t, "category": classify_rules(a.get("exe", ""), t)[0]} for t in a.get("tabs") or []]
+        wins = [{"title": t, "category": classify_rules(a.get("exe", ""), t)[0]} for t in a.get("windows") or []]
+        cats = [x["category"] for x in tabs + wins]
+        top = "Giai_tri" if "Giai_tri" in cats else ("Hoc_tap" if "Hoc_tap" in cats else "Khac")
+        opened.append({"exe": a.get("exe", ""), "focused": bool(a.get("focused")), "windows": wins, "tabs": tabs,
+                       "category": top})
     if not nw or nw.get("idle"):
-        return {"category": "Idle", "app": "", "title": nw.get("title", "")}
+        return {"category": "Idle", "app": "", "title": nw.get("title", ""), "open": opened}
     cat, _ = classify_rules(str(nw.get("exe", "")), str(nw.get("title", "")))
     return {"category": cat, "app": nw.get("exe", ""), "title": str(nw.get("title", ""))[:90],
-            "age": now() - int(nw.get("t", 0) or 0)}
+            "age": now() - int(nw.get("t", 0) or 0), "open": opened}
 
 
 # =====================================================================
@@ -962,6 +999,8 @@ def api_agent_heartbeat():
         return jsonify({"error": "unauthorized"}), 401
     data = request.get_json(silent=True) or {}
     status = data.get("status") or {}
+    if isinstance(status, dict) and isinstance(status.get("open_apps"), list):
+        status["open_apps"] = _sanitize_open_apps(status["open_apps"])
     new_alerts = [a for a in (data.get("alerts") or []) if isinstance(a, dict)][:10]
     updates: Dict[str, Any] = {"last_seen": now(), "status": status}
     acks = [a for a in (data.get("acks") or []) if isinstance(a, dict)][:10]
@@ -1025,8 +1064,19 @@ def api_agent_snapshot():
         return jsonify({"error": "Ảnh trống hoặc quá lớn"}), 400
     # Không lưu ảnh vào Firebase: chỉ chuyển tiếp thẳng sang Telegram của phụ huynh đã yêu cầu
     chat_id = str(data.get("chat_id") or "")
+    name = dev.get("name") or did
     if chat_id and chat_id in chats_of_device(did):
-        tg_api("sendPhoto", chat_id=chat_id, caption=f"📸 {dev.get('name') or did}", photo_bytes=base64.b64decode(b64))
+        tg_api("sendPhoto", chat_id=chat_id, caption=f"📸 {name}", photo_bytes=base64.b64decode(b64))
+    elif data.get("broadcast"):
+        # Ảnh bằng chứng tự động (Camera AI thấy cầm điện thoại/đồ chơi): giới hạn 1 ảnh / 5 phút / máy
+        ts = int(time.time())
+        if ts - int(dev.get("last_auto_photo", 0) or 0) < 280:
+            return jsonify({"ok": True, "skipped": "rate_limited"})
+        db.update(f"devices/{did}", {"last_auto_photo": ts})
+        cap = f"{str(data.get('caption') or '📸 Ảnh tự động')[:200]}\n🖥️ {name}"
+        photo = base64.b64decode(b64)
+        for cid in chats_of_device(did):
+            tg_api("sendPhoto", chat_id=cid, caption=cap, photo_bytes=photo)
     return jsonify({"ok": True})
 
 

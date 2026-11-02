@@ -1,76 +1,92 @@
 # -*- coding: utf-8 -*-
 """
-Bộ máy Trạng thái Chú ý theo Ngữ cảnh (services/attention_model.py)
+Bộ máy Trạng thái Chú ý theo Ngữ cảnh — v3 (services/attention_model.py)
 
-Vấn đề của bản cũ: mỗi khung hình vi phạm 1 ngưỡng cứng -> trừ ngay 22% CFI. Học sinh cúi đầu làm bài
-bị nhận nhầm hàng loạt vì:
-  - Nhìn xuống làm mí mắt hạ thấp -> EAR giảm -> PERCLOS cao -> báo "BUỒN NGỦ".
-  - Cúi đầu -> neck_height giảm -> "Cúi gập đầu quá thấp"; liếc vở <-> màn hình -> "NGỦ GẬT (>15°/1.5s)".
-  - Tay nằm ngoài khung hình camera -> "Giấu 2 tay dưới gầm bàn".
-  - Mặt khuất khi cúi sâu -> "VẮNG MẶT" dù vai vẫn ở trước camera.
+Lỗi thực tế đã gặp và cách v3 xử lý:
+  1. BÁO "BUỒN NGỦ" KHI MẮT VẪN MỞ: liếc mắt xuống bàn phím/vở làm mí trên hạ theo -> EAR giảm -> bị coi là nhắm.
+     -> Dùng blendshape MediaPipe (eyeBlink = nhắm, eyeLookDown = nhìn xuống; mô hình học sẵn phân biệt được 2 việc).
+        Nhìn xuống càng nhiều thì ngưỡng eyeBlink càng cao; EAR/gốc còn > 0.85 thì chắc chắn đang mở.
+        Không có blendshape -> dự phòng EAR với ngưỡng hạ theo vị trí con ngươi (nhìn xuống).
+  2. THUẬT TOÁN NGỦ GẬT CŨ quá nhạy (PERCLOS tính cả chớp mắt, bình xả 0.5/s nên cảnh báo "dính" ~18s):
+     -> Phân loại từng lần nhắm: chớp (<0.4s), chớp chậm (0.4-1.2s, dấu hiệu mỏi), vi ngủ (>=1.2s).
+        PERCLOS chỉ tính thời gian nhắm >= 0.4s trong 60s. Gật ngủ = đầu rơi khi mắt nhắm RỒI bật lại (giật mình).
+        Ngáp chỉ cộng bằng chứng khi >= 2 lần / 5 phút. Bình xả 1.2/s.
+  3. QUAY ĐẦU SANG NGANG BỊ TÍNH LÀ LÀM BÀI: mất lưới mặt + mũi Pose thấp -> "cúi"; trộn 2 nguồn mũi -> vi chuyển động ảo.
+     -> Góc quay đầu từ Pose (mũi so với 2 tai: yaw ≈ atan(2·lệch/khoảng_cách_tai)) chạy được cả khi mất mặt.
+        Vi chuyển động tính thống nhất theo đơn vị bề rộng vai, bỏ cú nhảy do lỗi bám điểm.
+  4. CÚI LÀM BÀI vs NGỒI CHƠI: vùng tay (mặt bàn / dưới khung / giơ trước ngực), 2 tay chụm, đồ vật trên tay
+     (điện thoại, tay cầm game, đồ chơi — từ bộ nhận diện vật thể) -> trạng thái PLAYING riêng.
 
-Cách tiếp cận mới (4 lớp):
-  1. CHUẨN HÓA THEO NGỮ CẢNH: ngưỡng nhắm mắt tính theo phân vị P90 của EAR *trong cùng mức cúi đầu*
-     (0 = nhìn thẳng, 1 = cúi vừa, 2 = cúi sâu) trong 120s gần nhất -> cúi viết không bị coi là nhắm mắt.
-  2. ĐỘNG HỌC THAY VÌ TƯ THẾ TĨNH: chớp mắt (<0.5s) khác nhắm lâu (>=1s); gật ngủ = đầu rơi xuống
-     KHI mắt đang nhắm, khác liếc vở chủ động; vi chuyển động mũi/cổ tay (viết bài) khác bất động.
-  3. TÍCH LŨY BẰNG CHỨNG (leaky integrator + hysteresis): mỗi loại hành vi có "bình chứa" giây,
-     đầy tới ngưỡng mới cảnh báo, xả dần khi hành vi dừng -> 1 cái quay đầu 2s không bị phạt.
-  4. CFI = EMA (tau ~8s) của điểm tức thời theo trạng thái, không trừ cứng theo số cảnh báo.
-
-Mọi ngưỡng nằm trong DEFAULT_THRESHOLDS và có thể ghi đè qua shared_config["attention_thresholds"],
-để tinh chỉnh bằng dữ liệu thật (xem danh_gia_ai_tu_the.py).
+Mọi ngưỡng nằm trong DEFAULT_THRESHOLDS, ghi đè được qua shared_config["attention_thresholds"].
 """
 
 import math
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 DEFAULT_THRESHOLDS: Dict[str, float] = {
     # --- Mức cúi đầu (so với gốc hiệu chỉnh) ---
-    "down_ratio_mild": 0.06,      # tăng tỉ lệ (mũi-mắt)/(cằm-mắt) -> cúi vừa
-    "down_ratio_strong": 0.14,    # -> cúi sâu (viết bài sát vở)
-    "down_neck_mild": 0.12,       # sụt chiều cao cổ (tỉ lệ so với gốc) -> cúi vừa
-    "down_neck_strong": 0.28,     # -> cúi sâu
-    # --- Mắt ---
-    "closed_ratio": 0.60,         # EAR < 0.60 * P90(EAR cùng mức cúi) => mắt đang nhắm
-    "long_closure_s": 1.0,        # nhắm liên tục >= 1s (không phải chớp mắt)
-    "perclos_window_s": 30.0,
-    "perclos_drowsy": 0.25,       # >= 25% thời gian nhắm trong 30s
+    "down_ratio_mild": 0.06,
+    "down_ratio_strong": 0.14,
+    "down_neck_mild": 0.12,
+    "down_neck_strong": 0.28,
+    "look_down_bs": 0.45,         # eyeLookDown >= 0.45 -> mắt đang nhìn xuống bàn (dù đầu chưa cúi)
+    # --- Mắt: blendshape (ưu tiên) ---
+    "blink_closed": 0.50,         # eyeBlink >= 0.50 khi nhìn thẳng => nhắm
+    "blink_down_bonus": 0.30,     # nhìn xuống hoàn toàn => cần eyeBlink >= 0.80 mới tính nhắm
+    "ear_open_guard": 0.85,       # EAR/gốc > 0.85 => chắc chắn mở (chặn báo nhầm)
+    # --- Mắt: EAR dự phòng ---
+    "closed_ratio": 0.60,
+    "closed_ratio_down": 0.42,    # khi con ngươi nhìn xuống
+    # --- Ngủ gật ---
+    "blink_max_s": 0.40,          # nhắm < 0.4s = chớp mắt bình thường
+    "microsleep_s": 1.20,         # nhắm liên tục >= 1.2s = vi ngủ
+    "perclos_window_s": 60.0,
+    "perclos_drowsy": 0.12,       # >= 12% thời gian 60s nhắm (chỉ tính lần nhắm >= 0.4s)
+    "slow_blinks_drowsy": 4.0,    # >= 4 lần chớp chậm (0.4-1.2s) / 60s
+    "nod_drop": 0.10,             # đầu rơi >= 0.10 (tỉ lệ cúi) trong 1.2s
+    "nod_rebound": 0.05,          # rồi bật lại >= 0.05 trong 2s
     # --- Hướng nhìn ---
-    "yaw_away_deg": 28.0,         # quay mặt ngang khi nhìn thẳng
-    "yaw_away_down_deg": 40.0,    # khi cúi (vở để lệch) cho phép quay nhiều hơn
-    "gaze_away": 0.22,            # |tỉ lệ vị trí con ngươi - 0.5| (cần mô hình có điểm iris)
-    # --- Vi chuyển động (đơn vị: độ lệch chuẩn vị trí mũi / khoảng cách 2 mắt, cửa sổ 4s) ---
+    "yaw_away_deg": 28.0,
+    "yaw_away_down_deg": 40.0,
+    "pose_yaw_away_deg": 35.0,    # góc quay đầu ước lượng từ Pose (khi mất lưới mặt)
+    "gaze_away": 0.22,
+    # --- Vi chuyển động (đơn vị: độ lệch chuẩn / bề rộng vai, cửa sổ 4s) ---
     "motion_window_s": 4.0,
-    "motion_idle": 0.015,         # dưới mức này coi như bất động
+    "motion_idle": 0.006,
+    "motion_jump": 0.35,          # nhảy > 0.35 bề rộng vai trong 1 khung = lỗi bám điểm, bỏ qua
+    # --- Tay & đồ vật ---
+    "hands_together": 0.45,       # 2 cổ tay cách nhau < 0.45 bề rộng vai
     # --- Tích lũy bằng chứng (giây) ---
     "lookaway_fill_s": 6.0,
-    "drowsy_fill_s": 6.0,
+    "drowsy_fill_s": 5.0,
+    "drowsy_decay": 1.2,
     "absent_fill_s": 5.0,
-    "idle_fill_s": 120.0,         # cúi bất động, không hoạt động 2 phút
+    "idle_fill_s": 120.0,
+    "play_fill_s": 8.0,
+    "phone_near_fill_s": 25.0,
     "posture_fill_s": 20.0,
     "cfi_tau_s": 8.0,
-    # --- Khoảng cách mắt -> webcam (cm), ước lượng bằng mống mắt 11.7mm / đuôi mắt ---
-    "min_distance_cm": 40.0,      # gần hơn => cảnh báo quá sát màn hình (khuyến nghị >= 40-50cm)
-    "calib_min_cm": 40.0,         # vùng khoảng cách hợp lệ để hiệu chỉnh gốc
+    # --- Khoảng cách mắt -> webcam (cm) ---
+    "min_distance_cm": 40.0,
+    "calib_min_cm": 40.0,
     "calib_max_cm": 85.0,
-    "max_reliable_cm": 110.0,     # xa hơn => điểm mốc kém tin cậy, không kết luận nhắm mắt/nhìn
+    "max_reliable_cm": 110.0,
     # --- Công thái học ---
-    "too_close_ratio": 1.30,      # khoảng cách 2 mắt > 1.3 lần gốc => mặt quá sát (dự phòng khi không đo được cm)
+    "too_close_ratio": 1.30,
     "roll_deg": 16.0,
     "shoulder_tilt": 0.06,
 }
 
 STATE_VI = {
     "SCREEN": "Nhìn màn hình",
-    "WRITING": "Cúi làm bài (có vận động)",
+    "WRITING": "Cúi làm bài (tay trên bàn, có vận động)",
     "READING": "Cúi đọc / suy nghĩ",
-    "LOOK_AWAY": "Mất tập trung: nhìn ra ngoài",
+    "LOOK_AWAY": "Mất tập trung: quay đầu / nhìn ra ngoài",
     "DROWSY": "Buồn ngủ",
     "IDLE": "Gục đầu / bất động lâu",
+    "PLAYING": "Nghịch đồ / dùng điện thoại",
     "ABSENT": "Vắng mặt",
     "NO_DATA": "Chưa đủ dữ liệu",
 }
@@ -78,9 +94,10 @@ STATE_ASCII = {
     "SCREEN": "NHIN MAN HINH",
     "WRITING": "LAM BAI (cui viet)",
     "READING": "CUI DOC / SUY NGHI",
-    "LOOK_AWAY": "MAT TAP TRUNG",
+    "LOOK_AWAY": "MAT TAP TRUNG (quay dau)",
     "DROWSY": "BUON NGU",
     "IDLE": "GUC DAU BAT DONG",
+    "PLAYING": "NGHICH DO / DIEN THOAI",
     "ABSENT": "VANG MAT",
     "NO_DATA": "DANG THU THAP",
 }
@@ -98,14 +115,28 @@ class FrameFeatures:
     mar: Optional[float] = None
     yaw_deg: Optional[float] = None
     roll_deg: Optional[float] = None
-    face_down_delta: Optional[float] = None   # tỉ lệ cúi mặt - gốc (dương = cúi)
-    neck_drop: Optional[float] = None         # (cổ gốc - cổ hiện tại)/cổ gốc (dương = cúi)
-    gaze_dev: Optional[float] = None          # |vị trí con ngươi - 0.5|
-    nose_xy: Optional[Tuple[float, float]] = None  # vị trí mũi chuẩn hóa theo khoảng cách 2 mắt
-    wrist_xy: List[Tuple[float, float]] = field(default_factory=list)
+    face_down_delta: Optional[float] = None
+    neck_drop: Optional[float] = None
+    gaze_dev: Optional[float] = None
+    nose_xy: Optional[Tuple[float, float]] = None      # mũi / bề rộng vai — dùng tính vi chuyển động
+    nose_src: str = "face"                             # face (lưới mặt, ít rung) | pose
+    wrist_xy: List[Tuple[float, float]] = field(default_factory=list)   # (tương thích cũ)
+    arm_pts: Dict[str, Tuple[float, float]] = field(default_factory=dict)  # {"L"/"R": đầu ngón/cổ tay/khuỷu}
     eye_span_rel: Optional[float] = None
     shoulder_tilt_delta: Optional[float] = None
-    distance_cm: Optional[float] = None       # khoảng cách mắt -> webcam ước lượng
+    distance_cm: Optional[float] = None
+    # --- v3 ---
+    blink: Optional[float] = None          # blendshape eyeBlink (TB 2 mắt) 0..1
+    look_down: Optional[float] = None      # blendshape eyeLookDown 0..1
+    iris_down: Optional[float] = None      # dự phòng: con ngươi lệch xuống (0 = giữa)
+    pose_yaw_deg: Optional[float] = None   # góc quay đầu từ Pose (đã trừ gốc)
+    hands_zone: str = "unknown"            # desk | below | raised | unknown
+    hands_together: bool = False
+    held_object: Optional[str] = None      # nhãn VN đồ đang cầm (điện thoại/đồ chơi...)
+    held_kind: Optional[str] = None        # phone | toy | book
+    near_object: Optional[str] = None      # đồ trong khung hình nhưng không cầm (điện thoại trên bàn)
+    yawn_event: bool = False
+    ext_motion: Optional[float] = None     # vi chuyển động tay từ camera mặt bàn (nếu có)
 
 
 class _Bucket:
@@ -119,17 +150,17 @@ class _Bucket:
 
     def step(self, on: bool, dt: float, gain: float = 1.0) -> bool:
         if on:
-            self.level = min(self.fill_s * 2.0, self.level + dt * gain)
+            self.level = min(self.fill_s * 1.6, self.level + dt * gain)
         else:
             self.level = max(0.0, self.level - dt * self.decay)
         if not self.active and self.level >= self.fill_s:
             self.active = True
-        elif self.active and self.level < self.fill_s * 0.5:
+        elif self.active and self.level < self.fill_s * 0.6:
             self.active = False
         return self.active
 
     def bump(self, amount: float) -> None:
-        self.level = min(self.fill_s * 2.0, self.level + amount)
+        self.level = min(self.fill_s * 1.6, self.level + amount)
 
     @property
     def ratio(self) -> float:
@@ -144,27 +175,32 @@ class AttentionModel:
         self.base_ear = 0.30
         self._last_t: Optional[float] = None
         self._ear_hist: Dict[int, Deque[Tuple[float, float]]] = {0: deque(), 1: deque(), 2: deque()}
-        self._closed_hist: Deque[Tuple[float, bool]] = deque()
         self._closed_since: Optional[float] = None
-        self._nose_hist: Deque[Tuple[float, float, float]] = deque()
-        self._wrist_hist: Deque[Tuple[float, float, float]] = deque()
+        self._closures: Deque[Tuple[float, float]] = deque()   # (thời điểm kết thúc, thời lượng) các lần nhắm
+        self._mhist: Dict[str, Deque[Tuple[float, float, float]]] = {}
+        self._ema: Dict[str, Tuple[float, float]] = {}
         self._down_hist: Deque[Tuple[float, float, bool]] = deque()
+        self._nod_pending: Optional[Tuple[float, float]] = None   # (thời điểm, mức cúi đỉnh)
+        self._yawns: Deque[float] = deque()
         self._last_nod_t = 0.0
         self.nod_count = 0
         self.b_look = _Bucket(self.th["lookaway_fill_s"], decay=1.0)
-        self.b_drowsy = _Bucket(self.th["drowsy_fill_s"], decay=0.5)
+        self.b_drowsy = _Bucket(self.th["drowsy_fill_s"], decay=self.th["drowsy_decay"])
         self.b_absent = _Bucket(self.th["absent_fill_s"], decay=2.0)
         self.b_idle = _Bucket(self.th["idle_fill_s"], decay=3.0)
+        self.b_play = _Bucket(self.th["play_fill_s"], decay=1.0)
+        self.b_phone = _Bucket(self.th["phone_near_fill_s"], decay=1.0)
         self.b_close = _Bucket(self.th["posture_fill_s"], decay=1.0)
         self.b_roll = _Bucket(self.th["posture_fill_s"], decay=1.0)
         self.b_shoulder = _Bucket(self.th["posture_fill_s"], decay=1.0)
         self.cfi = 100.0
         self.state = "NO_DATA"
+        self._last_obj = ""
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def _prune(dq: Deque, now: float, horizon: float) -> None:
-        while dq and now - dq[0][0] > horizon:
+        while dq and now - (dq[0][0] if isinstance(dq[0], tuple) else dq[0]) > horizon:
             dq.popleft()
 
     def set_baseline(self, base_ear: float) -> None:
@@ -185,7 +221,6 @@ class AttentionModel:
         return lvl
 
     def _ear_reference(self, level: int) -> float:
-        """P90 của EAR trong cùng mức cúi đầu (120s gần nhất); thiếu mẫu thì dùng gốc * hệ số hạ mí."""
         hist = self._ear_hist[level]
         factor = (1.0, 0.82, 0.68)[level]
         if len(hist) >= 20:
@@ -194,17 +229,56 @@ class AttentionModel:
             return max(p90, self.base_ear * factor * 0.7)
         return self.base_ear * factor
 
-    def _motion(self, now: float) -> float:
+    def _push_motion(self, key: str, now: float, xy: Tuple[float, float]) -> None:
+        """Mỗi điểm theo dõi có lịch sử riêng (không trộn nguồn), làm mượt EMA để khử rung của mô hình."""
+        hist = self._mhist.setdefault(key, deque())
+        prev = self._ema.get(key)
+        if prev is not None and math.hypot(xy[0] - prev[0], xy[1] - prev[1]) > self.th["motion_jump"]:
+            hist.clear()   # lỗi bám điểm -> bắt đầu lại, không tạo vi chuyển động ảo
+            prev = None
+        sm = xy if prev is None else (0.5 * xy[0] + 0.5 * prev[0], 0.5 * xy[1] + 0.5 * prev[1])
+        self._ema[key] = sm
+        hist.append((now, sm[0], sm[1]))
+
+    def _motion(self, now: float, keys: List[str]) -> float:
         win = self.th["motion_window_s"]
-        self._prune(self._nose_hist, now, win)
-        self._prune(self._wrist_hist, now, win)
         m = 0.0
-        for hist in (self._nose_hist, self._wrist_hist):
+        for key, hist in list(self._mhist.items()):
+            self._prune(hist, now, win)
+            if key not in keys:
+                continue
             if len(hist) >= 5:
                 xs = [x for _, x, _ in hist]
                 ys = [y for _, _, y in hist]
-                m = max(m, _std(xs) + _std(ys))
+                # Điểm tay/khuỷu của Pose rung mạnh hơn mũi lưới mặt -> hạ trọng số để không tạo "đang viết" ảo
+                wgt = 0.5 if key.startswith("arm:") else 1.0
+                m = max(m, wgt * (_std(xs) + _std(ys)))
         return m
+
+    def _eyes_closed(self, f: FrameFeatures, level: int, too_far: bool) -> Tuple[bool, Optional[float]]:
+        """Trả về (đang nhắm?, EAR/gốc). Blendshape ưu tiên, EAR dự phòng; luôn chặn bằng EAR rất cao."""
+        th = self.th
+        if not f.face_ok or too_far:
+            return False, None
+        ear_norm = None
+        if f.ear is not None:
+            hist = self._ear_hist[level]
+            hist.append((f.t, f.ear))
+            self._prune(hist, f.t, 120.0)
+            ref = self._ear_reference(level)
+            ear_norm = f.ear / ref if ref > 0 else 1.0
+        if f.blink is not None:
+            ld = max(0.0, min(1.0, (f.look_down or 0.0) / 0.6))
+            closed = f.blink >= th["blink_closed"] + th["blink_down_bonus"] * ld
+        elif ear_norm is not None:
+            down = max(0.0, min(1.0, (f.iris_down or 0.0) / 0.25))
+            thr = th["closed_ratio"] - (th["closed_ratio"] - th["closed_ratio_down"]) * max(down, level / 2.0)
+            closed = ear_norm < thr
+        else:
+            closed = False
+        if closed and ear_norm is not None and ear_norm > th["ear_open_guard"]:
+            closed = False
+        return closed, ear_norm
 
     # ------------------------------------------------------------------ main
     def update(self, f: FrameFeatures) -> Dict[str, Any]:
@@ -214,72 +288,118 @@ class AttentionModel:
         th = self.th
 
         level = self._down_level(f)
-        motion_now = 0.0
+        eyes_down = f.face_ok and f.look_down is not None and f.look_down >= th["look_down_bs"]
+        keys: List[str] = []
         if f.nose_xy is not None:
-            self._nose_hist.append((now, f.nose_xy[0], f.nose_xy[1]))
-        for wx, wy in f.wrist_xy[:1]:
-            self._wrist_hist.append((now, wx, wy))
-        motion_now = self._motion(now)
-
-        # ---------- Mắt: nhắm tương đối theo mức cúi ----------
-        closed = False
-        ear_norm = None
-        closure_s = 0.0
+            keys.append("nose:" + f.nose_src)
+            self._push_motion(keys[-1], now, f.nose_xy)
+        for side, xy in f.arm_pts.items():
+            keys.append("arm:" + side)
+            self._push_motion(keys[-1], now, xy)
+        motion_now = self._motion(now, keys)
+        if f.ext_motion is not None:
+            motion_now = max(motion_now, f.ext_motion)
         too_far = f.distance_cm is not None and f.distance_cm > th["max_reliable_cm"]
-        if f.face_ok and f.ear is not None and not too_far:
-            hist = self._ear_hist[level]
-            hist.append((now, f.ear))
-            self._prune(hist, now, 120.0)
-            ref = self._ear_reference(level)
-            ear_norm = f.ear / ref if ref > 0 else 1.0
-            closed = ear_norm < th["closed_ratio"]
-            if closed:
-                if self._closed_since is None:
-                    self._closed_since = now
-                closure_s = now - self._closed_since
-            else:
-                self._closed_since = None
-        else:
-            self._closed_since = None
-        self._closed_hist.append((now, closed and f.face_ok))
-        self._prune(self._closed_hist, now, th["perclos_window_s"])
-        perclos = (sum(1 for _, c in self._closed_hist if c) / len(self._closed_hist)) if self._closed_hist else 0.0
 
-        # ---------- Gật ngủ: đầu rơi xuống TRONG LÚC mắt nhắm ----------
+        # ---------- Mắt: phân loại từng lần nhắm ----------
+        closed, ear_norm = self._eyes_closed(f, level, too_far)
+        closure_s = 0.0
+        if closed:
+            if self._closed_since is None:
+                self._closed_since = now
+            closure_s = now - self._closed_since
+        elif self._closed_since is not None:
+            self._closures.append((now, now - self._closed_since))
+            self._closed_since = None
+        self._prune(self._closures, now, th["perclos_window_s"])
+        win = th["perclos_window_s"]
+        sustained = sum(d for _, d in self._closures if d >= th["blink_max_s"])
+        if closure_s >= th["blink_max_s"]:
+            sustained += closure_s
+        perclos = min(1.0, sustained / win)
+        slow_blinks = sum(1 for _, d in self._closures if th["blink_max_s"] <= d < th["microsleep_s"])
+        blinks = sum(1 for _, d in self._closures if d < th["blink_max_s"])
+        microsleep = closure_s >= th["microsleep_s"]
+
+        # ---------- Gật ngủ: đầu rơi khi mắt nhắm / mất mặt, rồi bật lại ----------
         down_val = max(f.face_down_delta or 0.0, (f.neck_drop or 0.0) * 0.5)
-        self._down_hist.append((now, down_val, closed))
-        self._prune(self._down_hist, now, 2.0)
+        self._down_hist.append((now, down_val, closed or not f.face_ok))
+        self._prune(self._down_hist, now, 1.2)
         nod_event = False
-        if len(self._down_hist) >= 6 and now - self._last_nod_t > 3.0:
-            first, last = self._down_hist[0][1], self._down_hist[-1][1]
+        if self._nod_pending is None and len(self._down_hist) >= 5 and now - self._last_nod_t > 3.0:
+            vals = [v for _, v, _ in self._down_hist]
             closed_frac = sum(1 for _, _, c in self._down_hist if c) / len(self._down_hist)
-            if last - first > 0.08 and closed_frac >= 0.6:
+            if vals[-1] - min(vals) >= th["nod_drop"] and closed_frac >= 0.5:
+                self._nod_pending = (now, vals[-1])
+        elif self._nod_pending is not None:
+            t0, peak = self._nod_pending
+            peak = max(peak, down_val)
+            self._nod_pending = (t0, peak)
+            if peak - down_val >= th["nod_rebound"]:
                 nod_event = True
+                self._nod_pending = None
                 self._last_nod_t = now
                 self.nod_count += 1
+            elif now - t0 > 2.0:
+                self._nod_pending = None   # cúi xuống rồi ở yên = cúi viết/gục -> không phải gật ngủ
 
-        # ---------- Hướng nhìn ----------
+        if f.yawn_event:
+            self._yawns.append(now)
+        while self._yawns and now - self._yawns[0] > 300.0:
+            self._yawns.popleft()
+
+        # ---------- Hướng nhìn / quay đầu ----------
         yaw_limit = th["yaw_away_down_deg"] if level >= 1 else th["yaw_away_deg"]
+        pose_turned = f.pose_yaw_deg is not None and abs(f.pose_yaw_deg) > th["pose_yaw_away_deg"]
         looking_away = False
         if f.face_ok:
             if f.yaw_deg is not None and abs(f.yaw_deg) > yaw_limit:
                 looking_away = True
-            if level == 0 and not too_far and f.gaze_dev is not None and f.gaze_dev > th["gaze_away"]:
+            if level == 0 and not eyes_down and not too_far and f.gaze_dev is not None and f.gaze_dev > th["gaze_away"]:
                 looking_away = True
-        elif f.pose_ok and level == 0:
-            # Vai còn trước camera, đầu không cúi mà mất mặt -> đang quay hẳn đi chỗ khác
-            looking_away = True
+            if pose_turned and abs(f.pose_yaw_deg or 0) > th["pose_yaw_away_deg"] + 15:
+                looking_away = True
+        elif f.pose_ok:
+            # Mất lưới mặt nhưng vai còn: quay đầu (Pose) -> mất tập trung; cúi sát bàn (cổ sụt mạnh) -> làm bài
+            if pose_turned or level < 2:
+                looking_away = True
+        if looking_away:
+            level_for_state = 0
+        else:
+            level_for_state = level
 
         absent_now = not f.face_ok and not f.pose_ok
-        idle_now = level >= 1 and motion_now < th["motion_idle"] and (closed or not f.face_ok)
+        head_down_ctx = level_for_state >= 1 or eyes_down
+        idle_now = level >= 1 and motion_now < th["motion_idle"] and (closed or not f.face_ok) and not looking_away
+
+        # ---------- Nghịch đồ / điện thoại ----------
+        play_gain = 0.0
+        if f.held_kind in ("phone", "toy"):
+            play_gain = 2.5
+        elif f.hands_zone == "raised" and f.hands_together and (head_down_ctx or eyes_down):
+            play_gain = 1.0   # 2 tay chụm trước ngực, mắt nhìn vào tay = tư thế cầm điện thoại/đồ chơi
+        a_play = self.b_play.step(play_gain > 0, dt, gain=play_gain or 1.0)
+        a_phone = self.b_phone.step(bool(f.near_object) and play_gain == 0, dt)
+        if f.held_object:
+            self._last_obj = f.held_object
+        elif f.near_object:
+            self._last_obj = f.near_object
 
         # ---------- Tích lũy bằng chứng ----------
-        drowsy_signal = (closure_s >= th["long_closure_s"]) or (perclos >= th["perclos_drowsy"])
-        a_look = self.b_look.step(looking_away and not absent_now, dt)
-        a_drowsy = self.b_drowsy.step(drowsy_signal, dt, gain=1.5 if closure_s >= 2.0 else 1.0)
+        drowsy_gain = 0.0
+        if microsleep:
+            drowsy_gain = 2.0
+        elif perclos >= th["perclos_drowsy"]:
+            drowsy_gain = 1.0
+        elif slow_blinks >= th["slow_blinks_drowsy"]:
+            drowsy_gain = 0.6
+        a_drowsy = self.b_drowsy.step(drowsy_gain > 0, dt, gain=drowsy_gain or 1.0)
         if nod_event:
             self.b_drowsy.bump(th["drowsy_fill_s"] * 0.6)
             a_drowsy = self.b_drowsy.step(True, 0.0)
+        if f.yawn_event and len(self._yawns) >= 2:
+            self.b_drowsy.bump(1.5)
+        a_look = self.b_look.step(looking_away and not absent_now and not a_play, dt)
         a_absent = self.b_absent.step(absent_now, dt)
         a_idle = self.b_idle.step(idle_now, dt)
         if f.distance_cm is not None:
@@ -287,7 +407,8 @@ class AttentionModel:
         else:
             too_close = f.eye_span_rel is not None and f.eye_span_rel > th["too_close_ratio"]
         a_close = self.b_close.step(too_close and f.face_ok, dt)
-        a_roll = self.b_roll.step(f.roll_deg is not None and abs(f.roll_deg) > th["roll_deg"] and level == 0, dt)
+        a_roll = self.b_roll.step(f.roll_deg is not None and abs(f.roll_deg) > th["roll_deg"] and level == 0
+                                  and not looking_away, dt)
         a_sh = self.b_shoulder.step(
             f.shoulder_tilt_delta is not None and abs(f.shoulder_tilt_delta) > th["shoulder_tilt"], dt
         )
@@ -297,12 +418,15 @@ class AttentionModel:
             state = "ABSENT"
         elif a_drowsy:
             state = "DROWSY"
+        elif a_play:
+            state = "PLAYING"
         elif a_look:
             state = "LOOK_AWAY"
         elif a_idle:
             state = "IDLE"
-        elif level >= 1 or (not f.face_ok and f.pose_ok):
-            state = "WRITING" if motion_now >= th["motion_idle"] else "READING"
+        elif head_down_ctx or (not f.face_ok and f.pose_ok and not looking_away):
+            hands_working = f.hands_zone in ("desk", "below", "unknown")
+            state = "WRITING" if (motion_now >= th["motion_idle"] and hands_working) else "READING"
         elif f.face_ok:
             state = "SCREEN"
         else:
@@ -310,32 +434,50 @@ class AttentionModel:
         self.state = state
 
         # ---------- CFI: EMA của điểm tức thời ----------
-        inst = {"SCREEN": 100.0, "WRITING": 100.0, "READING": 95.0, "LOOK_AWAY": 35.0,
+        inst = {"SCREEN": 100.0, "WRITING": 100.0, "READING": 95.0, "LOOK_AWAY": 35.0, "PLAYING": 25.0,
                 "DROWSY": 20.0, "IDLE": 45.0, "ABSENT": 0.0, "NO_DATA": self.cfi}[state]
         if state in FOCUS_STATES:
-            # Phạt mềm theo mức đầy của các bình (cảnh báo sớm, chưa kết luận)
-            inst -= 25.0 * max(self.b_look.ratio, self.b_drowsy.ratio) ** 2
-        inst -= 8.0 * sum((a_close, a_roll, a_sh))
+            inst -= 25.0 * max(self.b_look.ratio, self.b_drowsy.ratio, self.b_play.ratio) ** 2
+        inst -= 8.0 * sum((a_close, a_roll, a_sh)) + (10.0 if a_phone else 0.0)
         inst = max(0.0, min(100.0, inst))
         alpha = 1.0 - math.exp(-dt / th["cfi_tau_s"]) if dt > 0 else 0.0
         self.cfi = self.cfi + alpha * (inst - self.cfi)
 
         alerts: List[str] = []
+        codes: List[str] = []
         if a_absent:
             alerts.append("VẮNG MẶT: Không thấy học sinh trước camera")
+            codes.append("ABSENT")
         if a_drowsy:
-            alerts.append(f"BUỒN NGỦ: Nhắm mắt lâu / PERCLOS {perclos * 100:.0f}% / gật đầu {self.nod_count} lần")
+            why = ("vi ngủ: nhắm mắt %.1fs" % closure_s) if microsleep else (
+                f"nhắm mắt {perclos * 100:.0f}% thời gian / {slow_blinks} lần chớp chậm")
+            if self.nod_count:
+                why += f" / gật đầu {self.nod_count} lần"
+            alerts.append(f"BUỒN NGỦ: {why}")
+            codes.append("DROWSY")
+        if a_play:
+            obj = self._last_obj or "đồ vật (2 tay chụm trước ngực)"
+            alerts.append(f"NGHỊCH ĐỒ: Đang cầm {obj} trong giờ học")
+            codes.append("PLAYING")
+        elif a_phone:
+            alerts.append(f"XAO NHÃNG: Có {self._last_obj or 'điện thoại'} trong tầm tay khi học")
+            codes.append("PHONE_NEAR")
         if a_look:
-            alerts.append("MẤT TẬP TRUNG: Quay mặt / nhìn ra ngoài khu vực học")
+            alerts.append("MẤT TẬP TRUNG: Quay đầu / nhìn ra ngoài khu vực học")
+            codes.append("LOOK_AWAY")
         if a_idle:
             alerts.append("GỤC ĐẦU: Cúi bất động, không có hoạt động viết/đọc")
+            codes.append("IDLE")
         if a_close:
             dist_txt = f" ({f.distance_cm:.0f}cm < {th['min_distance_cm']:.0f}cm)" if f.distance_cm else ""
             alerts.append(f"CẬN THỊ: Mặt quá sát màn hình/camera{dist_txt}")
+            codes.append("TOO_CLOSE")
         if a_roll:
             alerts.append("SAI TƯ THẾ: Nghiêng đầu sang vai")
+            codes.append("ROLL")
         if a_sh:
             alerts.append("SAI TƯ THẾ: Lệch vai / vẹo lưng")
+            codes.append("SHOULDER")
 
         return {
             "state": state,
@@ -344,20 +486,27 @@ class AttentionModel:
             "focused": state in FOCUS_STATES,
             "cfi": round(self.cfi, 1),
             "alerts": alerts,
+            "alert_codes": codes,
             "head_down_level": level,
+            "eyes_down": bool(eyes_down),
             "ear_norm": None if ear_norm is None else round(ear_norm, 3),
             "eyes_closed": closed,
             "closure_s": round(closure_s, 2),
             "perclos_rel": round(perclos * 100.0, 1),
+            "blinks_60s": blinks,
+            "slow_blinks_60s": slow_blinks,
             "motion": round(motion_now, 4),
             "distance_cm": None if f.distance_cm is None else round(f.distance_cm, 1),
             "low_quality": bool(too_far),
             "nod_count": self.nod_count,
+            "head_turned": bool(looking_away),
+            "hands_zone": f.hands_zone,
             "evidence": {
                 "look_away": round(self.b_look.ratio, 2),
                 "drowsy": round(self.b_drowsy.ratio, 2),
                 "absent": round(self.b_absent.ratio, 2),
                 "idle": round(self.b_idle.ratio, 2),
+                "play": round(self.b_play.ratio, 2),
             },
         }
 

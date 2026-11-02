@@ -472,12 +472,14 @@ DASHBOARD_HTML = """
                     <img id="posture-stream" src="/video_feed" alt="AI Posture 3D Stream" style="width:100%; display:block; max-height:330px; object-fit:contain; background:#090d16;">
                 </div>
                 <div id="posture-metrics" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-bottom:10px; font-size:12.5px;">
-                    <div class="usage-row" style="margin:0;"><span>👁️ EAR / PERCLOS</span><b id="m-ear">0.30 / 0%</b></div>
-                    <div class="usage-row" style="margin:0;"><span>👄 MAR / Ngáp</span><b id="m-mar">0.10 / 0</b></div>
-                    <div class="usage-row" style="margin:0;"><span>📐 Pitch / Yaw / Roll</span><b id="m-euler">0° / 0° / 0°</b></div>
-                    <div class="usage-row" style="margin:0;"><span>🙌 2 Tay trên bàn</span><b id="m-hands" style="color:#4ade80;">Có</b></div>
+                    <div class="usage-row" style="margin:0;"><span>🧠 Trạng thái</span><b id="m-state">—</b></div>
+                    <div class="usage-row" style="margin:0;"><span>👁️ Nhắm mắt / Nhìn xuống</span><b id="m-ear">— / —</b></div>
+                    <div class="usage-row" style="margin:0;"><span>😴 Chớp chậm / PERCLOS / Gật</span><b id="m-nod">0 / 0% / 0</b></div>
+                    <div class="usage-row" style="margin:0;"><span>🙌 Vùng tay</span><b id="m-hands" style="color:#4ade80;">—</b></div>
+                    <div class="usage-row" style="margin:0;"><span>🎮 Đồ vật</span><b id="m-obj">Không</b></div>
+                    <div class="usage-row" style="margin:0;"><span>📐 Yaw / Roll · 📏</span><b id="m-euler">0° / 0°</b></div>
                     <div class="usage-row" style="margin:0;"><span>🎯 Hiệu chỉnh 5s</span><b id="m-calib" style="color:#38bdf8;">Chờ phiên</b></div>
-                    <div class="usage-row" style="margin:0;"><span>💤 Ngủ gật (E_nod)</span><b id="m-nod" style="color:#4ade80;">Không</b></div>
+                    <div class="usage-row" style="margin:0;grid-column:span 2;"><span>📷 Góc camera</span><b id="m-cam" style="font-weight:600;">—</b></div>
                 </div>
                 <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;">
                     <button class="btn btn-test" style="padding:7px 12px; font-size:12.5px;" onclick="togglePostureAI()">📷 Bật / Tắt Camera AI</button>
@@ -580,14 +582,23 @@ DASHBOARD_HTML = """
                     pBadge.innerText = data.enable_posture_ai ? '⏸️ Chờ Học sinh đăng nhập' : '⏹️ Đã tắt Camera AI';
                 }
 
-                document.getElementById('m-ear').innerText = `${pt.ear !== undefined ? pt.ear : 0.30} / ${pt.perclos !== undefined ? pt.perclos : 0}%`;
-                document.getElementById('m-mar').innerText = `${pt.mar !== undefined ? pt.mar : 0.10} / ${pt.yawn_count || 0}`;
-                document.getElementById('m-euler').innerText = `${pt.pitch_deg || 0}° / ${pt.yaw_deg || 0}° / ${pt.roll_deg || 0}°`;
-                document.getElementById('m-hands').innerText = (pt.hands_on_desk === false) ? '⚠️ Giấu tay' : '✅ Trên bàn';
-                document.getElementById('m-hands').style.color = (pt.hands_on_desk === false) ? '#f87171' : '#4ade80';
+                const fmt = (v) => (v === null || v === undefined) ? '—' : v;
+                document.getElementById('m-state').innerText = pt.activity_state_vi || '—';
+                document.getElementById('m-ear').innerText = (pt.blink_score !== undefined && pt.blink_score !== null)
+                    ? `${pt.blink_score} / ${fmt(pt.look_down)}` : `EAR ${fmt(pt.ear)} (${fmt(pt.ear_norm)})`;
+                document.getElementById('m-nod').innerText = `${pt.slow_blinks_60s || 0} / ${pt.perclos || 0}% / ${pt.nod_count || 0}`;
+                const zoneVi = {desk: '✅ Trên mặt bàn', below: '✅ Dưới khung (đang viết)', raised: '⚠️ Giơ trước ngực', unknown: '—'};
+                document.getElementById('m-hands').innerText = zoneVi[pt.hands_zone] || '—';
+                document.getElementById('m-hands').style.color = pt.hands_zone === 'raised' ? '#fbbf24' : '#4ade80';
+                const objs = (pt.objects || []).map(o => `${o.vi}${o.held ? ' (đang cầm)' : ''}`);
+                document.getElementById('m-obj').innerText = objs.length ? objs.join(', ') : 'Không';
+                document.getElementById('m-obj').style.color = (pt.objects || []).some(o => o.kind !== 'book') ? '#f87171' : '#4ade80';
+                document.getElementById('m-euler').innerText = `${pt.yaw_deg || 0}° / ${pt.roll_deg || 0}° · ${pt.distance_cm ? Math.round(pt.distance_cm) + 'cm' : '—'}`;
                 document.getElementById('m-calib').innerText = pt.calibrated ? '✅ Đã khóa gốc' : (data.posture_stream_live ? '⏳ Đang đo 5s' : 'Chờ phiên');
-                document.getElementById('m-nod').innerText = pt.drowsy_nod ? '🚨 GẬT ĐẦU!' : 'Không';
-                document.getElementById('m-nod').style.color = pt.drowsy_nod ? '#f87171' : '#4ade80';
+                const cs = pt.camera_setup || {};
+                document.getElementById('m-cam').innerText = cs.score === undefined || cs.score === null ? '—'
+                    : `${cs.score}/100 ` + ((cs.hints || []).length ? '· ' + cs.hints.join(' · ') : '· Góc đặt tốt 👍');
+                document.getElementById('m-cam').style.color = (cs.score || 100) >= 80 ? '#4ade80' : '#fbbf24';
 
                 const pill = document.getElementById('role-pill');
                 if (data.monitoring_active) {
