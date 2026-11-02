@@ -18,6 +18,7 @@ python -m PyInstaller ^
     --hidden-import=core.config_manager ^
     --hidden-import=core.failsafe ^
     --hidden-import=services.giam_sat_worker ^
+    --hidden-import=services.posture_controller ^
     --hidden-import=services.telegram_service ^
     --hidden-import=telegram_service ^
     --hidden-import=trang_web ^
@@ -27,6 +28,10 @@ python -m PyInstaller ^
     --hidden-import=comtypes ^
     --hidden-import=comtypes.client ^
     --hidden-import=comtypes.gen ^
+    --exclude-module=cv2 ^
+    --exclude-module=mediapipe ^
+    --exclude-module=matplotlib ^
+    --exclude-module=sounddevice ^
     --exclude-module=numpy ^
     --exclude-module=scipy ^
     --exclude-module=pandas ^

@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, render_template_string, request
 from werkzeug.serving import make_server
 
 from core.config_manager import (
@@ -23,6 +23,13 @@ from core.config_manager import (
     safe_log,
     save_config,
     update_runtime_state,
+)
+from services.posture_controller import (
+    consume_recalibration_request,
+    get_latest_posture_frame,
+    has_live_posture_stream,
+    posture_manager,
+    set_latest_posture_frame,
 )
 
 # Giảm log rác của werkzeug khi chạy ngầm trong .exe (--noconsole)
@@ -157,6 +164,8 @@ def du_lieu_dashboard():
             "current_role": state.get("current_role", "locked"),
             "monitoring_active": bool(state.get("monitoring_active", False)),
             "posture_telemetry": state.get("posture_telemetry", {}),
+            "posture_stream_live": has_live_posture_stream(),
+            "enable_posture_ai": bool(cfg.get("enable_posture_ai", True)),
             "lan_url": f"http://{get_local_lan_ip()}:{port}",
             "telegram_ready": _is_telegram_module_available(),
         }
@@ -238,10 +247,76 @@ def xoa_lich_su_canh_bao():
 
 @app.route("/api/posture_telemetry", methods=["POST"])
 def nhan_posture_telemetry():
-    """Cổng chờ sẵn sàng cho Gói 3 (posture_ai_engine.py đẩy chỉ số EAR, MAR, PERCLOS, CFI lên Web)."""
+    """Nhận chỉ số sinh trắc học 3D (EAR, PERCLOS, MAR, Pitch/Yaw/Roll, CFI) từ posture_ai_engine.py."""
     data = request.get_json(silent=True) or {}
     update_runtime_state(posture_telemetry=data)
+    recalib = consume_recalibration_request()
+    return jsonify({"status": "ok", "recalibrate_requested": recalib})
+
+
+@app.route("/api/posture_frame", methods=["POST"])
+def nhan_posture_frame():
+    """Nhận khung hình JPEG đã vẽ lớp phủ thông số từ tiến trình Sidecar AI lưu vào bộ đệm RAM cục bộ."""
+    raw = request.get_data()
+    if raw:
+        set_latest_posture_frame(raw)
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/posture_recalibrate", methods=["POST"])
+def api_posture_recalibrate():
+    """Kích hoạt Hiệu chỉnh lại Gốc Tư thế Cá nhân hóa (5 giây) từ trình duyệt Phụ huynh."""
+    posture_manager.recalibrate()
+    return jsonify(
+        {
+            "status": "ok",
+            "message": "🔄 Đã gửi lệnh Hiệu chỉnh Gốc Tư thế (5 giây)! Hãy nhắc học sinh ngồi thẳng lưng nhìn màn hình.",
+        }
+    )
+
+
+@app.route("/api/posture_toggle", methods=["POST"])
+def api_posture_toggle():
+    """Bật hoặc Tắt trực tiếp Camera AI Nhận diện Tư thế 3D ngay từ giao diện Web."""
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    if "enable" in data:
+        new_state = bool(data["enable"])
+    else:
+        new_state = not (posture_manager.is_running() or has_live_posture_stream())
+
+    cfg["enable_posture_ai"] = new_state
+    save_config(cfg)
+
+    if new_state:
+        started = posture_manager.start(force_enable=True)
+        if started:
+            return jsonify({"status": "ok", "enabled": True, "message": "📷 Đã bật Camera AI Nhận diện Tư thế 3D!"})
+        return jsonify(
+            {
+                "status": "warn",
+                "enabled": True,
+                "message": "⚠️ Đã bật cờ AI Tư thế (Chờ phiên Học sinh hoặc kết nối Webcam vật lý).",
+            }
+        )
+    else:
+        posture_manager.stop()
+        return jsonify({"status": "ok", "enabled": False, "message": "⏸️ Đã tạm dừng Camera AI Nhận diện Tư thế 3D."})
+
+
+@app.route("/video_feed")
+def video_feed():
+    """Luồng truyền tải MJPEG thời gian thực trong mạng nội bộ LAN (Tuyệt đối không đẩy lên Đám mây)."""
+    if request.args.get("snapshot") == "1":
+        return Response(get_latest_posture_frame(), mimetype="image/jpeg")
+
+    def _gen_mjpeg():
+        while True:
+            jpg = get_latest_posture_frame()
+            yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
+            time.sleep(0.08 if has_live_posture_stream() else 0.45)
+
+    return Response(_gen_mjpeg(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 # =====================================================================
@@ -325,15 +400,35 @@ DASHBOARD_HTML = """
         </div>
 
         <div class="grid">
-            <!-- CỘT 1: CẢNH BÁO VI PHẠM & THỐNG KÊ ỨNG DỤNG -->
+            <!-- CỘT 1: CAMERA AI TƯ THẾ 3D, CẢNH BÁO VI PHẠM & THỐNG KÊ ỨNG DỤNG -->
             <div class="card">
+                <h2>
+                    <span>📷 Giám Sát Tư Thế AI 3D (MediaPipe Holistic — Nội bộ LAN)</span>
+                    <span id="posture-badge" style="font-size:11.5px; color:#38bdf8; text-transform:none;">Đang kết nối...</span>
+                </h2>
+                <div style="background:#0f172a; border:1px solid #334155; border-radius:10px; overflow:hidden; margin-bottom:10px;">
+                    <img id="posture-stream" src="/video_feed" alt="AI Posture 3D Stream" style="width:100%; display:block; max-height:330px; object-fit:contain; background:#090d16;">
+                </div>
+                <div id="posture-metrics" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-bottom:10px; font-size:12.5px;">
+                    <div class="usage-row" style="margin:0;"><span>👁️ EAR / PERCLOS</span><b id="m-ear">0.30 / 0%</b></div>
+                    <div class="usage-row" style="margin:0;"><span>👄 MAR / Ngáp</span><b id="m-mar">0.10 / 0</b></div>
+                    <div class="usage-row" style="margin:0;"><span>📐 Pitch / Yaw / Roll</span><b id="m-euler">0° / 0° / 0°</b></div>
+                    <div class="usage-row" style="margin:0;"><span>🙌 2 Tay trên bàn</span><b id="m-hands" style="color:#4ade80;">Có</b></div>
+                    <div class="usage-row" style="margin:0;"><span>🎯 Hiệu chỉnh 5s</span><b id="m-calib" style="color:#38bdf8;">Chờ phiên</b></div>
+                    <div class="usage-row" style="margin:0;"><span>💤 Ngủ gật (E_nod)</span><b id="m-nod" style="color:#4ade80;">Không</b></div>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;">
+                    <button class="btn btn-test" style="padding:7px 12px; font-size:12.5px;" onclick="togglePostureAI()">📷 Bật / Tắt Camera AI</button>
+                    <button class="btn" style="padding:7px 12px; font-size:12.5px;" onclick="recalibratePosture()">🔄 Hiệu chỉnh lại Gốc Tư thế (5s)</button>
+                </div>
+
                 <h2>
                     <span>🚨 Lịch Sử Cảnh Báo Vi Phạm Thời Gian Thực</span>
                     <button class="btn btn-secondary" onclick="clearAlerts()">🧹 Xóa lịch sử</button>
                 </h2>
-                <div id="alert-list" style="max-height: 310px; overflow-y: auto; padding-right: 4px;"></div>
+                <div id="alert-list" style="max-height: 260px; overflow-y: auto; padding-right: 4px;"></div>
 
-                <h2 style="margin-top: 22px;"><span>⏱️ Thời Gian Sử Dụng Ứng Dụng & Chatbot AI</span></h2>
+                <h2 style="margin-top: 20px;"><span>⏱️ Thời Gian Sử Dụng Ứng Dụng & Chatbot AI</span></h2>
                 <div id="usage-box"></div>
             </div>
 
@@ -407,10 +502,30 @@ DASHBOARD_HTML = """
                 document.getElementById('kpi-alerts').innerText = (data.alerts || []).length;
                 document.getElementById('kpi-ai').innerText = `${data.ai_minutes} / ${data.max_ai_minutes} phút`;
 
-                const cfi = (data.posture_telemetry && data.posture_telemetry.visual_focus_score !== undefined)
-                    ? data.posture_telemetry.visual_focus_score
-                    : 100;
+                const pt = data.posture_telemetry || {};
+                const cfi = (pt.visual_focus_score !== undefined) ? pt.visual_focus_score : 100;
                 document.getElementById('kpi-cfi').innerText = `${cfi}%`;
+
+                const pBadge = document.getElementById('posture-badge');
+                if (data.posture_stream_live && pt.camera_connected) {
+                    pBadge.style.color = '#4ade80';
+                    pBadge.innerText = '🟢 Đang phân tích 3D tại biên (Zero-Cloud)';
+                } else if (data.posture_stream_live && pt.status === 'NO_CAMERA') {
+                    pBadge.style.color = '#fbbf24';
+                    pBadge.innerText = '⚠️ Chưa cắm Webcam vật lý';
+                } else {
+                    pBadge.style.color = '#94a3b8';
+                    pBadge.innerText = data.enable_posture_ai ? '⏸️ Chờ Học sinh đăng nhập' : '⏹️ Đã tắt Camera AI';
+                }
+
+                document.getElementById('m-ear').innerText = `${pt.ear !== undefined ? pt.ear : 0.30} / ${pt.perclos !== undefined ? pt.perclos : 0}%`;
+                document.getElementById('m-mar').innerText = `${pt.mar !== undefined ? pt.mar : 0.10} / ${pt.yawn_count || 0}`;
+                document.getElementById('m-euler').innerText = `${pt.pitch_deg || 0}° / ${pt.yaw_deg || 0}° / ${pt.roll_deg || 0}°`;
+                document.getElementById('m-hands').innerText = (pt.hands_on_desk === false) ? '⚠️ Giấu tay' : '✅ Trên bàn';
+                document.getElementById('m-hands').style.color = (pt.hands_on_desk === false) ? '#f87171' : '#4ade80';
+                document.getElementById('m-calib').innerText = pt.calibrated ? '✅ Đã khóa gốc' : (data.posture_stream_live ? '⏳ Đang đo 5s' : 'Chờ phiên');
+                document.getElementById('m-nod').innerText = pt.drowsy_nod ? '🚨 GẬT ĐẦU!' : 'Không';
+                document.getElementById('m-nod').style.color = pt.drowsy_nod ? '#f87171' : '#4ade80';
 
                 const pill = document.getElementById('role-pill');
                 if (data.monitoring_active) {
@@ -482,6 +597,24 @@ DASHBOARD_HTML = """
         async function clearAlerts() {
             await fetch('/api/xoa_lich_su_canh_bao', {method: 'POST'});
             loadDashboard();
+        }
+
+        async function togglePostureAI() {
+            const res = await fetch('/api/posture_toggle', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            const d = await res.json();
+            document.getElementById('save-msg').innerText = d.message;
+            document.getElementById('posture-stream').src = '/video_feed?t=' + Date.now();
+            loadDashboard();
+        }
+
+        async function recalibratePosture() {
+            const res = await fetch('/api/posture_recalibrate', {method: 'POST'});
+            const d = await res.json();
+            document.getElementById('save-msg').innerText = d.message;
         }
 
         setInterval(loadDashboard, 2000);
@@ -584,6 +717,7 @@ def start_web_server_in_background(port: Optional[int] = None) -> bool:
 def stop_web_server_in_background() -> None:
     global _server_instance
     _try_stop_telegram_poller()
+    posture_manager.stop()
     with _server_lock:
         if _server_instance is not None:
             try:

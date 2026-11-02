@@ -1,6 +1,6 @@
 # Hệ Thống Bàn Học Thông Minh Hợp Nhất Không Gian Mạng - Vật Lý (Cyber-Physical Smart Study Desk)
 
-Phần mềm trung tâm quản lý kỷ luật số 3 cấp quyền kiểu Gcafe/CSM trên Windows kết hợp kiểm soát trình duyệt theo Link Address (URL), đếm thời gian Chatbot AI, Bảng điều khiển Web LAN (`0.0.0.0:5000`) cho PC & Điện thoại Android và Trợ lý cảnh báo hai chiều qua Bot Telegram (Zero-Cloud).
+Phần mềm trung tâm quản lý kỷ luật số 3 cấp quyền kiểu Gcafe/CSM trên Windows kết hợp kiểm soát trình duyệt theo Link Address (URL), đếm thời gian Chatbot AI, Thị giác Máy tính nhận diện tư thế 3D tại biên (MediaPipe Holistic + `cv2.solvePnP`), Bảng điều khiển Web LAN (`0.0.0.0:5000`) cho PC & Điện thoại Android và Trợ lý cảnh báo hai chiều qua Bot Telegram (Local-first, Zero-Cloud).
 
 ---
 
@@ -9,17 +9,22 @@ Phần mềm trung tâm quản lý kỷ luật số 3 cấp quyền kiểu Gcafe
 ```text
 Du_an_D08_ban_thong_minh/
 ├── dist/
-│   ├── SmartDeskLauncher.exe       # Bản đóng gói hoàn chỉnh chạy ngay (Quyền Administrator)
+│   ├── SmartDeskLauncher.exe       # Bản đóng gói hoàn chỉnh chạy ngay (Quyền Administrator, ~25 MB)
 │   ├── shared_config.json          # Cấu hình dùng chung đi kèm file .exe
 │   └── KHOI_PHUC_KHAN_CAP.bat      # Công cụ khôi phục khẩn cấp 1-click
+├── models/
+│   └── holistic_landmarker.task    # Mô hình MediaPipe Holistic ngoại tuyến (kèm tùy chọn keras_model.h5)
 ├── core/
 │   ├── config_manager.py           # Quản lý đọc/ghi nguyên tử shared_config.json & runtime_state.json
 │   └── failsafe.py                 # 5 Lớp An toàn Khẩn cấp chống kẹt máy Windows
 ├── services/
 │   ├── giam_sat_worker.py          # Quét URL (uiautomation) + Tiêu đề Tab + Đếm giờ AI + Diệt Game
+│   ├── posture_ai_engine.py        # Lõi Toán học 3D: EAR, PERCLOS, MAR ngáp, solvePnP Euler, PAD, 2 tay
+│   ├── posture_controller.py       # Bộ điều phối MJPEG /video_feed & Sidecar AI cho cả .py và .exe
 │   └── telegram_service.py         # Bắn cảnh báo Cooldown & Nhận lệnh 2 chiều (/status, /lock, /reset_ai)
 ├── he_thong_quan_ly_3_cap.py       # Ứng dụng Desktop trung tâm 3 cấp quyền + Student Task Manager
-├── trang_web.py                    # Flask Web Dashboard (0.0.0.0:5000) cho Máy tính & Điện thoại cùng Wi-Fi
+├── trang_web.py                    # Flask Web Dashboard (0.0.0.0:5000) + Luồng MJPEG /video_feed nội bộ LAN
+├── posture_ai_engine.py            # Bản xem trực tiếp cửa sổ AI 3D hoặc chạy ngầm (--daemon)
 ├── giam_sat.pyw                    # Bản chạy ngầm độc lập (tương thích ngược báo cáo nhóm)
 ├── telegram_service.py             # Wrapper tương thích cho các module mở rộng gọi trực tiếp
 ├── build_exe.bat                   # Script tự động đóng gói ra dist\SmartDeskLauncher.exe
@@ -50,7 +55,20 @@ Du_an_D08_ban_thong_minh/
 
 ---
 
-## 4. Hướng dẫn Tự Build Lại Từ Mã Nguồn
+## 4. Mô-đun AI Nhận Diện Tư Thế Ngồi Học 3D (MediaPipe Holistic)
+
+- **Tự động kích hoạt khi Học sinh đăng nhập** (hoặc bật/tắt trực tiếp trên Web Dashboard qua nút `📷 Bật / Tắt Camera AI`).
+- **Hiệu chỉnh Gốc Tư thế Cá nhân hóa 5 giây đầu:** Tự động lấy chuẩn riêng theo chiều cao và góc đặt Webcam của từng học sinh; Phụ huynh có thể bấm `🔄 Hiệu chỉnh lại Gốc Tư thế (5s)` từ điện thoại bất cứ lúc nào.
+- **Đầy đủ chỉ số sinh trắc học 3D tại biên:** `EAR` 6 điểm, `PERCLOS` buồn ngủ, `MAR` & bộ đếm tần suất ngáp, giải `cv2.solvePnP` suy ra 3 góc Euler (`Pitch`, `Yaw`, `Roll`), phát hiện ngủ gật `E_nod`, theo dõi 2 bàn tay trên bàn (`>15s`), chống giả mạo ảnh tĩnh PAD (`>25s`) và chặn Camera ảo (`OBS`, `ManyCam`, `VCam`).
+- **Bảo mật quyền riêng tư (Zero-Cloud):** Luồng video `/video_feed` chỉ truyền nội bộ mạng Wi-Fi gia đình (LAN); Bot Telegram chỉ nhận cảnh báo chữ kèm điểm số `CFI%` khi học sinh sai tư thế kéo dài.
+- **Chạy thử cửa sổ AI độc lập:**
+  ```powershell
+  python posture_ai_engine.py
+  ```
+
+---
+
+## 5. Hướng dẫn Tự Build Lại Từ Mã Nguồn
 
 ```powershell
 python -m pip install -r requirements.txt

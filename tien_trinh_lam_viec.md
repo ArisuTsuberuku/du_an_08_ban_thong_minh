@@ -16,7 +16,7 @@
 | **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ✅ Đã hoàn thành |
 | **Giai đoạn 7** | Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ✅ Đã hoàn thành |
 | **Giai đoạn 8** | Lõi AI Nhận diện Tư thế 3D tại Biên (`services/posture_ai_engine.py`, `posture_ai_engine.py`, MediaPipe Holistic + `EAR`/`PERCLOS`/`MAR`/`solvePnP`) | ✅ Đã hoàn thành |
-| **Giai đoạn 9** | Hợp nhất luồng MJPEG `/video_feed` & điều khiển AI Tư thế vào `trang_web.py`, `he_thong_quan_ly_3_cap.py` & đóng gói lại `.EXE` | 🔄 Đang triển khai |
+| **Giai đoạn 9** | Hợp nhất luồng MJPEG `/video_feed` & điều khiển AI Tư thế vào `trang_web.py`, `he_thong_quan_ly_3_cap.py` & đóng gói lại `.EXE` | ✅ Đã hoàn thành |
 
 ---
 
@@ -137,3 +137,21 @@
      - **Phát hiện 5 lỗi công thái học + Theo dõi 2 bàn tay trên mặt bàn (>15s)** + **Chặn Camera ảo** (`obs64.exe`, `manycam.exe`, `vcam.exe`...).
   3. Xây dựng `PostureAIServiceWorker` (~12 FPS, tự giãn cách dò phần cứng 5s khi máy chưa cắm Webcam, bắn cảnh báo `POSTURE_OR_HW` về Web & Bot Telegram khi `CFI < 50%` liên tục > 15s) và tệp chạy độc lập `posture_ai_engine.py` (hỗ trợ cả chế độ cửa sổ trực quan và `--daemon --parent-pid`).
 - **Kiểm thử:** Chạy kiểm thử đơn vị toàn bộ công thức Toán học (`EAR=0.300`, `MAR=0.833`, `Euler solvePnP`) và luồng xử lý ảnh thành công 100%.
+
+---
+
+### ✅ Giai đoạn 9: Hợp nhất Luồng MJPEG `/video_feed`, Điều khiển AI Tư thế 3D & Đóng gói Hoàn thiện (`dist/SmartDeskLauncher.exe`)
+- **Thời gian hoàn thành:** 02/11/2026
+- **Các công việc đã thực hiện:**
+  1. Xây dựng bộ điều phối luồng kép `services/posture_controller.py`:
+     - Không phụ thuộc cứng `cv2`/`mediapipe` ở tầng giao diện chính giúp `dist/SmartDeskLauncher.exe` giữ dung lượng tối ưu **24.54 MB** (<1s khởi động, tương thích giới hạn 100 MB của GitHub).
+     - **Chế độ Kép (Dual-Mode):** Khi chạy qua Python (`.py`) thì nạp trực tiếp `PostureAIServiceWorker` trong RAM; khi chạy qua `dist/SmartDeskLauncher.exe` thì tự động định vị `pythonw.exe` và khởi chạy ngầm tiến trình vệ tinh `posture_ai_engine.py --daemon --parent-pid <PID>` (tự tắt ngay lập tức khi Học sinh đăng xuất hoặc phần mềm đóng).
+  2. Nâng cấp Bảng điều khiển Web `trang_web.py` (`0.0.0.0:5000` cho PC & Điện thoại Android):
+     - Bổ sung các cổng API: `GET /video_feed` (luồng MJPEG trực tiếp nội bộ LAN, có ảnh chờ nén sẵn không bao giờ vỡ khung hình), `POST /api/posture_frame`, `POST /api/posture_telemetry`, `POST /api/posture_recalibrate`, `POST /api/posture_toggle`.
+     - Hiển thị trực quan luồng Camera AI 3D kèm bảng 6 nhóm chỉ số sinh trắc học thời gian thực (`EAR / PERCLOS`, `MAR / Ngáp`, `Pitch / Yaw / Roll`, `2 Tay trên bàn`, `Hiệu chỉnh 5s`, `Ngủ gật E_nod`) và 2 nút bấm điều khiển từ xa (`📷 Bật / Tắt Camera AI`, `🔄 Hiệu chỉnh lại Gốc Tư thế 5s`).
+  3. Tích hợp vào `he_thong_quan_ly_3_cap.py` và đóng gói lại `dist/SmartDeskLauncher.exe`:
+     - Tự động bật AI Camera khi đăng nhập **Học sinh** (hiển thị `🎯 Tư thế CFI: XX%` thời gian thực trên thanh trạng thái), tự động dừng khi chuyển về Màn hình Khóa / Phụ huynh / Admin hoặc kích hoạt Fail-Safe.
+     - Bổ sung tùy chọn bật/tắt AI Camera và chọn chỉ số Webcam USB trong bảng Admin, kèm báo cáo chỉ số 3D trong Tab Thống kê của Phụ huynh.
+- **Kiểm thử nghiệm thu:**
+  - Kiểm thử luồng tích hợp đầu-cuối (`PostureAIEngine` -> `/api/posture_frame` -> MJPEG `/video_feed` -> `/api/du_lieu_dashboard`): **PASS 100%**.
+  - Kiểm thử trực tiếp bản biên dịch `dist\SmartDeskLauncher.exe --self-test`: **`ExitCode = 0`**, `self_test_passed = true`, `uia_available = true`, `telegram_ready = true`, `posture_web_ready = true`.

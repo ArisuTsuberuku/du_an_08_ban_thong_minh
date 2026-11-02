@@ -1,11 +1,12 @@
 {
-  "updated_at": "2026-11-02 11:15:24",
+  "updated_at": "2026-11-02 11:39:17",
   "current_role": "locked",
   "monitoring_active": false,
   "remote_lock_requested": false,
+  "recalibrate_posture_requested": true,
   "ai_seconds": 0,
   "app_usage": {
-    "Microsoft Edge (msedge.exe)": 2
+    "Microsoft Edge (msedge.exe)": 4
   },
   "alerts": [],
   "posture_telemetry": {
@@ -18,7 +19,12 @@
     "pitch_deg": 0.0,
     "roll_deg": 0.0,
     "hands_on_desk": true,
-    "alerts": []
+    "alerts": [],
+    "status": "OK",
+    "camera_connected": true,
+    "yawn_count": 0,
+    "yaw_deg": 0.0,
+    "drowsy_nod": false
   },
   "hardware_box": {
     "connected": false,
@@ -27,5 +33,6 @@
   },
   "self_test_passed": true,
   "uia_available": true,
-  "telegram_ready": true
+  "telegram_ready": true,
+  "posture_web_ready": true
 }

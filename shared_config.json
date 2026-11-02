@@ -11,6 +11,8 @@
   },
   "kiosk_hide_explorer": false,
   "enforce_app_whitelist": false,
+  "enable_posture_ai": true,
+  "camera_index": 0,
   "web_port": 5000,
   "esp32_com_port": "COM3",
   "allowed_apps": [

@@ -42,6 +42,7 @@ from core.failsafe import (
     verify_rescue_pin,
 )
 from services.giam_sat_worker import BoGiamSatThongMinh, gui_canh_bao_len_web
+from services.posture_controller import posture_manager
 from trang_web import get_local_lan_ip, start_web_server_in_background, stop_web_server_in_background
 
 # Danh sách tiến trình hệ thống cấm hiển thị và cấm đóng tuyệt đối trong Student Task Manager
@@ -77,8 +78,9 @@ class PhanMemQuanLyBanHocEXE:
         self.root.configure(bg="#090d16")
 
         self.bo_giam_sat = BoGiamSatThongMinh(on_remote_lock=self._nhan_lenh_khoa_tu_xa)
-        # Chỉ dừng bộ giám sát tab/game khi mở khóa sang Phụ huynh/Admin; giữ nguyên Web Server cổng 5000 chạy suốt phiên!
+        # Chỉ dừng bộ giám sát tab/game & Camera AI khi mở khóa sang Phụ huynh/Admin; giữ nguyên Web Server cổng 5000!
         register_worker_cleanup(self.bo_giam_sat.dung_lai)
+        register_worker_cleanup(posture_manager.stop)
 
         self.so_lan_sai_mat_khau = 0
         self._student_clock_job = None
@@ -125,6 +127,7 @@ class PhanMemQuanLyBanHocEXE:
     def thoat_khan_cap(self, ly_do: str = "Khẩn cấp", hien_thong_bao: bool = True) -> None:
         self._huy_bo_dem_ui()
         self.bo_giam_sat.dung_lai()
+        posture_manager.stop()
         stop_web_server_in_background()
         restore_windows_normal_state()
         if hien_thong_bao:
@@ -219,6 +222,7 @@ class PhanMemQuanLyBanHocEXE:
     def hien_man_hinh_dang_nhap(self) -> None:
         self._current_mode = "locked"
         self.bo_giam_sat.dung_lai()
+        posture_manager.stop()
         update_runtime_state(current_role="locked", monitoring_active=False)
 
         cfg = load_config()
@@ -578,8 +582,9 @@ class PhanMemQuanLyBanHocEXE:
             font=("Segoe UI", 9),
         ).pack(anchor="w")
 
-        # Khởi chạy bộ giám sát ngầm
+        # Khởi chạy bộ giám sát ngầm & luồng AI Nhận diện Tư thế 3D
         self.bo_giam_sat.bat_dau()
+        posture_manager.start()
         self._cap_nhat_dong_ho_hoc_sinh()
 
     def _cap_nhat_dong_ho_hoc_sinh(self) -> None:
@@ -587,10 +592,20 @@ class PhanMemQuanLyBanHocEXE:
             return
         try:
             cfg = load_config()
+            st = load_runtime_state()
             max_ai = int(cfg.get("max_ai_minutes", 15))
             used_ai = round(self.bo_giam_sat.ai_seconds / 60.0, 1)
+            pt = st.get("posture_telemetry") or {}
+            cfi = pt.get("visual_focus_score", 100)
+            if pt.get("camera_connected") and cfi < 75:
+                posture_txt = f"⚠️ Tư thế CFI: {cfi}% (Hãy ngồi thẳng lưng!)"
+                fg_col = "#fbbf24"
+            else:
+                posture_txt = f"🎯 Tư thế CFI: {cfi}%"
+                fg_col = "#38bdf8"
             self.lbl_student_timer.config(
-                text=f"🤖 Quota AI: {used_ai} / {max_ai} phút  |  🟢 Đang bảo vệ tập trung"
+                text=f"🤖 Quota AI: {used_ai} / {max_ai} phút  |  {posture_txt}",
+                fg=fg_col,
             )
         except Exception:
             pass
@@ -727,6 +742,7 @@ class PhanMemQuanLyBanHocEXE:
     def vao_che_do_phu_huynh(self) -> None:
         self._current_mode = "parent"
         self.bo_giam_sat.dung_lai()
+        posture_manager.stop()
         restore_windows_normal_state()
         update_runtime_state(current_role="parent", monitoring_active=False)
 
@@ -948,6 +964,17 @@ class PhanMemQuanLyBanHocEXE:
                 for k, sec in app_u.items():
                     txt_report.insert("end", f"• {k}: {round(sec / 60.0, 1)} phút ({sec} giây)\n")
 
+            pt = state.get("posture_telemetry") or {}
+            txt_report.insert("end", "\n=== CHỈ SỐ AI NHẬN DIỆN TƯ THẾ NGỒI HỌC 3D (MEDIAPIPE) ===\n")
+            txt_report.insert(
+                "end",
+                f"• Điểm tập trung thị giác (CFI): {pt.get('visual_focus_score', 100)}% | "
+                f"EAR: {pt.get('ear', 0.30)} | PERCLOS: {pt.get('perclos', 0)}% | "
+                f"MAR: {pt.get('mar', 0.10)} (Ngáp: {pt.get('yawn_count', 0)} lần)\n"
+                f"• Góc Euler đầu 3D (solvePnP): Pitch={pt.get('pitch_deg', 0)}°, "
+                f"Yaw={pt.get('yaw_deg', 0)}°, Roll={pt.get('roll_deg', 0)}°\n",
+            )
+
             txt_report.insert("end", "\n=== LỊCH SỬ CẢNH BÁO VI PHẠM GẦN NHẤT ===\n")
             alerts = state.get("alerts", [])
             if not alerts:
@@ -1069,6 +1096,7 @@ class PhanMemQuanLyBanHocEXE:
     def vao_che_do_admin(self) -> None:
         self._current_mode = "admin"
         self.bo_giam_sat.dung_lai()
+        posture_manager.stop()
         restore_windows_normal_state()
         update_runtime_state(current_role="admin", monitoring_active=False)
 
@@ -1137,7 +1165,24 @@ class PhanMemQuanLyBanHocEXE:
             selectcolor="#0f172a",
             activebackground="#1e293b",
             font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=6)
+        ).pack(anchor="w", pady=4)
+
+        var_posture_ai = tk.BooleanVar(value=bool(cfg.get("enable_posture_ai", True)))
+        tk.Checkbutton(
+            col1,
+            text="Tự động bật AI Camera nhận diện tư thế 3D (MediaPipe) khi Học sinh vào học",
+            variable=var_posture_ai,
+            bg="#1e293b",
+            fg="#4ade80",
+            selectcolor="#0f172a",
+            activebackground="#1e293b",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", pady=4)
+
+        tk.Label(col1, text="Chỉ số Webcam USB cho AI Tư thế (Mặc định: 0):", bg="#1e293b", fg="#cbd5e1").pack(anchor="w", pady=(6, 2))
+        ent_cam = tk.Entry(col1, bg="#0f172a", fg="white", font=("Segoe UI", 10))
+        ent_cam.insert(0, str(cfg.get("camera_index", 0)))
+        ent_cam.pack(fill="x", ipady=2)
 
         tk.Label(col1, text="Cổng Web Server nội bộ (Mặc định: 5000):", bg="#1e293b", fg="#cbd5e1").pack(anchor="w", pady=(10, 2))
         ent_port = tk.Entry(col1, bg="#0f172a", fg="white", font=("Segoe UI", 10))
@@ -1197,6 +1242,11 @@ class PhanMemQuanLyBanHocEXE:
 
         def luu_admin() -> None:
             cfg["kiosk_hide_explorer"] = bool(var_hide_exp.get())
+            cfg["enable_posture_ai"] = bool(var_posture_ai.get())
+            try:
+                cfg["camera_index"] = max(0, int(ent_cam.get().strip() or 0))
+            except ValueError:
+                cfg["camera_index"] = 0
             try:
                 cfg["web_port"] = int(ent_port.get().strip() or 5000)
             except ValueError:
@@ -1262,12 +1312,25 @@ def run_self_test() -> int:
     app_ui.vao_che_do_admin()
     root.update_idletasks()
 
-    # Kiểm tra Web Server nhúng & uiautomation DLL trong bản đóng gói
+    # Kiểm tra Web Server nhúng, luồng MJPEG /video_feed & uiautomation DLL trong bản đóng gói
     cfg = load_config()
     port = int(cfg.get("web_port", 5000))
     resp = req.get(f"http://127.0.0.1:{port}/api/du_lieu_dashboard", timeout=2)
     assert resp.status_code == 200, f"Dashboard HTTP lỗi: {resp.status_code}"
     dash_json = resp.json()
+
+    resp_vid = req.get(f"http://127.0.0.1:{port}/video_feed?snapshot=1", timeout=2)
+    assert resp_vid.status_code == 200 and resp_vid.content[:2] == b"\xff\xd8", "Luồng /video_feed không trả về JPEG hợp lệ!"
+
+    resp_recal = req.post(f"http://127.0.0.1:{port}/api/posture_recalibrate", timeout=2)
+    assert resp_recal.status_code == 200, "API /api/posture_recalibrate lỗi!"
+    resp_tel = req.post(
+        f"http://127.0.0.1:{port}/api/posture_telemetry",
+        json={"status": "OK", "camera_connected": False, "visual_focus_score": 100.0},
+        timeout=2,
+    )
+    assert resp_tel.status_code == 200 and resp_tel.json().get("recalibrate_requested") is True
+
     assert UIA_AVAILABLE is True, "uiautomation chưa khả dụng trong môi trường đóng gói!"
 
     restore_windows_normal_state()
@@ -1278,11 +1341,12 @@ def run_self_test() -> int:
         self_test_passed=True,
         uia_available=UIA_AVAILABLE,
         telegram_ready=bool(dash_json.get("telegram_ready", False)),
+        posture_web_ready=True,
     )
     root.destroy()
     safe_log(
-        f"[SELF-TEST PASS] UIA={UIA_AVAILABLE} | Telegram={dash_json.get('telegram_ready')} | "
-        "Tất cả 4 màn hình UI + Student Task Manager + Embedded Web Server hoạt động hoàn hảo!"
+        f"[SELF-TEST PASS] UIA={UIA_AVAILABLE} | Telegram={dash_json.get('telegram_ready')} | PostureWeb=True | "
+        "Tất cả 4 màn hình UI + Student Task Manager + Embedded Web Server + MJPEG /video_feed hoạt động hoàn hảo!"
     )
     return 0
 
