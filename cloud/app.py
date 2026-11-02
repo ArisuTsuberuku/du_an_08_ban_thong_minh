@@ -474,8 +474,14 @@ h3{margin:4px 0 10px}
      <label class="tg"><input type="checkbox" id="yt-shorts" checked onchange="rulesTouched=true"><span></span></label></div></div></div>
    <div class="card"><h3>🔔 Báo khi học sinh đổi việc</h3><p class="mut">Mỗi lần mở ứng dụng mới / vào trang web mới, hệ thống tự phân tích trang đó là học tập, game, mạng xã hội...</p>
     <div class="seg" id="nv-mode"><button type="button" data-m="risky" onclick="nvMode(this)">⚠️ Chỉ trang đáng ngờ</button><button type="button" data-m="all" onclick="nvMode(this)">📣 Mọi thay đổi</button><button type="button" data-m="off" onclick="nvMode(this)">🔕 Tắt</button></div>
-    <div class="sw"><div><div class="t">Tự chặn web game mới phát hiện</div><div class="d">Trang được nhận ra là game sẽ tự thêm vào luật chặn và đóng tab</div></div>
-     <label class="tg"><input type="checkbox" id="opt-autogame" onchange="rulesTouched=true"><span></span></label></div></div>
+    <div class="t" style="margin:12px 0 4px">Tự chặn theo phân loại</div>
+    <div class="d mut" style="margin-bottom:6px">Trang mới vào được nhận ra thuộc loại đã chọn sẽ tự thêm vào luật chặn (chặn tận gốc + đóng tab khi học sinh đang mở). Trang đã vào gần đây cũng bị chặn luôn khi Lưu. YouTube theo cài đặt YouTube riêng.</div>
+    <div id="bk" style="display:flex;flex-wrap:wrap;gap:8px">
+     <label class="pill"><input type="checkbox" data-k="game" onchange="rulesTouched=true"> 🎮 Web game</label>
+     <label class="pill"><input type="checkbox" data-k="social" onchange="rulesTouched=true"> 💬 Mạng xã hội</label>
+     <label class="pill"><input type="checkbox" data-k="video" onchange="rulesTouched=true"> 🎬 Video / phim</label>
+     <label class="pill"><input type="checkbox" data-k="shopping" onchange="rulesTouched=true"> 🛒 Mua sắm</label>
+     <label class="pill"><input type="checkbox" data-k="comics" onchange="rulesTouched=true"> 📚 Truyện tranh</label></div></div>
    <div class="card"><h3>🤖 Giới hạn dùng AI</h3><p class="mut">Tính chung ChatGPT, Gemini, Claude, Copilot… trên web và ứng dụng AI cài trên máy. Chỉ tính lúc cửa sổ AI ở trên cùng và học sinh đang thao tác.</p>
     <div class="sw"><div><div class="t">Số phút mỗi ngày</div><div class="d">0 = không cho dùng AI. Đếm lại từ 0 mỗi ngày.</div></div>
      <input type="number" id="ai-min" min="0" max="240" step="5" style="width:90px" oninput="rulesTouched=true"></div>
@@ -655,7 +661,7 @@ const GROUPS={
 let rulesTouched=false;
 const YT_DEFAULT=['free fire','liên quân','minecraft','roblox','pubg','genshin','gameplay','game','mukbang','prank','asmr','tiktok','review phim','phim','anime','nhạc remix','livestream game'];
 function nvMode(b){document.querySelectorAll('#nv-mode button').forEach(x=>x.classList.toggle('act',x===b));rulesTouched=true;}
-const KCOL={game:'#dc2626',social:'#db2777',video:'#ea580c',shopping:'#ca8a04',comics:'#9333ea',study:'#16a34a',ai:'#2563eb',app:'#64748b',other:'#94a3b8'};
+const KCOL={ai_game:'#dc2626',game:'#dc2626',social:'#db2777',video:'#ea580c',shopping:'#ca8a04',comics:'#9333ea',study:'#16a34a',ai:'#2563eb',app:'#64748b',other:'#94a3b8'};
 function renderBox(v){const b=((v.status||{}).phone_box)||{};const dis=!b.enabled||!b.connected||!v.online;
  document.querySelectorAll('.boxbtn').forEach(x=>{x.disabled=dis;x.style.opacity=dis?.5:1;});
  if(!v.online){$('boxst').innerHTML='⚪ Máy học sinh đang ngoại tuyến';return;}
@@ -673,7 +679,7 @@ function renderAI(v){const s=v.status||{},src=s.ai_sources||[],run=s.ai_running|
   (run.length?`<div class="mut" style="margin-top:6px">Ứng dụng AI đang chạy trên máy: ${run.map(esc).join(', ')}</div>`:'');}
 function renderEvents(v){const ev=v.events||[];if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
  $('evbox').innerHTML=ev.slice(0,15).map(e=>{const tm=new Date((e.t||0)*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
-  const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖'}[e.cls]||'🌐'):'🪟';
+  const name=e.kind==='web'?e.domain:e.exe;const ic=e.kind==='web'?({game:'🎮',social:'💬',video:'🎬',shopping:'🛒',comics:'📚',study:'📘',ai:'🤖',ai_game:'🎮'}[e.cls]||'🌐'):'🪟';
   const risky=['game','social','video','shopping','comics'].includes(e.cls);
   const btn=e.kind==='web'&&!e.blocked&&e.cls!=='study'&&e.cls!=='ai'?`<button class="${risky?'danger':''}" style="padding:4px 10px;font-size:12px" onclick="blockDom('${esc(e.domain)}')">Chặn</button>`:(e.blocked?'<span class="pill">đã chặn</span>':'');
   return `<div class="app-row"><div class="ic">${ic}</div><div class="nm"><div><b>${esc(name||'')}</b> <span class="tag" style="background:${KCOL[e.cls]||KCOL.other}">${esc(e.vi||'')}</span></div>
@@ -693,7 +699,7 @@ function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;con
  const legacyYt=(srv.groups||[]).includes('youtube');ytSet(srv.youtube_mode||r.youtube_mode||(legacyYt?'block':'keyword'));
  const ykw=(srv.youtube_keywords&&srv.youtube_keywords.length?srv.youtube_keywords:(r.youtube_keywords&&r.youtube_keywords.length?r.youtube_keywords:YT_DEFAULT));
  $('yt-kw').value=ykw.join(', ');
- const nb=document.querySelector(`#nv-mode button[data-m="${srv.notify_env||'risky'}"]`);if(nb)nvMode(nb);$('opt-autogame').checked=!!srv.auto_block_games;
+ const nb=document.querySelector(`#nv-mode button[data-m="${srv.notify_env||'risky'}"]`);if(nb)nvMode(nb);const bks=new Set(srv.block_kinds||[]);if(srv.auto_block_games)bks.add('game');document.querySelectorAll('#bk [data-k]').forEach(i=>i.checked=bks.has(i.dataset.k));
  $('ai-min').value=(srv.max_ai_minutes??st.max_ai_minutes??15);segSet('ai-over',srv.ai_over_action||'block');segSet('ai-game',srv.ai_game_action||'block');$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
  $('rmsg').textContent=st.dns_block?('Trên máy: '+st.dns_block):'';}
 async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
@@ -705,7 +711,8 @@ async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.s
  const r=await api(`/api/parent/devices/${v.id}/rules`,{apps:[...apps],domains:[...dom],keywords:[...kw],groups,
   monitor_always:$('opt-always').checked,dns_block:$('opt-dns').checked,youtube_mode:ym,youtube_keywords:sp('yt-kw'),
   youtube_shorts:$('yt-shorts').checked,notify_env:(document.querySelector('#nv-mode button.act')||{}).dataset?.m||'risky',
-  auto_block_games:$('opt-autogame').checked,max_ai_minutes:parseInt($('ai-min').value||'15',10),
+  block_kinds:[...document.querySelectorAll('#bk [data-k]')].filter(i=>i.checked).map(i=>i.dataset.k),
+  auto_block_games:!!document.querySelector('#bk [data-k="game"]:checked'),max_ai_minutes:parseInt($('ai-min').value||'15',10),
   ai_over_action:segGet('ai-over','block'),ai_game_action:segGet('ai-game','block')});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
 // ---------- PWA ----------
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
@@ -887,6 +894,7 @@ def api_parent_rules(did):
     def clean(v):
         return [str(x).strip().lower()[:80] for x in (v or []) if str(x).strip()][:200]
 
+    prev = dict(db.get(f"devices/{did}/rules") or {})
     rules = {"apps": clean(data.get("apps")), "domains": clean(data.get("domains")),
              "keywords": clean(data.get("keywords")), "ver": int(time.time() * 1000), "by": uid,
              "monitor_always": bool(data.get("monitor_always", False)), "dns_block": bool(data.get("dns_block", True)),
@@ -896,15 +904,34 @@ def api_parent_rules(did):
              "youtube_shorts": bool(data.get("youtube_shorts", True)),
              "notify_env": data.get("notify_env") if data.get("notify_env") in ("risky", "all", "off") else "risky",
              "auto_block_games": bool(data.get("auto_block_games", False)),
-             "ai_over_action": data.get("ai_over_action") if data.get("ai_over_action") in ("block", "warn") else "block",
-             "ai_game_action": data.get("ai_game_action") if data.get("ai_game_action") in ("block", "warn", "off") else "block"}
+             "ai_over_action": data.get("ai_over_action") if data.get("ai_over_action") in ("block", "warn")
+             else prev.get("ai_over_action", "block"),
+             "ai_game_action": data.get("ai_game_action") if data.get("ai_game_action") in ("block", "warn", "off")
+             else prev.get("ai_game_action", "block"),
+             "block_kinds": [k for k in (data.get("block_kinds") if isinstance(data.get("block_kinds"), list)
+                                         else prev.get("block_kinds") or []) if k in BLOCKABLE_KINDS]}
+    # Trang web cũ (mở từ trước khi cập nhật) không gửi giờ AI -> GIỮ giá trị đang có, không tự về 15 phút
     try:
-        rules["max_ai_minutes"] = max(0, min(240, int(data.get("max_ai_minutes", 15))))
-    except (TypeError, ValueError):
-        rules["max_ai_minutes"] = 15
+        rules["max_ai_minutes"] = max(0, min(240, int(data["max_ai_minutes"])))
+    except (KeyError, TypeError, ValueError):
+        if "max_ai_minutes" in prev:
+            rules["max_ai_minutes"] = prev["max_ai_minutes"]
+    if rules["auto_block_games"] and "game" not in rules["block_kinds"]:
+        rules["block_kinds"].append("game")
+    # Chặn hồi tố: trang đã vào gần đây thuộc loại vừa chọn chặn -> thêm vào luật luôn
+    kinds = _block_kinds(rules)
+    retro = []
+    if kinds:
+        evs = db.get(f"devices/{did}/events") or []
+        for ev in (list(evs.values()) if isinstance(evs, dict) else list(evs))[:40]:
+            dom = str((ev or {}).get("domain", ""))
+            if dom and ev.get("cls") in kinds and not _is_youtube(dom) and dom not in rules["domains"]:
+                retro.append(dom)
+        rules["domains"] = sorted(set(rules["domains"]) | set(retro))[:200]
     db.set(f"devices/{did}/rules", rules)
     mark_watching(did, force=True)
-    return jsonify({"ok": True, "message": "Đã lưu. Máy sẽ áp dụng trong ≤30 giây."})
+    extra = f" Đã chặn thêm {len(retro)} trang vừa vào: {', '.join(retro[:5])}." if retro else ""
+    return jsonify({"ok": True, "message": "Đã lưu. Máy sẽ áp dụng trong ≤30 giây." + extra})
 
 
 @app.route("/api/parent/devices/<did>/block", methods=["POST"])
@@ -919,11 +946,22 @@ def api_parent_block(did):
         return jsonify({"error": "Tên miền không hợp lệ"}), 400
     rules = dict(db.get(f"devices/{did}/rules") or {})
     rules["domains"] = sorted(set(rules.get("domains") or []) | {dom})[:200]
+    note = ""
+    if _is_youtube(dom):
+        # YouTube có chế độ riêng (chặn theo từ khóa để vẫn xem được bài giảng) -> phải chuyển sang "chặn hẳn"
+        rules["youtube_mode"] = "block"
+        rules["domains"] = sorted(set(rules["domains"]) | {"youtube.com", "youtu.be"})[:200]
+        note = " Đã chuyển YouTube sang chế độ CHẶN HẲN (đổi lại ở Luật chặn → YouTube)."
     rules["ver"] = int(time.time() * 1000)
     rules["by"] = uid
     db.set(f"devices/{did}/rules", rules)
     mark_watching(did, force=True)
-    return jsonify({"ok": True, "message": f"Đã chặn {dom}. Máy áp dụng trong vài giây."})
+    dev = db.get(f"devices/{did}") or {}
+    st = dev.get("status") or {}
+    if not st.get("monitoring") and not rules.get("monitor_always"):
+        note += (" Lưu ý: máy đang KHÔNG ở chế độ học sinh nên chưa tự đóng tab đang mở; trang đã bị chặn tận gốc"
+                 " (tải lại sẽ không vào được). Muốn đóng tab mọi lúc: bật “Giám sát cả khi học sinh chưa đăng nhập”.")
+    return jsonify({"ok": True, "message": f"Đã chặn {dom}. Máy áp dụng trong vài giây.{note}"})
 
 
 @app.route("/api/parent/devices/<did>/activity")
@@ -1014,10 +1052,15 @@ DOMAIN_KINDS: Dict[str, Tuple[str, ...]] = {
            "poe.com", "grok.com", "qwen."),
 }
 KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / phim", "shopping": "Mua sắm",
-           "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "other": "Khác"}
+           "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
-            "study": "Hoc_tap", "ai": "Hoc_tap", "other": "Khac"}
-RISKY_KINDS = ("game", "social", "video", "shopping", "comics")
+            "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
+WEB_BUILD = "2026-11-03.2"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
+BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
+YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
+AI_GAME_TITLE_HINTS = ("game", "trò chơi", "snake", "rắn săn mồi", "tetris", "flappy", "mario", "pacman", "2048",
+                       "đua xe", "bắn súng", "minecraft")
 GAME_TITLE_HINTS = ("game", "chơi", "play ", "online free", "unblocked", ".io", "level", "điểm cao", "bắn súng",
                     "đua xe", "minecraft", "roblox", "free fire", "liên quân")
 
@@ -1033,6 +1076,9 @@ def classify_domain(domain: str, title: str = "") -> Dict[str, str]:
         return {"kind": "other", "vi": KIND_VI["other"], "category": "Khac", "why": ""}
     for kind in ("study", "ai", "game", "social", "video", "shopping", "comics"):
         if any(h in d for h in DOMAIN_KINDS[kind]):
+            if kind == "ai" and "game theory" not in t and any(h in t for h in AI_GAME_TITLE_HINTS):
+                # Trang AI nhưng cuộc trò chuyện là làm game -> báo phụ huynh (máy học sinh tự chặn theo luật AI)
+                return {"kind": "ai_game", "vi": KIND_VI["ai_game"], "category": "Giai_tri", "why": "tiêu đề"}
             return {"kind": kind, "vi": KIND_VI[kind], "category": KIND_CAT[kind], "why": "danh sách"}
     key = fb_key(d)[:120]
     cached = db.get(f"domain_cat/{key}")
@@ -1078,6 +1124,18 @@ def _gemini_domain_kind(domain: str, title: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def _block_kinds(rules: Dict[str, Any]) -> set:
+    """Các loại trang phụ huynh chọn TỰ CHẶN (bản cũ chỉ có công tắc auto_block_games)."""
+    kinds = {k for k in (rules.get("block_kinds") or []) if k in BLOCKABLE_KINDS}
+    if rules.get("auto_block_games"):
+        kinds.add("game")
+    return kinds
+
+
+def _is_youtube(dom: str) -> bool:
+    return any(dom == y or dom.endswith("." + y) for y in YOUTUBE_DOMAINS)
+
+
 def _handle_events(did: str, dev: Dict[str, Any], events: List[Dict[str, Any]]) -> None:
     """Sự kiện thay đổi môi trường (mở app / vào trang web mới): phân loại, lưu nhật ký, báo phụ huynh, tự chặn game."""
     rules = dict(dev.get("rules") or {})
@@ -1094,7 +1152,7 @@ def _handle_events(did: str, dev: Dict[str, Any], events: List[Dict[str, Any]]) 
             rec.update(domain=dom, cls=c["kind"], vi=c["vi"], category=c["category"], why=c.get("why", ""))
             already = any(dom.endswith(x) for x in (rules.get("domains") or []))
             rec["blocked"] = already
-            if c["kind"] == "game" and rules.get("auto_block_games") and not already:
+            if c["kind"] in _block_kinds(rules) and not already and not _is_youtube(dom):
                 blocked_new.append(dom)
                 rec["blocked"] = True
                 rec["auto"] = True
@@ -1673,7 +1731,8 @@ def health():
                     "telegram": bool(TG_TOKEN), "google_login": bool(GOOGLE_CLIENT_ID),
                     "password_login": ALLOW_PASSWORD_LOGIN,
                     # chỉ báo CÓ/KHÔNG để tự kiểm tra cấu hình — không bao giờ trả giá trị khóa
-                    "web_push": bool(VAPID_PUBLIC and VAPID_PRIVATE), "gemini": bool(GEMINI_API_KEY)})
+                    "web_push": bool(VAPID_PUBLIC and VAPID_PRIVATE), "gemini": bool(GEMINI_API_KEY),
+                    "build": WEB_BUILD})
 
 
 if __name__ == "__main__":
