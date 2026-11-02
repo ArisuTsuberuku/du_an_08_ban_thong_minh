@@ -7,7 +7,7 @@
 ;  Gỡ cài đặt: trả lại Task Manager, gỡ chặn DNS, xóa tác vụ tự khởi động, hiện lại taskbar.
 ; =====================================================================
 #define AppName "FocusDesk"
-#define AppVer "1.18.0"
+#define AppVer "1.18.1"
 
 [Setup]
 AppId={{6F0B3A52-8C1E-4C5D-9E0A-1D08B4A70001}
@@ -70,7 +70,7 @@ Source: "redist\python-installer.exe"; DestDir: "{tmp}"; Flags: deleteafterinsta
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\MO_FOCUSDESK.bat"; WorkingDir: "{app}"; IconFilename: "{app}\assets\focusdesk.ico"
 Name: "{group}\Kiểm tra cài đặt"; Filename: "{app}\KIEM_TRA.bat"; WorkingDir: "{app}"
-Name: "{group}\Sửa lỗi cài đặt (cài lại thư viện thiếu / hỏng)"; Filename: "{app}\KIEM_TRA.bat"; Parameters: "--sua"; WorkingDir: "{app}"
+Name: "{group}\Sửa lỗi cài đặt"; Filename: "{app}\KIEM_TRA.bat"; Parameters: "--sua"; WorkingDir: "{app}"; Comment: "Cài lại thư viện bị thiếu hoặc hỏng (OpenCV, pyserial...) và tải mô hình AI còn thiếu"
 Name: "{group}\Khôi phục khẩn cấp"; Filename: "{app}\KHOI_PHUC_KHAN_CAP.bat"; WorkingDir: "{app}"
 Name: "{group}\Gỡ cài đặt {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\MO_FOCUSDESK.bat"; WorkingDir: "{app}"; IconFilename: "{app}\assets\focusdesk.ico"; Tasks: desktopicon
