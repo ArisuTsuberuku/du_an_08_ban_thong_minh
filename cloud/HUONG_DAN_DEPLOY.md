@@ -3,7 +3,7 @@
 ## Kiến trúc
 
 ```
-Máy học sinh (SmartDeskLauncher / trang_web.py + services/cloud_agent.py)
+Máy học sinh (FocusDeskLauncher / trang_web.py + services/cloud_agent.py)
    │  HTTPS gọi ra 30s/lần · báo NGAY khi có cảnh báo · 5s/lần khi phụ huynh đang xem
    ▼
 Vercel  cloud/app.py (Flask)  ──REST + Service Account──▶  Firebase Realtime Database (Rules: cấm client)
@@ -76,12 +76,12 @@ Deploy xong:
 
 ## 4. Máy học sinh
 
-1. Tạo `secrets.local.json` cạnh `trang_web.py` (hoặc cạnh `SmartDeskLauncher.exe`):
+1. Tạo `secrets.local.json` cạnh `trang_web.py` (hoặc cạnh `FocusDeskLauncher.exe`):
    ```json
    { "cloud_url": "https://<ten>.vercel.app" }
    ```
    Để trống `telegram_bot_token` khi dùng cloud — nếu điền, poller Telegram cục bộ sẽ tranh chấp với webhook.
-2. Chạy `python trang_web.py` (hoặc SmartDeskLauncher.exe) → mở `http://127.0.0.1:5000/ket-noi-cloud` → thấy **mã ghép 6 số**.
+2. Chạy `python trang_web.py` (hoặc FocusDeskLauncher.exe) → mở `http://127.0.0.1:5000/ket-noi-cloud` → thấy **mã ghép 6 số**.
 3. Phụ huynh vào web Vercel → Đăng ký → **Thêm máy học sinh** → nhập mã → **Kết nối Telegram**.
 
 ## Lệnh Telegram
@@ -92,7 +92,7 @@ Deploy xong:
 
 ```bash
 cd cloud && pip install -r requirements.txt
-TELEGRAM_WEBHOOK_SECRET=test python app.py      # dùng DB JSON cục bộ %TEMP%\smartdesk_local_db.json, Telegram in ra console
+TELEGRAM_WEBHOOK_SECRET=test python app.py      # dùng DB JSON cục bộ %TEMP%\focusdesk_local_db.json, Telegram in ra console
 ```
 
 ## Xem camera trực tiếp (không qua Firebase/Vercel)

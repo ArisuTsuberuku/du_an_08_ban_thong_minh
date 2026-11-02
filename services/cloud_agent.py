@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Agent kết nối Cloud (services/cloud_agent.py) — chạy nền trong SmartDeskLauncher / trang_web.py.
+Agent kết nối Cloud (services/cloud_agent.py) — chạy nền trong FocusDeskLauncher / trang_web.py.
 
 - Chỉ GỌI RA (HTTPS) tới bản cloud trên Vercel: không mở cổng, không cần IP tĩnh, xuyên NAT/Wi-Fi gia đình.
 - Máy KHÔNG giữ token bot Telegram. Chỉ giữ device_id + device_token riêng (device_identity.json, gitignore).
 - HEARTBEAT linh hoạt (30s bình thường, 5s khi phụ huynh đang xem, báo NGAY khi có cảnh báo mới): gửi chỉ số tóm tắt + cảnh báo mới, nhận lệnh của phụ huynh và thực thi.
 - Ảnh camera chỉ gửi khi phụ huynh bấm "Chụp 1 ảnh" (lệnh snapshot), không stream video lên cloud.
 
-Bật bằng cách đặt cloud_url trong secrets.local.json hoặc biến môi trường SMARTDESK_CLOUD_URL.
+Bật bằng cách đặt cloud_url trong secrets.local.json hoặc biến môi trường FOCUSDESK_CLOUD_URL.
 """
 
 import base64
@@ -217,12 +217,12 @@ class CloudAgent:
             if ctype == "lock":
                 update_runtime_state(remote_lock_requested=True)
                 if _launcher_running():
-                    msg = "Đã chuyển máy về Màn hình Khóa SmartDesk"
+                    msg = "Đã chuyển máy về Màn hình Khóa FocusDesk"
                 else:
                     import ctypes
 
                     ctypes.windll.user32.LockWorkStation()
-                    msg = "Đã khóa Windows (app SmartDesk không chạy nên dùng khóa của Windows)"
+                    msg = "Đã khóa Windows (app FocusDesk không chạy nên dùng khóa của Windows)"
             elif ctype == "reset_ai":
                 update_runtime_state(ai_seconds=0, ai_reset_at=time.time())
                 msg = "Đã đặt lại giờ dùng AI về 0"
@@ -445,14 +445,14 @@ class CloudAgent:
 
 
 def _launcher_running() -> bool:
-    """App khóa máy SmartDesk (exe hoặc he_thong_quan_ly_3_cap.py) có đang chạy để xử lý lệnh khóa không."""
+    """App khóa máy FocusDesk (exe hoặc he_thong_quan_ly_3_cap.py) có đang chạy để xử lý lệnh khóa không."""
     try:
         import psutil
 
         for p in psutil.process_iter(["name", "cmdline"]):
             name = (p.info.get("name") or "").lower()
             cmd = " ".join(p.info.get("cmdline") or []).lower()
-            if name == "smartdesklauncher.exe" or "he_thong_quan_ly_3_cap" in cmd:
+            if name == "focusdesklauncher.exe" or "he_thong_quan_ly_3_cap" in cmd:
                 return True
     except Exception:
         pass

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 Bộ Điều Phối Luồng AI Tư Thế 3D (services/posture_controller.py).
-- KHÔNG import cv2 / mediapipe / numpy ở mức đỉnh để file đóng gói SmartDeskLauncher.exe
+- KHÔNG import cv2 / mediapipe / numpy ở mức đỉnh để file đóng gói FocusDeskLauncher.exe
   giữ nguyên dung lượng siêu gọn (~25 MB, đẩy trực tiếp lên GitHub không vượt ngưỡng 100 MB).
 - Quản lý bộ đệm khung hình MJPEG trong RAM cho route /video_feed trên trang_web.py.
 - Hỗ trợ Chế độ Kép (Dual-Mode):
     1. Khi chạy từ mã nguồn Python (.py): Khởi chạy trực tiếp PostureAIServiceWorker trong cùng tiến trình.
-    2. Khi chạy từ bản biên dịch SmartDeskLauncher.exe (sys.frozen): Tự động tìm pythonw.exe và khởi chạy
+    2. Khi chạy từ bản biên dịch FocusDeskLauncher.exe (sys.frozen): Tự động tìm pythonw.exe và khởi chạy
        tiến trình vệ tinh ẩn `posture_ai_engine.py --daemon --parent-pid <PID>` đẩy MJPEG & Telemetry về cổng 5000.
 """
 
@@ -207,10 +207,10 @@ def _sibling_pythonw() -> Optional[str]:
 def _should_use_pythonw_sidecar() -> bool:
     """
     Tùy chọn: ép tách AI Camera sang tiến trình pythonw.exe khi chạy bằng mã nguồn .py
-    (đặt biến môi trường SMARTDESK_AI_SIDECAR=1). Mặc định chạy AI trong cùng tiến trình.
+    (đặt biến môi trường FOCUSDESK_AI_SIDECAR=1). Mặc định chạy AI trong cùng tiến trình.
     Dùng khi Windows/Antivirus chặn Webcam riêng với python.exe (đã gặp 02/11/2026 trên MSI Bravo 15).
     """
-    if os.environ.get("SMARTDESK_AI_SIDECAR", "").strip() != "1":
+    if os.environ.get("FOCUSDESK_AI_SIDECAR", "").strip() != "1":
         return False
     return _sibling_pythonw() is not None
 
@@ -307,7 +307,7 @@ class PostureAIManager:
                 return False
 
             env = os.environ.copy()
-            env["SMARTDESK_APP_DIR"] = get_app_dir()
+            env["FOCUSDESK_APP_DIR"] = get_app_dir()
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0
             try:
                 self._sidecar_proc = subprocess.Popen(

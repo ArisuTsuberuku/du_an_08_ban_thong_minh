@@ -13,7 +13,7 @@ Phần mềm máy tính: `services/phone_box.py` (tự dò cổng, bỏ qua cổ
 | PC → hộp | `unlock` | `sec`, `mac` | Mở khóa; `sec > 0` = tự khóa lại sau chừng ấy giây khi nắp đã đóng |
 | PC → hộp | `beep` | `n` | Kêu n tiếng (thử kết nối) |
 | PC → hộp | `setkey` | `key` | Ghép: chỉ nhận trong 60 giây sau khi giữ nút 5 giây lúc hộp đang mở |
-| Hộp → PC | `hello` | `dev`, `fw`, `box_id`, `paired`, `nonce`, trạng thái | `dev` luôn là `smartdesk-box` |
+| Hộp → PC | `hello` | `dev`, `fw`, `box_id`, `paired`, `nonce`, trạng thái | `dev` luôn là `focusdesk-box` |
 | Hộp → PC | `state` | `phone`, `lid`, `lock`, `nonce`, `unlock_left` | Trả lời `ping` |
 | Hộp → PC | `event` | `e` + trạng thái | `phone_in`, `phone_out`, `lid_open`, `lid_close`, `locked`, `unlocked`, `tamper`, `button`, `pair_mode` |
 | Hộp → PC | `ack` | `id`, `ok`, `err`, `nonce` | Kết quả lệnh; `err`: `bad_mac`, `not_in_pair_mode`, `unknown` |

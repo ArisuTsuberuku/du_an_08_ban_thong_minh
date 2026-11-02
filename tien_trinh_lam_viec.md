@@ -13,7 +13,7 @@
 | **Giai đoạn 3** | Web Server Dashboard Trung tâm (`trang_web.py` chạy `0.0.0.0:5000`, giữ nguyên `/api/nhan_canh_bao`, hỗ trợ PC & Android) | ✅ Đã hoàn thành |
 | **Giai đoạn 4** | Bộ Giám sát Ngầm nâng cấp (`services/giam_sat_worker.py` & `giam_sat.pyw` đọc URL bằng `uiautomation`, đếm giờ AI, diệt Game) | ✅ Đã hoàn thành |
 | **Giai đoạn 5** | Giao diện Khóa máy 3 Cấp quyền kiểu Gcafe/CSM & Student Task Manager (`he_thong_quan_ly_3_cap.py`) | ✅ Đã hoàn thành |
-| **Giai đoạn 6** | Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ✅ Đã hoàn thành |
+| **Giai đoạn 6** | Đóng gói `dist/FocusDeskLauncher.exe` (`--uac-admin`), tạo `build_exe.bat` & Kiểm thử nghiệm thu khối `.exe` | ✅ Đã hoàn thành |
 | **Giai đoạn 7** | Tích hợp Dịch vụ Bot Telegram 2 chiều (`services/telegram_service.py` cảnh báo Cooldown + lệnh `/status`, `/lock`) | ✅ Đã hoàn thành |
 | **Giai đoạn 8** | Lõi AI Nhận diện Tư thế 3D tại Biên (`services/posture_ai_engine.py`, `posture_ai_engine.py`, MediaPipe Holistic + `EAR`/`PERCLOS`/`MAR`/`solvePnP`) | ✅ Đã hoàn thành |
 | **Giai đoạn 9** | Hợp nhất luồng MJPEG `/video_feed` & điều khiển AI Tư thế vào `trang_web.py`, `he_thong_quan_ly_3_cap.py` & đóng gói lại `.EXE` | ✅ Đã hoàn thành |
@@ -61,7 +61,7 @@
      - `POST /api/khoa_may_tu_xa` (nút khóa màn hình máy tính học sinh ngay trên trình duyệt điện thoại)
      - `POST /api/posture_telemetry` (cổng chờ cho AI Camera MediaPipe 3D)
      - Cổng Hook `_dispatch_telegram_hook()` chờ sẵn để tự động kích hoạt khi lắp Dịch vụ Bot Telegram ở **Giai đoạn 7**.
-  4. Xây dựng hàm `start_web_server_in_background()` bằng `werkzeug.serving.make_server(..., threaded=True)` để nhúng êm ái vào trong `SmartDeskLauncher.exe` mà không xung đột nếu cổng `5000` đã mở sẵn bên ngoài.
+  4. Xây dựng hàm `start_web_server_in_background()` bằng `werkzeug.serving.make_server(..., threaded=True)` để nhúng êm ái vào trong `FocusDeskLauncher.exe` mà không xung đột nếu cổng `5000` đã mở sẵn bên ngoài.
 - **Kiểm thử:** Đã chạy kiểm thử thực tế khởi chạy luồng nền cổng `5000`, gọi `POST /api/nhan_canh_bao`, `GET /api/du_lieu_dashboard`, `POST /api/xoa_lich_su_canh_bao` và tắt server an toàn.
 
 ---
@@ -89,7 +89,7 @@
      - 3 nút **⚡ Chọn nhanh Tài khoản Demo** (`hocsinh/hocsinh123`, `phuhuynh/phuhuynh123`, `admin/admin123`), tự phát hiện và cảnh báo khi đăng nhập sai quyền Phụ huynh/Admin ≥ 3 lần (`WRONG_LOGIN`).
   3. **Chế độ Học sinh & Student Task Manager:**
      - Lưới mở ứng dụng (`allowed_apps`) và thư mục (`allowed_folders`) được phép, đồng hồ Quota AI thời gian thực, tự động kích hoạt `BoGiamSatThongMinh` và lắng nghe lệnh Khóa từ xa.
-     - **Student Task Manager:** Chỉ hiển thị tiến trình trong `allowed_apps` (kèm dung lượng RAM), ẩn và khóa cứng tuyệt đối `explorer.exe`, `python.exe`, `pythonw.exe`, `SmartDeskLauncher.exe` và các tiến trình hệ thống.
+     - **Student Task Manager:** Chỉ hiển thị tiến trình trong `allowed_apps` (kèm dung lượng RAM), ẩn và khóa cứng tuyệt đối `explorer.exe`, `python.exe`, `pythonw.exe`, `FocusDeskLauncher.exe` và các tiến trình hệ thống.
   4. **Chế độ Phụ huynh & Admin:**
      - Mở lại `explorer.exe` và Task Manager gốc, cung cấp Bảng điều khiển 3 Tab cho Phụ huynh (Quản lý `.exe` & Thư mục, Chính sách Web/AI/Game, Báo cáo thống kê & Lịch sử vi phạm) và Bảng Quản trị Hệ thống cho Admin (Kiosk `explorer.exe`, cổng Web/COM ESP32-S3, đổi mật khẩu 3 cấp, Thoát hoàn toàn phần mềm).
      - Tự động khởi chạy ngầm `trang_web.py` cổng `5000` suốt vòng đời ứng dụng.
@@ -97,15 +97,15 @@
 
 ---
 
-### ✅ Giai đoạn 6: Đóng gói `dist/SmartDeskLauncher.exe` (`--uac-admin`) & Kiểm thử Nghiệm thu
+### ✅ Giai đoạn 6: Đóng gói `dist/FocusDeskLauncher.exe` (`--uac-admin`) & Kiểm thử Nghiệm thu
 - **Thời gian hoàn thành:** 02/11/2026
 - **Các công việc đã thực hiện:**
   1. Xây dựng script đóng gói tự động `build_exe.bat` với PyInstaller 6.22.0:
-     - Tham số chuẩn: `--onefile --noconsole --uac-admin --name SmartDeskLauncher`
+     - Tham số chuẩn: `--onefile --noconsole --uac-admin --name FocusDeskLauncher`
      - Đóng gói kèm thư viện DLL gốc `--collect-data uiautomation` để đọc thanh địa chỉ trình duyệt trực tiếp bên trong file `.exe`.
-     - Loại trừ các thư viện khoa học dữ liệu không cần thiết (`numpy`, `scipy`, `pandas`, `onnxruntime`...) giúp dung lượng `dist/SmartDeskLauncher.exe` tối ưu chỉ **~24.5 MB**, khởi động nhanh.
+     - Loại trừ các thư viện khoa học dữ liệu không cần thiết (`numpy`, `scipy`, `pandas`, `onnxruntime`...) giúp dung lượng `dist/FocusDeskLauncher.exe` tối ưu chỉ **~24.5 MB**, khởi động nhanh.
      - Tự động sao chép `shared_config.json` và `KHOI_PHUC_KHAN_CAP.bat` vào thư mục `dist/`.
-  2. Chạy kiểm thử thực tế trực tiếp trên file thực thi đã biên dịch `dist\SmartDeskLauncher.exe --self-test`:
+  2. Chạy kiểm thử thực tế trực tiếp trên file thực thi đã biên dịch `dist\FocusDeskLauncher.exe --self-test`:
      - Mã thoát: `ExitCode = 0`
      - `self_test_passed = true`, `uia_available = true`, Embedded Flask Server cổng `5000` phản hồi `200 OK`, tự động định vị đúng thư mục `dist/` thông qua `sys.executable`.
 
@@ -119,7 +119,7 @@
      - Hỗ trợ đủ 4 kịch bản cảnh báo tự động (`GAME_DETECTED`, `WRONG_LOGIN`, `AI_OVERUSE`, `POSTURE_OR_HW`) + `SYSTEM_TEST` với bộ lọc chống spam `cooldown_seconds`.
      - Xây dựng `start_telegram_command_poller()` nhận lệnh 2 chiều xác thực theo đúng `chat_id` Phụ huynh: `/help`, `/status` (báo cáo điểm `CFI`, thời gian dùng App & AI, vi phạm gần nhất), `/lock` (khóa màn hình máy tính học sinh từ xa trong ~1 giây), `/reset_ai` (cấp lại thời gian AI).
   2. Tích hợp Tab **4. Cấu hình Bot Telegram 2 Chiều** trực tiếp trên Bảng điều khiển Phụ huynh trong App `.exe` và kích hoạt đầy đủ khu vực cấu hình + nút Test Telegram trên `trang_web.py` (kèm các route tương thích `/bot-settings`, `/api/telegram-config`, `/api/telegram-test`).
-  3. Tối ưu `build_exe.bat` sử dụng `--workpath "%TEMP%\SmartDeskLauncher_pyi_build"` để triệt tiêu xung đột khóa file tạm của OneDrive khi đóng gói lại `dist/SmartDeskLauncher.exe`.
+  3. Tối ưu `build_exe.bat` sử dụng `--workpath "%TEMP%\FocusDeskLauncher_pyi_build"` để triệt tiêu xung đột khóa file tạm của OneDrive khi đóng gói lại `dist/FocusDeskLauncher.exe`.
 - **Hướng dẫn bàn giao tiếp theo:**
   - Mọi cổng dữ liệu (`runtime_state.json` trường `posture_telemetry` và API `POST http://127.0.0.1:5000/api/posture_telemetry`) cùng cảnh báo `POSTURE_OR_HW` qua Bot Telegram đã được mở sẵn để kết nối sang Giai đoạn 8 & 9.
 
@@ -140,18 +140,18 @@
 
 ---
 
-### ✅ Giai đoạn 9: Hợp nhất Luồng MJPEG `/video_feed`, Điều khiển AI Tư thế 3D & Đóng gói Hoàn thiện (`dist/SmartDeskLauncher.exe`)
+### ✅ Giai đoạn 9: Hợp nhất Luồng MJPEG `/video_feed`, Điều khiển AI Tư thế 3D & Đóng gói Hoàn thiện (`dist/FocusDeskLauncher.exe`)
 - **Thời gian hoàn thành:** 02/11/2026
 - **Các công việc đã thực hiện:**
   1. Xây dựng bộ điều phối luồng kép `services/posture_controller.py`:
-     - Không phụ thuộc cứng `cv2`/`mediapipe` ở tầng giao diện chính giúp `dist/SmartDeskLauncher.exe` giữ dung lượng tối ưu **24.54 MB** (<1s khởi động, tương thích giới hạn 100 MB của GitHub).
-     - **Chế độ Kép (Dual-Mode):** Khi chạy qua Python (`.py`) thì nạp trực tiếp `PostureAIServiceWorker` trong RAM; khi chạy qua `dist/SmartDeskLauncher.exe` thì tự động định vị `pythonw.exe` và khởi chạy ngầm tiến trình vệ tinh `posture_ai_engine.py --daemon --parent-pid <PID>` (tự tắt ngay lập tức khi Học sinh đăng xuất hoặc phần mềm đóng).
+     - Không phụ thuộc cứng `cv2`/`mediapipe` ở tầng giao diện chính giúp `dist/FocusDeskLauncher.exe` giữ dung lượng tối ưu **24.54 MB** (<1s khởi động, tương thích giới hạn 100 MB của GitHub).
+     - **Chế độ Kép (Dual-Mode):** Khi chạy qua Python (`.py`) thì nạp trực tiếp `PostureAIServiceWorker` trong RAM; khi chạy qua `dist/FocusDeskLauncher.exe` thì tự động định vị `pythonw.exe` và khởi chạy ngầm tiến trình vệ tinh `posture_ai_engine.py --daemon --parent-pid <PID>` (tự tắt ngay lập tức khi Học sinh đăng xuất hoặc phần mềm đóng).
   2. Nâng cấp Bảng điều khiển Web `trang_web.py` (`0.0.0.0:5000` cho PC & Điện thoại Android):
      - Bổ sung các cổng API: `GET /video_feed` (luồng MJPEG trực tiếp nội bộ LAN, có ảnh chờ nén sẵn không bao giờ vỡ khung hình), `POST /api/posture_frame`, `POST /api/posture_telemetry`, `POST /api/posture_recalibrate`, `POST /api/posture_toggle`.
      - Hiển thị trực quan luồng Camera AI 3D kèm bảng 6 nhóm chỉ số sinh trắc học thời gian thực (`EAR / PERCLOS`, `MAR / Ngáp`, `Pitch / Yaw / Roll`, `2 Tay trên bàn`, `Hiệu chỉnh 5s`, `Ngủ gật E_nod`) và 2 nút bấm điều khiển từ xa (`📷 Bật / Tắt Camera AI`, `🔄 Hiệu chỉnh lại Gốc Tư thế 5s`).
-  3. Tích hợp vào `he_thong_quan_ly_3_cap.py` và đóng gói lại `dist/SmartDeskLauncher.exe`:
+  3. Tích hợp vào `he_thong_quan_ly_3_cap.py` và đóng gói lại `dist/FocusDeskLauncher.exe`:
      - Tự động bật AI Camera khi đăng nhập **Học sinh** (hiển thị `🎯 Tư thế CFI: XX%` thời gian thực trên thanh trạng thái), tự động dừng khi chuyển về Màn hình Khóa / Phụ huynh / Admin hoặc kích hoạt Fail-Safe.
      - Bổ sung tùy chọn bật/tắt AI Camera và chọn chỉ số Webcam USB trong bảng Admin, kèm báo cáo chỉ số 3D trong Tab Thống kê của Phụ huynh.
 - **Kiểm thử nghiệm thu:**
   - Kiểm thử luồng tích hợp đầu-cuối (`PostureAIEngine` -> `/api/posture_frame` -> MJPEG `/video_feed` -> `/api/du_lieu_dashboard`): **PASS 100%**.
-  - Kiểm thử trực tiếp bản biên dịch `dist\SmartDeskLauncher.exe --self-test`: **`ExitCode = 0`**, `self_test_passed = true`, `uia_available = true`, `telegram_ready = true`, `posture_web_ready = true`.
+  - Kiểm thử trực tiếp bản biên dịch `dist\FocusDeskLauncher.exe --self-test`: **`ExitCode = 0`**, `self_test_passed = true`, `uia_available = true`, `telegram_ready = true`, `posture_web_ready = true`.

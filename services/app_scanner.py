@@ -15,7 +15,7 @@ SKIP_WORDS = ("uninstall", "gỡ cài đặt", "gỡ bỏ", "readme", "help", "t
               "documentation", "release notes", "update", "updater", "repair", "setup")
 SKIP_EXES = {"explorer.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "regedit.exe", "taskmgr.exe", "mmc.exe",
              "msiexec.exe", "rundll32.exe", "control.exe", "python.exe", "pythonw.exe", "wscript.exe", "cscript.exe",
-             "smartdesklauncher.exe", "unins000.exe", "conhost.exe"}
+             "focusdesklauncher.exe", "unins000.exe", "conhost.exe"}
 
 
 def _start_menu_dirs() -> List[str]:

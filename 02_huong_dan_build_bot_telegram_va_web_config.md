@@ -23,7 +23,7 @@
 ## 3. Các bước Lấy `Bot Token` và `Chat ID` trong 2 phút
 
 1. Mở ứng dụng Telegram trên điện thoại hoặc máy tính, tìm kiếm tài khoản **`@BotFather`** (có dấu tích xanh).
-2. Gửi lệnh `/newbot` $\rightarrow$ Đặt tên hiển thị cho Bot (ví dụ: `Giám Sát Bàn Học Thông Minh`) $\rightarrow$ Đặt username có đuôi `bot` (ví dụ: `SmartDeskMonitor_bot`).
+2. Gửi lệnh `/newbot` $\rightarrow$ Đặt tên hiển thị cho Bot (ví dụ: `Giám Sát Bàn Học Thông Minh`) $\rightarrow$ Đặt username có đuôi `bot` (ví dụ: `FocusDeskMonitor_bot`).
 3. Copy chuỗi **HTTP API Token** (dạng `7123456789:AAH...`) mà `@BotFather` cấp.
 4. Bấm vào đường link Bot vừa tạo và nhấn nút **Start** (gửi 1 tin nhắn bất kỳ như `Xin chào`).
 5. Mở trình duyệt truy cập đường dẫn: `https://api.telegram.org/bot<DÁN_TOKEN_VÀO_ĐÂY>/getUpdates` $\rightarrow$ Tìm trường `"chat":{"id": 123456789}` để lấy mã **`Chat ID`** của phụ huynh.

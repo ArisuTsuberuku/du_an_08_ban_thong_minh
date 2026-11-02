@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Phần Mềm Trung Tâm Quản Lý Bàn Học Thông Minh 3 Cấp Quyền (he_thong_quan_ly_3_cap.py)
-Đóng gói thành SmartDeskLauncher.exe (--uac-admin):
+Đóng gói thành FocusDeskLauncher.exe (--uac-admin):
   - Giao diện Khóa Toàn màn hình kiểu Gcafe / CSM + 3 Tài khoản Demo nhanh.
   - Phân quyền 3 cấp: Admin (Quản trị hệ thống), Phụ huynh (Quản lý Whitelist/Web/AI & Báo cáo), Học sinh (Custom Shell).
   - Student Task Manager riêng: Chỉ hiện ứng dụng học tập được phép, ẩn tuyệt đối explorer.exe & python.
@@ -51,7 +51,7 @@ FORBIDDEN_STUDENT_PROCESSES: Set[str] = {
     "explorer.exe",
     "python.exe",
     "pythonw.exe",
-    "smartdesklauncher.exe",
+    "focusdesklauncher.exe",
     "he_thong_quan_ly_3_cap.exe",
     "cmd.exe",
     "powershell.exe",

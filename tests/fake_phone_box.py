@@ -34,7 +34,7 @@ class FakeBox:
         m = json.loads(line)
         t, i = m.get("t"), m.get("id")
         if t == "hello":
-            self._send({"t": "hello", "dev": "smartdesk-box", "fw": "sim-1.0", "box_id": "SIM01", "nonce": self.nonce,
+            self._send({"t": "hello", "dev": "focusdesk-box", "fw": "sim-1.0", "box_id": "SIM01", "nonce": self.nonce,
                         "paired": bool(self.key), "phone": self.phone, "lid": self.lid, "lock": self.lock})
         elif t == "ping":
             self._send({"t": "state", "phone": self.phone, "lid": self.lid, "lock": self.lock, "nonce": self.nonce})

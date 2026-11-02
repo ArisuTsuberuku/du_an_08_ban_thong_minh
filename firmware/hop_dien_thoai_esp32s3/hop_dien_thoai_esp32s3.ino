@@ -1,5 +1,5 @@
 /*
-  HOP KHOA DIEN THOAI - ESP32-S3 (firmware cho Ban Hoc Thong Minh / SmartDesk)
+  HOP KHOA DIEN THOAI - ESP32-S3 (firmware cho Ban Hoc Thong Minh / FocusDesk)
   ---------------------------------------------------------------------------
   Ket noi may tinh: cap USB vao cong "USB" (native USB-CDC) cua ESP32-S3, 115200 baud.
   Arduino IDE: Board "ESP32S3 Dev Module", USB CDC On Boot = Enabled. Thu vien: ArduinoJson (v7).
@@ -87,7 +87,7 @@ void send(JsonDocument& d) { serializeJson(d, Serial); Serial.print('\n'); }
 void sendState(const char* t) {
   JsonDocument d;
   d["t"] = t;
-  if (strcmp(t, "hello") == 0) { d["dev"] = "smartdesk-box"; d["fw"] = FW_VERSION; d["box_id"] = boxId; d["paired"] = key.length() > 0; }
+  if (strcmp(t, "hello") == 0) { d["dev"] = "focusdesk-box"; d["fw"] = FW_VERSION; d["box_id"] = boxId; d["paired"] = key.length() > 0; }
   d["phone"] = phoneIn; d["lid"] = lidClosed ? "closed" : "open"; d["lock"] = locked ? "locked" : "unlocked";
   d["nonce"] = nonce;
   if (relockAt) d["unlock_left"] = (long)((relockAt - millis()) / 1000);

@@ -5,7 +5,7 @@ Chặn tên miền ở mức hệ điều hành bằng file hosts (port từ DuA
 - Mọi trình duyệt / ứng dụng đều không phân giải được tên miền bị chặn (khác cách đóng tab dễ lách).
 - Chỉ ghi các dòng có đánh dấu MARKER, không đụng dòng khác của người dùng; gỡ sạch khi danh sách rỗng
   hoặc khi kích hoạt khôi phục khẩn cấp.
-- Cần quyền Administrator (SmartDeskLauncher.exe chạy --uac-admin). Không đủ quyền -> trả False, không làm gì.
+- Cần quyền Administrator (FocusDeskLauncher.exe chạy --uac-admin). Không đủ quyền -> trả False, không làm gì.
 - Giới hạn: trình duyệt bật "DNS bảo mật" (DoH) có thể bỏ qua hosts; bộ giám sát URL vẫn đóng tab như lớp 2.
 """
 
@@ -15,8 +15,8 @@ import sys
 from typing import Iterable, List, Tuple
 
 HOSTS_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "drivers", "etc", "hosts")
-MARKER = "# SMARTDESK-BLOCK"
-# Không bao giờ chặn các miền hệ thống / dịch vụ của chính SmartDesk
+MARKER = "# FOCUSDESK-BLOCK"
+# Không bao giờ chặn các miền hệ thống / dịch vụ của chính FocusDesk
 SAFE_DOMAINS = ("vercel.app", "trycloudflare.com", "cloudflare.com", "firebasedatabase.app", "googleapis.com",
                 "gstatic.com", "google.com", "telegram.org", "microsoft.com", "windowsupdate.com", "localhost")
 
@@ -57,7 +57,7 @@ def apply_hosts_block(domains: Iterable[str]) -> Tuple[bool, str]:
         subprocess.run(["ipconfig", "/flushdns"], capture_output=True, creationflags=flags, timeout=10)
         return True, f"Đã chặn DNS {len(doms)} tên miền"
     except PermissionError:
-        return False, "Thiếu quyền Admin để ghi file hosts (chạy SmartDeskLauncher.exe để chặn DNS)"
+        return False, "Thiếu quyền Admin để ghi file hosts (chạy FocusDeskLauncher.exe để chặn DNS)"
     except Exception as exc:
         return False, f"Lỗi ghi hosts: {exc}"
 

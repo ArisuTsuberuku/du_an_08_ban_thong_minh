@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title Tao bo cai SmartDesk_Setup.exe
+title Tao bo cai FocusDesk_Setup.exe
 cd /d "%~dp0"
 echo ==============================================================
-echo   TAO BO CAI MOT FILE: dist_installer\SmartDesk_Setup.exe
-echo   Chi dong goi file - KHONG chay SmartDesk, KHONG khoa may.
+echo   TAO BO CAI MOT FILE: dist_installer\FocusDesk_Setup.exe
+echo   Chi dong goi file - KHONG chay FocusDesk, KHONG khoa may.
 echo ==============================================================
 echo.
 
@@ -37,10 +37,10 @@ if not exist "installer\redist\python-installer.exe" echo [CANH BAO] Tai Python 
 REM ---- 3. Dong goi ------------------------------------------------------------
 :dong_goi
 echo [3/3] Dang dong goi, may co the cham 1-3 phut...
-"%ISCC%" "installer\SmartDesk.iss"
+"%ISCC%" "installer\FocusDesk.iss"
 if errorlevel 1 goto :loi_dong_goi
 echo.
-echo XONG: gui file dist_installer\SmartDesk_Setup.exe sang may khac, nhay dup de cai.
+echo XONG: gui file dist_installer\FocusDesk_Setup.exe sang may khac, nhay dup de cai.
 explorer "dist_installer"
 pause
 exit /b 0

@@ -26,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='SmartDeskLauncher',
+    name='FocusDeskLauncher',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

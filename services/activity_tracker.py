@@ -203,7 +203,7 @@ class ActivityTracker:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self.self_names = {os.path.basename(sys.executable).lower(), "smartdesklauncher.exe"}
+        self.self_names = {os.path.basename(sys.executable).lower(), "focusdesklauncher.exe"}
         self.current: Dict[str, str] = {}   # cửa sổ đang dùng ngay lúc này (cho thẻ trạng thái phụ huynh)
         self.open_apps: List[Dict] = []      # các ứng dụng / tab đang mở (quét mỗi ~12s)
         self._last_open_scan = 0.0

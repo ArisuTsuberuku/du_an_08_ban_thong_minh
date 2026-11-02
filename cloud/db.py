@@ -165,7 +165,7 @@ class _LocalStore:
 def get_store():
     if _FB_URL:
         return _FirebaseStore(_FB_URL)
-    return _LocalStore(os.environ.get("LOCAL_DB_FILE", os.path.join(tempfile.gettempdir(), "smartdesk_local_db.json")))
+    return _LocalStore(os.environ.get("LOCAL_DB_FILE", os.path.join(tempfile.gettempdir(), "focusdesk_local_db.json")))
 
 
 db = get_store()

@@ -3,7 +3,7 @@
 Entry-point độc lập posture_ai_engine.py (theo Tài liệu số 03).
 Hỗ trợ 2 chế độ:
   1. `python posture_ai_engine.py`          -> Mở cửa sổ trực quan xem thử AI Nhận diện Tư thế 3D + đẩy lên Web :5000.
-  2. `pythonw posture_ai_engine.py --daemon` -> Chạy ngầm không cửa sổ (Sidecar cho SmartDeskLauncher.exe),
+  2. `pythonw posture_ai_engine.py --daemon` -> Chạy ngầm không cửa sổ (Sidecar cho FocusDeskLauncher.exe),
      tự động dừng nếu có tín hiệu UNLOCK.txt hoặc tắt từ Bảng điều khiển Web.
 """
 

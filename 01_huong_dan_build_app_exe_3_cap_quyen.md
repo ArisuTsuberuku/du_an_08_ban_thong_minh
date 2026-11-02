@@ -18,7 +18,7 @@
 
 ### 2.2. Cơ chế Chống lỗi Đen màn hình (Anti-Brick Fail-safe)
 Các phần mềm phòng máy như Gcafe/CSM thường ghi đè khóa `Winlogon\Shell` trong Registry. Tuy nhiên, để đảm bảo an toàn tuyệt đối khi chạy thử nghiệm trên máy tính cá nhân:
-1. Khởi chạy file `SmartDeskLauncher.exe` cùng Windows thông qua **Windows Task Scheduler** (chế độ *Run with highest privileges*).
+1. Khởi chạy file `FocusDeskLauncher.exe` cùng Windows thông qua **Windows Task Scheduler** (chế độ *Run with highest privileges*).
 2. Khi vào chế độ **Khóa màn hình** hoặc **Chế độ Học sinh**, phần mềm đặt thuộc tính cửa sổ `-fullscreen` và `-topmost`, đồng thời thực thi lệnh ngầm `taskkill /f /im explorer.exe` để thu hồi thanh Taskbar và biểu tượng Desktop.
 3. Ngay khi đăng nhập quyền **Phụ huynh** hoặc **Admin** (hoặc khi chương trình gặp ngoại lệ), hàm bảo vệ `restore_windows_shell()` sẽ tự động gọi lại `subprocess.Popen("explorer.exe")` và mở khóa Registry `DisableTaskMgr = 0`.
 
@@ -81,7 +81,7 @@ Tạo tệp `shared_config.json` nằm cùng thư mục với file `.exe`. Tệp
 
 ---
 
-## 4. Mã nguồn Hoàn chỉnh: `smart_desk_launcher.py`
+## 4. Mã nguồn Hoàn chỉnh: `focus_desk_launcher.py`
 
 Mã nguồn dưới đây đã thiết kế sẵn **Cổng tích hợp (Integration Hook)** tại hàm `start_background_web_monitor()` để bạn ghép nối trực tiếp module Python kiểm soát Web của thành viên thứ 3 vào:
 
@@ -209,7 +209,7 @@ class BackgroundMonitorHook:
             "system", "registry", "smss.exe", "csrss.exe", "wininit.exe", "services.exe",
             "lsass.exe", "svchost.exe", "fontdrvhost.exe", "winlogon.exe", "dwm.exe",
             "sihost.exe", "taskhostw.exe", "conhost.exe", "ctfmon.exe", "python.exe",
-            "pythonw.exe", "smartdesklauncher.exe", "cmd.exe"
+            "pythonw.exe", "focusdesklauncher.exe", "cmd.exe"
         }
 
         while self.running:
@@ -299,7 +299,7 @@ def open_student_task_manager(parent_root):
 # =====================================================================
 # 5. GIAO DIỆN CHÍNH 3 CẤP TÀI KHOẢN (GCAFE / CSM STYLE)
 # =====================================================================
-class SmartDeskApp:
+class FocusDeskApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Smart Study Desk - Cyber-Physical Access Control")
@@ -556,7 +556,7 @@ class SmartDeskApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = SmartDeskApp(root)
+    app = FocusDeskApp(root)
     root.mainloop()
 ```
 
@@ -570,6 +570,6 @@ if __name__ == "__main__":
    ```
 2. **Đóng gói thành 1 file `.exe` duy nhất tự động yêu cầu quyền Admin (`--uac-admin`) và ẩn cửa sổ dòng lệnh đen (`--noconsole`):**
    ```bash
-   pyinstaller --onefile --noconsole --uac-admin --name SmartDeskLauncher smart_desk_launcher.py
+   pyinstaller --onefile --noconsole --uac-admin --name FocusDeskLauncher focus_desk_launcher.py
    ```
-3. File kết quả sẽ nằm tại thư mục `dist/SmartDeskLauncher.exe`. Đặt file này cùng thư mục với `shared_config.json` để chạy ngay.
+3. File kết quả sẽ nằm tại thư mục `dist/FocusDeskLauncher.exe`. Đặt file này cùng thư mục với `shared_config.json` để chạy ngay.

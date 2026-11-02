@@ -8,7 +8,7 @@ Có thể ghim cổng trong shared_config: "esp32_com_port": "COM7" (mặc đị
 
 GIAO THỨC: mỗi dòng 1 JSON (NDJSON), kết thúc "\\n". Trường chung: "t" = loại tin, "id" = số thứ tự (PC đặt).
   PC  -> Hộp : hello · ping {ts} · state? (t="get") · lock · unlock {sec} · beep {n} · setkey {key} · cfg {...}
-  Hộp -> PC  : hello {dev:"smartdesk-box", fw, box_id, nonce, paired} · state {phone, lid, lock, nonce}
+  Hộp -> PC  : hello {dev:"focusdesk-box", fw, box_id, nonce, paired} · state {phone, lid, lock, nonce}
                · event {e: phone_in|phone_out|lid_open|lid_close|locked|unlocked|tamper|button|pair_mode}
                · ack {id, ok, err?}
   Ví dụ:  PC  {"t":"unlock","id":12,"sec":600,"mac":"9f2c…"}
@@ -133,7 +133,7 @@ class PhoneBoxLink:
             t0 = time.time()
             while time.time() - t0 < 2.5:
                 msg = self._read_one()
-                if msg and msg.get("t") == "hello" and msg.get("dev") == "smartdesk-box":
+                if msg and msg.get("t") == "hello" and msg.get("dev") == "focusdesk-box":
                     self._on_msg(msg)
                     safe_log(f"[HỘP] Đã kết nối hộp điện thoại {msg.get('box_id')} ở {port} (fw {msg.get('fw')})")
                     return True

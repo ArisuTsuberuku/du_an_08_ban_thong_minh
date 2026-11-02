@@ -42,7 +42,7 @@ def safe_log(message: str) -> None:
 
 def get_app_dir() -> str:
     """Trả về thư mục gốc chứa file .exe (khi đã đóng gói) hoặc thư mục gốc dự án (khi chạy .py)."""
-    env_dir = os.environ.get("SMARTDESK_APP_DIR", "").strip()
+    env_dir = os.environ.get("FOCUSDESK_APP_DIR", "").strip()
     if env_dir and os.path.isdir(env_dir):
         return os.path.abspath(env_dir)
     if getattr(sys, "frozen", False):

@@ -9,7 +9,7 @@ Phần mềm trung tâm quản lý kỷ luật số 3 cấp quyền kiểu Gcafe
 ```text
 Du_an_D08_ban_thong_minh/
 ├── dist/
-│   ├── SmartDeskLauncher.exe       # Bản đóng gói hoàn chỉnh chạy ngay (Quyền Administrator, ~25 MB)
+│   ├── FocusDeskLauncher.exe       # Bản đóng gói hoàn chỉnh chạy ngay (Quyền Administrator, ~25 MB)
 │   ├── shared_config.json          # Cấu hình dùng chung đi kèm file .exe
 │   └── KHOI_PHUC_KHAN_CAP.bat      # Công cụ khôi phục khẩn cấp 1-click
 ├── models/
@@ -27,7 +27,7 @@ Du_an_D08_ban_thong_minh/
 ├── posture_ai_engine.py            # Bản xem trực tiếp cửa sổ AI 3D hoặc chạy ngầm (--daemon)
 ├── giam_sat.pyw                    # Bản chạy ngầm độc lập (tương thích ngược báo cáo nhóm)
 ├── telegram_service.py             # Wrapper tương thích cho các module mở rộng gọi trực tiếp
-├── build_exe.bat                   # Script tự động đóng gói ra dist\SmartDeskLauncher.exe
+├── build_exe.bat                   # Script tự động đóng gói ra dist\FocusDeskLauncher.exe
 ├── requirements.txt                # Danh sách thư viện Python
 └── tien_trinh_lam_viec.md          # Nhật ký bàn giao chi tiết từng giai đoạn
 ```
@@ -36,12 +36,12 @@ Du_an_D08_ban_thong_minh/
 
 ## 2. Cách Chạy Ngay (Bản `.EXE` Đã Đóng Gói)
 
-1. Mở thư mục `dist/` và nhấp đúp chạy **`SmartDeskLauncher.exe`** (chọn **Yes** khi Windows hỏi cấp quyền Administrator để cho phép khóa/mở khóa Task Manager gốc).
+1. Mở thư mục `dist/` và nhấp đúp chạy **`FocusDeskLauncher.exe`** (chọn **Yes** khi Windows hỏi cấp quyền Administrator để cho phép khóa/mở khóa Task Manager gốc).
 2. Ba tài khoản Demo tích hợp sẵn trên màn hình khóa:
    - **👨‍🎓 Học sinh:** `hocsinh` / `hocsinh123` *(Khóa Task Manager gốc, chỉ mở App/Thư mục cho phép, bật Student Task Manager riêng & chạy nền kiểm soát Web/Game/AI)*
    - **👪 Phụ huynh:** `phuhuynh` / `phuhuynh123` *(Mở khóa máy bình thường, quản lý Whitelist `.exe` & Thư mục, Link cấm/cho phép, giới hạn phút AI, cấu hình Bot Telegram & xem thống kê)*
    - **🛠️ Admin:** `admin` / `admin123` *(Toàn quyền hệ thống, cấu hình Kiosk ẩn `explorer.exe`, đổi mật khẩu 3 cấp & thoát hoàn toàn phần mềm)*
-3. **Xem Bảng điều khiển trên Điện thoại Phụ huynh:** Khi `SmartDeskLauncher.exe` đang chạy, mở trình duyệt trên điện thoại Android cùng mạng Wi-Fi truy cập địa chỉ LAN hiển thị ở thanh dưới màn hình (ví dụ `http://192.168.1.x:5000`).
+3. **Xem Bảng điều khiển trên Điện thoại Phụ huynh:** Khi `FocusDeskLauncher.exe` đang chạy, mở trình duyệt trên điện thoại Android cùng mạng Wi-Fi truy cập địa chỉ LAN hiển thị ở thanh dưới màn hình (ví dụ `http://192.168.1.x:5000`).
 
 ---
 

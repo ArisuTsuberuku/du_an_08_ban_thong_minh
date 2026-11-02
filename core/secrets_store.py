@@ -3,7 +3,7 @@
 Kho bí mật cục bộ (core/secrets_store.py) — KHÔNG bao giờ commit lên git.
 
 Thứ tự ưu tiên khi đọc 1 khóa:
-  1. Biến môi trường (vd: SMARTDESK_TELEGRAM_BOT_TOKEN, SMARTDESK_CLOUD_URL)
+  1. Biến môi trường (vd: FOCUSDESK_TELEGRAM_BOT_TOKEN, FOCUSDESK_CLOUD_URL)
   2. Tệp secrets.local.json cạnh mã nguồn / cạnh file .exe (đã nằm trong .gitignore)
 
 Mẫu secrets.local.json:
@@ -24,8 +24,8 @@ from core.config_manager import get_app_dir
 
 SECRETS_FILE = os.path.join(get_app_dir(), "secrets.local.json")
 _ENV_MAP = {
-    "telegram_bot_token": "SMARTDESK_TELEGRAM_BOT_TOKEN",
-    "cloud_url": "SMARTDESK_CLOUD_URL",
+    "telegram_bot_token": "FOCUSDESK_TELEGRAM_BOT_TOKEN",
+    "cloud_url": "FOCUSDESK_CLOUD_URL",
 }
 
 
@@ -39,7 +39,7 @@ def _load_file() -> Dict[str, Any]:
 
 
 def get_secret(key: str, default: Optional[str] = None) -> Optional[str]:
-    env_name = _ENV_MAP.get(key, "SMARTDESK_" + key.upper())
+    env_name = _ENV_MAP.get(key, "FOCUSDESK_" + key.upper())
     val = os.environ.get(env_name, "").strip()
     if val:
         return val

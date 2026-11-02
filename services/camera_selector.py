@@ -196,7 +196,7 @@ def build_diagnosis(reason: str, devices: List[str], detail: str = "") -> Dict[s
         if av:
             hint = (
                 f"Đang chạy {', '.join(av)}. Mở {av[0]} -> Cài đặt -> Bảo vệ Webcam (Webcam Protection) / "
-                f"Quyền ứng dụng: cho phép '{exe}' (và pythonw.exe, SmartDeskLauncher.exe) truy cập Webcam."
+                f"Quyền ứng dụng: cho phép '{exe}' (và pythonw.exe, FocusDeskLauncher.exe) truy cập Webcam."
             )
         else:
             hint = (

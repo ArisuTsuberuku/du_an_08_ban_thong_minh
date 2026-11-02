@@ -1384,7 +1384,7 @@ class PostureAIEngine:
         if self._black_frame_count >= 30:
             if self._black_frame_count == 30:
                 safe_log("[CAMERA] Webcam trả về khung hình ĐEN liên tục: đang bị ứng dụng khác dùng "
-                         "(trang_web.py / SmartDeskLauncher đã bật AI, Zoom, Zalo...) hoặc nắp che camera đang đóng.")
+                         "(trang_web.py / FocusDeskLauncher đã bật AI, Zoom, Zalo...) hoặc nắp che camera đang đóng.")
             vis = cv2.imdecode(np.frombuffer(jpeg_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
             if vis is not None:
                 cv2.putText(vis, "KHUNG HINH DEN: Webcam dang bi app khac dung", (12, 200),

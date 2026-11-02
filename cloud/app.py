@@ -3,7 +3,7 @@
 Smart Study Desk Cloud (Vercel + Firebase RTDB) — cổng điều khiển từ xa cho nhiều phụ huynh / nhiều máy.
 
 Luồng dữ liệu (máy học sinh luôn GỌI RA, không mở cổng vào):
-  SmartDeskLauncher (agent)  --heartbeat 10s-->  /api/agent/heartbeat  <--lệnh--  Phụ huynh (web / Telegram)
+  FocusDeskLauncher (agent)  --heartbeat 10s-->  /api/agent/heartbeat  <--lệnh--  Phụ huynh (web / Telegram)
   Telegram  --webhook-->  /api/telegram/webhook   (1 bot duy nhất, token chỉ nằm trong env Vercel)
 
 Biến môi trường (Vercel -> Settings -> Environment Variables):
@@ -31,7 +31,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from db import db, fb_key
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY") or "dev-only-" + hashlib.sha256(b"smartdesk").hexdigest()
+app.secret_key = os.environ.get("SECRET_KEY") or "dev-only-" + hashlib.sha256(b"focusdesk").hexdigest()
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -470,13 +470,13 @@ h3{margin:4px 0 10px}
    <div class="card"><h3>⚙️ Cách giám sát</h3>
     <div class="sw"><div><div class="t">Giám sát cả khi học sinh chưa đăng nhập</div><div class="d">Bật: chặn & báo mọi lúc máy bật. Tắt: chỉ khi học sinh vào chế độ học.</div></div>
      <label class="tg"><input type="checkbox" id="opt-always"><span></span></label></div>
-    <div class="sw"><div><div class="t">Chặn tận gốc trang web (DNS)</div><div class="d">Trình duyệt nào cũng không vào được. Cần app SmartDesk chạy quyền Admin.</div></div>
+    <div class="sw"><div><div class="t">Chặn tận gốc trang web (DNS)</div><div class="d">Trình duyệt nào cũng không vào được. Cần app FocusDesk chạy quyền Admin.</div></div>
      <label class="tg"><input type="checkbox" id="opt-dns" checked><span></span></label></div>
     <p><button class="bigbtn pri" style="width:100%" onclick="saveRules()">💾 Lưu & áp dụng</button></p><p class="mut" id="rmsg"></p></div>
   </section>
 
   <section data-view="settings">
-   <div class="card"><h3>➕ Thêm máy học sinh</h3><p class="mut">Mã 6 số hiện trong app SmartDesk → tab “Kết nối phụ huynh”.</p>
+   <div class="card"><h3>➕ Thêm máy học sinh</h3><p class="mut">Mã 6 số hiện trong app FocusDesk → tab “Kết nối phụ huynh”.</p>
     <div class="row"><input id="pcode" placeholder="Mã 6 số" inputmode="numeric" maxlength="6" style="width:120px">
      <input id="pname" placeholder="Tên máy (vd: Máy của Minh)" style="flex:1"><button class="pri" style="background:var(--acc);color:#fff" onclick="pair()">Ghép</button></div>
     <p id="pmsg" class="mut"></p></div>

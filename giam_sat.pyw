@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Tệp chạy độc lập giam_sat.pyw (tương thích ngược 100% với báo cáo tiến độ của nhóm).
-Khi chạy trực tiếp phần mềm trung tâm SmartDeskLauncher.exe / he_thong_quan_ly_3_cap.py,
+Khi chạy trực tiếp phần mềm trung tâm FocusDeskLauncher.exe / he_thong_quan_ly_3_cap.py,
 luồng BoGiamSatThongMinh đã được nhúng sẵn bên trong nên không cần mở riêng tệp này.
 """
 

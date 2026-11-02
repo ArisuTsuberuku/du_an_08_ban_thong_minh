@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo =====================================================================
-echo   DONG GOI PHAN MEM BAN HOC THONG MINH (dist\SmartDeskLauncher.exe)
+echo   DONG GOI PHAN MEM BAN HOC THONG MINH (dist\FocusDeskLauncher.exe)
 echo   Che do: --onefile --noconsole --uac-admin (Quyen Administrator)
 echo   Camera AI (mediapipe) chay rieng bang Python he thong -> chay CAI_DAT.bat truoc
 echo =====================================================================
@@ -12,8 +12,8 @@ python -m PyInstaller ^
     --onefile ^
     --noconsole ^
     --uac-admin ^
-    --name SmartDeskLauncher ^
-    --workpath "%TEMP%\SmartDeskLauncher_pyi_build" ^
+    --name FocusDeskLauncher ^
+    --workpath "%TEMP%\FocusDeskLauncher_pyi_build" ^
     --distpath "dist" ^
     --collect-data uiautomation ^
     --hidden-import=core.config_manager ^
@@ -70,5 +70,5 @@ if exist models xcopy /E /I /Y models dist\models >nul
 if exist shared_config.json copy /Y shared_config.json dist\shared_config.json >nul
 if exist KHOI_PHUC_KHAN_CAP.bat copy /Y KHOI_PHUC_KHAN_CAP.bat dist\KHOI_PHUC_KHAN_CAP.bat >nul
 
-echo [SUCCESS] Hoan tat! File chay nam tai: dist\SmartDeskLauncher.exe
+echo [SUCCESS] Hoan tat! File chay nam tai: dist\FocusDeskLauncher.exe
 echo [LUU Y] Camera AI chay bang Python cua may (posture_ai_engine.py o thu muc goc) - may chay exe van can CAI_DAT.bat.

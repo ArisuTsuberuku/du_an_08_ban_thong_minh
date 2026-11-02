@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title SmartDesk - Ban Hoc Thong Minh (app 3 cap)
+title FocusDesk - Ban Hoc Thong Minh (app 3 cap)
 REM ============================================================
 REM  Nhap dup file nay de mo app quan ly 3 cap (he_thong_quan_ly_3_cap.py)
 REM  - Tu xin quyen Administrator (can de khoa Task Manager + chan web qua file hosts)

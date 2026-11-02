@@ -138,7 +138,7 @@ def check_admin() -> None:
         if ctypes.windll.shell32.IsUserAnAdmin():
             ok("Quyền Administrator", "có (khóa Task Manager, chặn DNS hoạt động)")
         else:
-            warn("Quyền Administrator", "không — mở bằng MO_SMARTDESK.bat (tự xin quyền) để chặn DNS / khóa Task Manager")
+            warn("Quyền Administrator", "không — mở bằng MO_FOCUSDESK.bat (tự xin quyền) để chặn DNS / khóa Task Manager")
     except Exception:
         warn("Quyền Administrator", "không xác định (không phải Windows?)")
 
@@ -187,7 +187,7 @@ def check_cloud() -> None:
             url = (json.load(fh).get("cloud_url") or "").rstrip("/")
     except Exception:
         pass
-    url = os.environ.get("SMARTDESK_CLOUD_URL", url)
+    url = os.environ.get("FOCUSDESK_CLOUD_URL", url)
     if not url:
         warn("Web phụ huynh (cloud)", "chưa cấu hình cloud_url trong secrets.local.json")
         return
