@@ -7,7 +7,7 @@
 ;  Gỡ cài đặt: trả lại Task Manager, gỡ chặn DNS, xóa tác vụ tự khởi động, hiện lại taskbar.
 ; =====================================================================
 #define AppName "FocusDesk"
-#define AppVer "1.18.2"
+#define AppVer "1.18.3"
 
 [Setup]
 AppId={{6F0B3A52-8C1E-4C5D-9E0A-1D08B4A70001}

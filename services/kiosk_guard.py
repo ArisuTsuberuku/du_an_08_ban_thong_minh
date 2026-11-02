@@ -13,11 +13,15 @@ hoặc chuột vào taskbar để mở mọi thứ khác trên máy.
   3. CANH CỬA SỔ: cửa sổ đang được focus mà KHÔNG thuộc ứng dụng được phép (hoặc là Start menu/Search/Desktop)
      -> thu nhỏ ngay + trả màn hình Góc học tập lên trước + báo vi phạm (mỗi ứng dụng 1 lần/60s).
      Ứng dụng UWP (Máy tính...) chạy trong ApplicationFrameHost -> dò tiến trình thật qua cửa sổ con.
+  4. GIỚI HẠN THƯ MỤC: cửa sổ File Explorer chỉ được ở trong các "Thư mục tài liệu" Admin cho phép. Mỗi 0,3s đọc
+     đường dẫn thật của từng cửa sổ/tab Explorer (COM Shell.Application) -> đi ra ngoài (lên ổ C:, This PC, gõ địa chỉ,
+     cây thư mục bên trái...) thì kéo về thư mục được phép gần nhất + báo phụ huynh. Không có thư mục nào -> cấm Explorer.
 
 Mọi API Win32 đều qua ctypes; trên hệ điều hành khác các hàm là no-op (để kiểm thử trên Linux).
 """
 
 import ctypes
+import ntpath
 import os
 import sys
 import threading
@@ -35,7 +39,7 @@ SHELL_ESCAPES = {"startmenuexperiencehost.exe", "searchhost.exe", "searchapp.exe
 DESKTOP_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
 
 _state = {"active": False, "allowed": set(), "own_pids": set(), "on_violation": None, "on_refocus": None,
-          "allow_explorer_windows": True}
+          "allow_explorer_windows": True, "allowed_folders": []}
 _lock = threading.Lock()
 _threads: Dict[str, threading.Thread] = {}
 _stop = threading.Event()
@@ -258,8 +262,9 @@ def _is_allowed_window(hwnd) -> Tuple[bool, str, str]:
         return True, exe, cls
     if exe in _state["allowed"]:
         return True, exe, cls
-    if exe == "explorer.exe" and cls == "CabinetWClass" and _state["allow_explorer_windows"]:
-        return True, exe, cls     # cửa sổ thư mục tài liệu học sinh mở từ Góc học tập
+    if exe == "explorer.exe" and cls == "CabinetWClass" and _state["allow_explorer_windows"] \
+            and _state["allowed_folders"] and _folder_com_ok[0]:
+        return True, exe, cls     # cửa sổ thư mục tài liệu; lớp 4 giữ nó trong thư mục được phép
     if cls == "#32770" and exe == "explorer.exe":
         return True, exe, cls     # hộp thoại hệ thống (sao chép file...)
     return False, exe, cls
@@ -297,14 +302,111 @@ def _watch_thread() -> None:
         _stop.wait(0.25)
 
 
+# ----------------------------------------------------------------------------- lớp 4: giới hạn thư mục Explorer
+def _norm_dir(path: str) -> str:
+    return ntpath.normcase(ntpath.normpath(path)).rstrip("\\")
+
+
+def path_in_allowed(path: str, roots: Iterable[str]) -> bool:
+    """True nếu `path` là một thư mục được phép hoặc nằm bên trong nó (so theo kiểu Windows, không phân biệt hoa thường).
+    Đường dẫn ảo (This PC '::{…}', thư viện, kết quả tìm kiếm, mạng 'search-ms:', 'shell:'…) luôn bị coi là ngoài."""
+    if not path or path.startswith("::") or (":" not in path[:3] and not path.startswith("\\\\")):
+        return False
+    if "search-ms:" in path.lower() or path.lower().startswith("shell:"):
+        return False
+    p = _norm_dir(path)
+    for r in roots:
+        if not r:
+            continue
+        rn = _norm_dir(r)
+        if p == rn or p.startswith(rn + "\\"):
+            return True
+    return False
+
+
+def _explorer_path(win) -> str:
+    """Đường dẫn thư mục đang mở trong 1 cửa sổ/tab Explorer (COM InternetExplorer/ShellBrowserWindow)."""
+    try:
+        return str(win.Document.Folder.Self.Path or "")
+    except Exception:
+        pass
+    try:
+        url = str(win.LocationURL or "")
+        if url.lower().startswith("file:///"):
+            from urllib.parse import unquote
+
+            return unquote(url[8:]).replace("/", "\\")
+    except Exception:
+        pass
+    return ""
+
+
+_last_ok_path: Dict[Tuple[int, int], str] = {}
+_folder_com_ok = [True]
+
+
+def _folder_thread() -> None:
+    try:
+        import pythoncom  # type: ignore
+        import win32com.client  # type: ignore
+
+        pythoncom.CoInitialize()
+        shell = win32com.client.Dispatch("Shell.Application")
+    except Exception:
+        _folder_com_ok[0] = False      # không đọc được đường dẫn -> lớp 3 coi mọi cửa sổ Explorer là vi phạm
+        return
+    while not _stop.is_set():
+        try:
+            roots = list(_state["allowed_folders"])
+            if _state["active"] and roots:
+                wins = shell.Windows()
+                for i in range(wins.Count):
+                    try:
+                        w = wins.Item(i)
+                        if w is None or not str(w.FullName or "").lower().endswith("explorer.exe"):
+                            continue
+                        key = (int(w.HWND), i)
+                        path = _explorer_path(w)
+                        if path_in_allowed(path, roots):
+                            _last_ok_path[key] = path
+                            continue
+                        back = _last_ok_path.get(key) or roots[0]
+                        try:
+                            os.makedirs(back, exist_ok=True)
+                        except Exception:
+                            pass
+                        w.Navigate2(back)
+                        now = time.time()
+                        vkey = "folder:" + (path or "?").lower()
+                        if now - _last_violation.get(vkey, 0) > 60:
+                            _last_violation[vkey] = now
+                            vcb = _state.get("on_violation")
+                            if vcb:
+                                try:
+                                    vcb("explorer.exe", f"thư mục ngoài danh sách: {path or 'không rõ'}")
+                                except Exception:
+                                    pass
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        _stop.wait(0.3)
+    try:
+        pythoncom.CoUninitialize()
+    except Exception:
+        pass
+
+
 # ----------------------------------------------------------------------------- API
 def start_kiosk(allowed_exes: Iterable[str], on_violation: Optional[Callable[[str, str], None]] = None,
-                on_refocus: Optional[Callable[[], None]] = None, allow_explorer_windows: bool = True) -> None:
+                on_refocus: Optional[Callable[[], None]] = None, allow_explorer_windows: bool = True,
+                allowed_folders: Iterable[str] = ()) -> None:
     """Bật (hoặc cập nhật danh sách) kiosk. Gọi lại nhiều lần an toàn."""
     with _lock:
         _state.update(active=True, allowed={a.lower() for a in allowed_exes if a},
                       own_pids={os.getpid()} | _child_pids(), on_violation=on_violation, on_refocus=on_refocus,
-                      allow_explorer_windows=allow_explorer_windows)
+                      allow_explorer_windows=allow_explorer_windows,
+                      allowed_folders=[str(f) for f in allowed_folders if f])
         if not IS_WINDOWS:
             return
         _stop.clear()
@@ -314,6 +416,9 @@ def start_kiosk(allowed_exes: Iterable[str], on_violation: Optional[Callable[[st
         if "watch" not in _threads or not _threads["watch"].is_alive():
             _threads["watch"] = threading.Thread(target=_watch_thread, name="KioskWindowWatch", daemon=True)
             _threads["watch"].start()
+        if "folder" not in _threads or not _threads["folder"].is_alive():
+            _threads["folder"] = threading.Thread(target=_folder_thread, name="KioskFolderGuard", daemon=True)
+            _threads["folder"].start()
     set_taskbar_visible(False)
 
 

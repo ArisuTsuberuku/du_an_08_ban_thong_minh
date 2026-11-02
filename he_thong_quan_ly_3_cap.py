@@ -434,11 +434,15 @@ class PhanMemQuanLyBanHocEXE:
         hwnd = self._root_hwnd()
 
         def vi_pham(exe: str, title: str) -> None:
+            if title.startswith("thư mục ngoài danh sách"):
+                gui_canh_bao_len_web(f"📁 Học sinh mở {title[:120]} — đã tự đưa về thư mục được phép", "GAME")
+                return
             gui_canh_bao_len_web(f"🚫 Học sinh mở ứng dụng ngoài danh sách: {exe} ({title[:60]}) — đã tự thu nhỏ",
                                  "GAME")
 
         kiosk_guard.start_kiosk(allowed_exes, on_violation=vi_pham if self._current_mode == "student" else None,
-                                on_refocus=lambda: kiosk_guard.focus_window(hwnd))
+                                on_refocus=lambda: kiosk_guard.focus_window(hwnd),
+                                allowed_folders=cfg.get("allowed_folders", []))
 
     @staticmethod
     def _tat_kiosk() -> None:

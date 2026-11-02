@@ -150,8 +150,9 @@ class CloudAgent:
             "role": st.get("current_role", "?"),
             "ai_seconds": int(st.get("ai_seconds", 0) or 0),
             # Giờ AI tách theo nguồn (app AI trên máy + web AI) và app AI đang chạy
-            "ai_sources": {str(k)[:60]: int(v) for k, v in sorted((st.get("ai_sources") or {}).items(),
-                                                               key=lambda kv: -kv[1])[:8]},
+            # Dạng list (không dùng tên nguồn làm khóa: Firebase cấm dấu chấm như 'chatgpt.com')
+            "ai_sources": [{"name": str(k)[:60], "seconds": int(v)} for k, v in
+                           sorted((st.get("ai_sources") or {}).items(), key=lambda kv: -kv[1])[:8]],
             "ai_running": list(st.get("ai_running") or [])[:8],
             "max_ai_minutes": cfg.get("max_ai_minutes"),
             "top_apps": [{"name": k, "seconds": v} for k, v in top_apps],

@@ -650,8 +650,9 @@ async function boxCmd(t){if(confirm(t==='box_unlock_30'?'Mở hộp điện tho�
 async function boxMin(m){const v=cur();if(!v||!confirm(`Mở hộp điện thoại ${m} phút rồi tự khóa lại?`))return;
  const r=await api(`/api/parent/devices/${v.id}/command`,{type:'box_unlock_min',minutes:m});toast(r.message||r.error||'');}
 function boxMinAsk(){const m=parseInt(prompt('Mở hộp điện thoại bao nhiêu phút? (1–240)','45')||'0',10);if(m>0&&m<=240)boxMin(m);}
-function renderAI(v){const s=v.status||{},src=s.ai_sources||{},run=s.ai_running||[];const tot=Math.round((s.ai_seconds||0)/60);
- const rows=Object.entries(src).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,sec])=>`<div class="app-row"><div class="nm"><b>${esc(k)}</b></div><span class="tag" style="background:${k.endsWith('(web)')?'#2563eb':'#7c3aed'}">${Math.max(1,Math.round(sec/60))}′</span></div>`).join('');
+function renderAI(v){const s=v.status||{},src=s.ai_sources||[],run=s.ai_running||[];const tot=Math.round((s.ai_seconds||0)/60);
+ const ent=Array.isArray(src)?src.map(x=>[x.name||'',x.seconds||0]):Object.entries(src);
+ const rows=ent.sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,sec])=>`<div class="app-row"><div class="nm"><b>${esc(k)}</b></div><span class="tag" style="background:${k.endsWith('(web)')?'#2563eb':'#7c3aed'}">${Math.max(1,Math.round(sec/60))}′</span></div>`).join('');
  $('aibox').innerHTML=`<div><b>${tot}</b> / ${s.max_ai_minutes||'?'} phút cho phép</div>`+(rows||'<div class="mut">Chưa dùng AI hôm nay.</div>')+
   (run.length?`<div class="mut" style="margin-top:6px">Ứng dụng AI đang chạy trên máy: ${run.map(esc).join(', ')}</div>`:'');}
 function renderEvents(v){const ev=v.events||[];if(!ev.length){$('evbox').textContent='Chưa có thay đổi nào.';return;}
@@ -1190,6 +1191,45 @@ def _add_to_summary(did: str, day: str, end_ts: int, items: List[Dict[str, Any]]
     db.set(path, {"totals": totals, "hours": hours, "apps": apps, "updated": now()})
 
 
+_FB_BAD_KEY_CHARS = str.maketrans({".": "·", "$": "_", "#": "_", "[": "(", "]": ")", "/": "∕"})
+
+
+def _fb_safe(obj: Any, depth: int = 0) -> Any:
+    """Firebase cấm khóa có . $ # [ ] / (vd 'chatgpt.com (web)') -> trả lỗi 400 và cả heartbeat thành 500.
+    Lưới an toàn: đổi các ký tự đó trong MỌI khóa của dữ liệu máy gửi lên (giữ nguyên giá trị)."""
+    if depth > 8:
+        return None
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            key = str(k).translate(_FB_BAD_KEY_CHARS).strip()[:200] or "_"
+            out[key] = _fb_safe(v, depth + 1)
+        return out
+    if isinstance(obj, list):
+        return [_fb_safe(v, depth + 1) for v in obj]
+    return obj
+
+
+def _ai_sources_list(src: Any) -> List[Dict[str, Any]]:
+    """ai_sources: bản cũ gửi dict {nguồn: giây}, bản mới gửi list [{name, seconds}] -> luôn lưu dạng list."""
+    items: List[Tuple[str, int]] = []
+    if isinstance(src, dict):
+        items = [(str(k), v) for k, v in src.items()]
+    elif isinstance(src, list):
+        items = [(str(x.get("name", "")), x.get("seconds", 0)) for x in src if isinstance(x, dict)]
+    out = []
+    for name, sec in items:
+        try:
+            out.append({"name": name[:60], "seconds": int(float(sec or 0))})
+        except (TypeError, ValueError):
+            continue
+    return sorted(out, key=lambda x: -x["seconds"])[:8]
+
+
+def _ai_pairs(s: Dict[str, Any]) -> List[Tuple[str, int]]:
+    return [(x["name"], x["seconds"]) for x in _ai_sources_list(s.get("ai_sources"))]
+
+
 def _sanitize_open_apps(apps: List[Any]) -> List[Dict[str, Any]]:
     """Giới hạn kích thước danh sách ứng dụng/tab đang mở trước khi lưu (giữ Firebase nhẹ)."""
     out = []
@@ -1262,9 +1302,14 @@ def api_agent_heartbeat():
         return jsonify({"error": "unauthorized"}), 401
     data = request.get_json(silent=True) or {}
     status = data.get("status") or {}
-    if isinstance(status, dict) and isinstance(status.get("open_apps"), list):
+    if not isinstance(status, dict):
+        status = {}
+    if isinstance(status.get("open_apps"), list):
         status["open_apps"] = _sanitize_open_apps(status["open_apps"])
-    new_alerts = [a for a in (data.get("alerts") or []) if isinstance(a, dict)][:10]
+    if "ai_sources" in status:
+        status["ai_sources"] = _ai_sources_list(status["ai_sources"])
+    status = _fb_safe(status)
+    new_alerts = [_fb_safe(a) for a in (data.get("alerts") or []) if isinstance(a, dict)][:10]
     updates: Dict[str, Any] = {"last_seen": now(), "status": status}
     acks = [a for a in (data.get("acks") or []) if isinstance(a, dict)][:10]
     if acks:
@@ -1502,7 +1547,7 @@ def _status_text(name: str, dev: Dict[str, Any]) -> str:
     if p.get("cfi") is not None:
         lines.append(f"🎯 CFI: <b>{round(float(p['cfi']))}%</b> — {html.escape(str(p.get('state_vi', '')))}")
     lines.append(f"🤖 AI (ứng dụng + web): {round((s.get('ai_seconds') or 0) / 60)}/{s.get('max_ai_minutes', '?')} phút")
-    src = sorted((s.get("ai_sources") or {}).items(), key=lambda kv: -kv[1])[:3]
+    src = _ai_pairs(s)[:3]
     if src:
         lines.append("   " + ", ".join(f"{k} {max(1, round(v / 60))}′" for k, v in src))
     for a in (dev.get("recent_alerts") or [])[:3]:
