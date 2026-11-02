@@ -70,6 +70,7 @@ class ActivityTracker:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self.self_names = {os.path.basename(sys.executable).lower(), "smartdesklauncher.exe"}
+        self.current: Dict[str, str] = {}   # cửa sổ đang dùng ngay lúc này (cho thẻ trạng thái phụ huynh)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -83,6 +84,8 @@ class ActivityTracker:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
+            if _idle_seconds() >= IDLE_LIMIT_S:
+                self.current = {"exe": "", "title": "Rời máy (không thao tác > 3 phút)", "t": int(time.time()), "idle": "1"}
             if _idle_seconds() < IDLE_LIMIT_S:
                 exe, title = _foreground_window()
                 if exe:
@@ -90,6 +93,7 @@ class ActivityTracker:
                     if any(k in low for k in PRIVATE_KEYWORDS):
                         title = "Nội dung riêng tư (không ghi)"
                     key = (exe, (title or exe)[:TITLE_MAX])
+                    self.current = {"exe": exe, "title": key[1], "t": int(time.time())}
                     with self._lock:
                         self._buf[key] = self._buf.get(key, 0.0) + POLL_S
             self._stop.wait(POLL_S)

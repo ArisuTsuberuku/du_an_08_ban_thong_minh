@@ -275,7 +275,11 @@ img.snap{width:100%;border-radius:10px;margin-top:8px}
 
 AUTH_HTML = BASE_CSS + """
 <title>Bàn Học Thông Minh - Đăng nhập</title><meta name="viewport" content="width=device-width,initial-scale=1">
-<div class="wrap" style="max-width:420px;margin-top:8vh">
+<meta name="theme-color" content="#2563eb"><link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
+<div style="text-align:center;margin-top:6vh"><img src="/static/icon-192.png" width="72" style="border-radius:18px" alt=""></div>
+<div class="wrap" style="max-width:420px;margin-top:2vh">
  <div class="row" style="justify-content:flex-end"><button id="themeBtn" onclick="toggleTheme()">🌙 Nền tối</button></div>
  <div class="card"><h2>🛡️ Bàn Học Thông Minh</h2><p class="mut">Đăng nhập dành cho phụ huynh</p>
  <p id="err" class="err">{{ error }}</p>
@@ -308,114 +312,290 @@ AUTH_HTML = BASE_CSS + """
 <script>document.getElementById('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối'</script>"""
 
 DASH_HTML = BASE_CSS + """
-<title>Bàn Học Thông Minh</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bàn Học Thông Minh</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2563eb"><link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png"><meta name="mobile-web-app-capable" content="yes">
 <meta name="csrf-token" content="{{ csrf }}">
 <style>
-.btns button{flex:1 1 auto}.ack{font-size:13px;margin:6px 0}.ok{color:#16a34a}.no{color:var(--err)}
-.bar{height:12px;border-radius:6px;background:var(--pill);overflow:hidden;display:flex}
-.bar span{display:block;height:100%}.c-h{background:#22c55e}.c-g{background:#ef4444}.c-k{background:#94a3b8}
-details{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}summary{cursor:pointer;font-weight:600}
-textarea{width:100%;min-height:54px;font:inherit;border-radius:10px;border:1px solid var(--line);padding:8px;background:var(--input);color:var(--txt)}
-img.live{width:100%;border-radius:10px;background:#000;margin-top:8px;display:none}
+body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+.app{display:flex;min-height:100vh}
+.side{display:none}
+.main{flex:1;min-width:0;max-width:1100px;margin:0 auto;padding:12px 14px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px}.brand img{width:34px;height:34px;border-radius:9px}
+.bnav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;
+ padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:20;box-shadow:0 -2px 10px rgba(15,23,42,.06)}
+.bnav a,.side a{flex:1;text-align:center;text-decoration:none;color:var(--mut);font-size:11.5px;padding:4px 0;border-radius:12px;cursor:pointer}
+.bnav a i,.side a i{display:block;font-style:normal;font-size:22px;line-height:1.2}
+.bnav a.act,.side a.act{color:var(--acc);font-weight:700}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px}
+.chip{white-space:nowrap;border:1px solid var(--line);background:var(--card);padding:8px 14px;border-radius:999px;cursor:pointer;font-size:14px}
+.chip.act{background:var(--acc);color:#fff;border-color:var(--acc)}
+.hero{border-radius:18px;padding:18px;color:#fff;margin-bottom:12px}
+.hero.ok{background:linear-gradient(135deg,#16a34a,#22c55e)}.hero.warn{background:linear-gradient(135deg,#d97706,#f59e0b)}
+.hero.bad{background:linear-gradient(135deg,#dc2626,#f97316)}.hero.off{background:linear-gradient(135deg,#475569,#94a3b8)}
+.hero .st{font-size:24px;font-weight:800;margin:2px 0}.hero .sub{opacity:.92;font-size:14px;word-break:break-word}
+.hero .meta{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:13px;opacity:.95}
+.hero .meta b{font-size:20px;display:block}
+.acts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.bigbtn{padding:16px;font-size:16px;font-weight:700;border-radius:14px;min-height:56px}
+.bigbtn.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
+.more{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:8px}
+.more button{min-height:48px}
+.sum3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0}
+.sum3 div{background:var(--pill);border-radius:12px;padding:10px;text-align:center}.sum3 b{display:block;font-size:20px}
+.bar{height:12px;border-radius:6px;background:var(--pill);overflow:hidden;display:flex}.bar span{display:block;height:100%}
+.c-h{background:#22c55e}.c-g{background:#ef4444}.c-k{background:#94a3b8}
+.hours{display:flex;align-items:stretch;gap:3px;height:120px;margin:10px 0 2px}
+.hours div{flex:1;display:flex;flex-direction:column-reverse;min-width:6px;border-radius:4px 4px 0 0;overflow:hidden;background:var(--pill)}
+.hours span{display:block;width:100%}
+.hlab{display:flex;gap:3px;font-size:10px;color:var(--mut)}.hlab span{flex:1;text-align:center}
+.app-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.app-row .ic{font-size:22px;width:30px;text-align:center}.app-row .nm{flex:1;min-width:0}
+.app-row .nm div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.app-row .mn{font-weight:700}
+.tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;color:#fff}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.sw .t{font-weight:600}.sw .d{font-size:12.5px;color:var(--mut)}
+.tg{position:relative;width:50px;height:28px;flex:none}.tg input{opacity:0;width:0;height:0}
+.tg span{position:absolute;inset:0;background:#cbd5e1;border-radius:999px;transition:.2s;cursor:pointer}
+.tg span:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.tg input:checked+span{background:var(--acc)}.tg input:checked+span:before{transform:translateX(22px)}
+textarea{width:100%;min-height:60px;font:inherit;border-radius:10px;border:1px solid var(--line);padding:8px;background:var(--input);color:var(--txt)}
+.livebox{position:relative;aspect-ratio:16/9;max-height:70vh;width:100%;background:#0f172a;border-radius:14px;overflow:hidden}
+.livebox img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none}
+.livebox .ph{position:absolute;inset:0;display:grid;place-items:center;color:#cbd5e1;text-align:center;padding:16px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + env(safe-area-inset-bottom));background:#0f172a;color:#fff;
+ padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;max-width:92vw;display:none}
+.alert-row{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}.alert-row time{color:var(--mut);flex:none}
+[data-view]{display:none}[data-view].show{display:block}
+h3{margin:4px 0 10px}
+@media (min-width:900px){
+ body{padding-bottom:0}.bnav{display:none}
+ .side{display:flex;flex-direction:column;gap:4px;width:220px;flex:none;padding:16px 10px;background:var(--card);
+  border-right:1px solid var(--line);position:sticky;top:0;height:100vh}
+ .side a{display:flex;align-items:center;gap:12px;text-align:left;font-size:15px;padding:12px 14px;flex:none}
+ .side a i{display:inline;font-size:20px}.side a.act{background:#eff6ff}
+ [data-theme=dark] .side a.act{background:#1e293b}
+ .main{padding:22px 28px}
+ .cols{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;align-items:start}
+ .toast{bottom:24px}
+}
 </style>
-<div class="wrap">
- <div class="row" style="justify-content:space-between"><h2>🛡️ Bàn Học Thông Minh</h2>
-  <div class="row">{% if picture %}<img class="avatar" src="{{ picture }}" alt="" referrerpolicy="no-referrer">{% endif %}
-   <span class="mut">{{ name or email }}</span>
-   <button id="themeBtn" onclick="toggleTheme()">🌙 Nền tối</button>
-   <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Đăng xuất</button></form></div></div>
- <div class="grid">
-  <div class="card"><b>➕ Thêm máy học sinh</b><p class="mut">Mã ghép 6 số hiện trên máy học sinh (http://127.0.0.1:5000/ket-noi-cloud).</p>
-   <div class="row"><input id="pcode" placeholder="Mã 6 số" maxlength="6" style="width:110px"><input id="pname" placeholder="Tên máy (vd: Máy của Minh)">
-   <button onclick="pair()">Ghép</button></div><p id="pmsg" class="mut"></p></div>
-  <div class="card"><b>💬 Telegram</b><p class="mut">Mỗi phụ huynh liên kết Telegram riêng. Bot gửi cảnh báo của <i>các máy bạn quản lý</i>; gõ /anh để nhận ảnh.</p>
-   <div id="chats" class="mut"></div><button onclick="tglink()">Kết nối Telegram</button> <span id="tgmsg" class="mut"></span></div>
+<div class="app">
+ <nav class="side">
+  <div class="brand" style="padding:6px 10px 16px"><img src="/static/icon-192.png" alt="">Bàn Học</div>
+  <a data-go="home"><i>🏠</i>Tổng quan</a><a data-go="camera"><i>📺</i>Camera</a>
+  <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="settings"><i>⚙️</i>Cài đặt</a>
+ </nav>
+ <div class="main">
+  <div class="top"><div class="brand"><img src="/static/icon-192.png" alt="" class="m-only">Bàn Học Thông Minh</div>
+   <div class="row">{% if picture %}<img class="avatar" src="{{ picture }}" alt="" referrerpolicy="no-referrer">{% endif %}</div></div>
+  <div class="chips" id="devchips"></div>
+
+  <section data-view="home">
+   <div class="cols"><div>
+    <div class="hero off" id="hero"><div class="sub" id="h-name">Đang tải…</div><div class="st" id="h-st">—</div>
+     <div class="sub" id="h-sub"></div>
+     <div class="meta"><div><b id="h-cfi">—</b>Mức tập trung</div><div><b id="h-study">—</b>Học hôm nay</div>
+      <div><b id="h-fun">—</b>Giải trí hôm nay</div><div><b id="h-ai">—</b>Dùng AI</div></div></div>
+    <div class="acts"><button class="bigbtn pri" onclick="go('camera');liveOn()">📺 Xem camera</button>
+     <button class="bigbtn" onclick="lockNow()">🔒 Khóa máy</button></div>
+    <details class="card"><summary>⋯ Thao tác khác</summary><div class="more">
+     <button onclick="cmd('reset_ai')">♻️ Đặt lại giờ AI</button><button onclick="cmd('ai_on')">📷 Bật Camera AI</button>
+     <button onclick="cmd('ai_off')">⏸️ Tắt Camera AI</button><button onclick="cmd('recalibrate')">🧍 Đo lại tư thế ngồi</button>
+     <button onclick="go('rules')">🛡️ Sửa luật chặn</button><button onclick="go('report')">📊 Xem báo cáo</button></div></details>
+    <div id="acks" class="card" style="display:none"></div>
+   </div><div>
+    <div class="card"><h3>🔔 Cảnh báo gần đây</h3><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
+    <div class="card"><h3>📌 Đang dùng gì</h3><div id="nowbox" class="mut">—</div>
+     <div class="bar" id="h-bar" style="margin-top:12px"></div><div class="mut" id="h-legend" style="margin-top:6px"></div></div>
+   </div></div>
+  </section>
+
+  <section data-view="camera">
+   <div class="card"><h3>📺 Camera bàn học</h3>
+    <p class="mut" id="cam-note">Hình đi thẳng từ máy học sinh tới điện thoại, không lưu trên máy chủ. Link tự hết hạn sau 15 phút.</p>
+    <div class="livebox"><div class="ph" id="live-ph">📷 Bấm “Bật xem” để xem trực tiếp</div><img id="live" alt=""></div>
+    <div class="more" style="margin-top:10px"><button class="pri bigbtn" style="background:var(--acc);color:#fff" onclick="liveOn()">▶️ Bật xem</button>
+     <button class="bigbtn" onclick="liveOff()">⏹️ Tắt xem</button><button class="bigbtn" onclick="snap()">📸 Chụp ảnh nét</button>
+     <button class="bigbtn" onclick="lanOpen()">🏠 Xem trong Wi-Fi nhà</button></div></div>
+  </section>
+
+  <section data-view="report">
+   <div class="card"><div class="row" style="justify-content:space-between"><h3>📊 Báo cáo hoạt động</h3>
+    <div class="row"><button onclick="setDay(0)">Hôm nay</button><button onclick="setDay(-1)">Hôm qua</button>
+     <input type="date" id="rdate" onchange="report()"></div></div>
+    <div class="sum3"><div><b id="r-h" style="color:#16a34a">0</b>phút học</div><div><b id="r-g" style="color:#dc2626">0</b>phút giải trí</div>
+     <div><b id="r-k">0</b>phút khác</div></div>
+    <div class="bar" id="r-bar"></div><div class="mut" id="r-cmp" style="margin-top:6px"></div>
+    <div class="hours" id="r-hours"></div><div class="hlab" id="r-hlab"></div>
+    <p class="mut" id="r-upd"></p></div>
+   <div class="card"><h3>🧩 Ứng dụng & trang web đã dùng</h3><div id="r-apps" class="mut">Chưa có dữ liệu.</div></div>
+  </section>
+
+  <section data-view="rules">
+   <div class="card"><h3>🛡️ Chặn theo nhóm</h3><p class="mut">Bật nhóm nào thì máy tự đóng ứng dụng/trang web thuộc nhóm đó và báo bạn ngay.</p>
+    <div id="groups"></div>
+    <details style="margin-top:10px"><summary>✏️ Tùy chỉnh thêm (nâng cao)</summary>
+     <label class="mut">Ứng dụng / game (tên .exe, cách nhau dấu phẩy)</label><textarea id="x-apps"></textarea>
+     <label class="mut">Trang web (tên miền)</label><textarea id="x-dom"></textarea>
+     <label class="mut">Từ khóa tiêu đề cửa sổ</label><textarea id="x-kw"></textarea></details></div>
+   <div class="card"><h3>⚙️ Cách giám sát</h3>
+    <div class="sw"><div><div class="t">Giám sát cả khi học sinh chưa đăng nhập</div><div class="d">Bật: chặn & báo mọi lúc máy bật. Tắt: chỉ khi học sinh vào chế độ học.</div></div>
+     <label class="tg"><input type="checkbox" id="opt-always"><span></span></label></div>
+    <div class="sw"><div><div class="t">Chặn tận gốc trang web (DNS)</div><div class="d">Trình duyệt nào cũng không vào được. Cần app SmartDesk chạy quyền Admin.</div></div>
+     <label class="tg"><input type="checkbox" id="opt-dns" checked><span></span></label></div>
+    <p><button class="bigbtn pri" style="width:100%" onclick="saveRules()">💾 Lưu & áp dụng</button></p><p class="mut" id="rmsg"></p></div>
+  </section>
+
+  <section data-view="settings">
+   <div class="card"><h3>➕ Thêm máy học sinh</h3><p class="mut">Mã 6 số hiện trong app SmartDesk → tab “Kết nối phụ huynh”.</p>
+    <div class="row"><input id="pcode" placeholder="Mã 6 số" inputmode="numeric" maxlength="6" style="width:120px">
+     <input id="pname" placeholder="Tên máy (vd: Máy của Minh)" style="flex:1"><button class="pri" style="background:var(--acc);color:#fff" onclick="pair()">Ghép</button></div>
+    <p id="pmsg" class="mut"></p></div>
+   <div class="card"><h3>💬 Telegram</h3><p class="mut">Nhận cảnh báo tức thì; gõ /status /lock /anh để điều khiển.</p>
+    <div id="chats" class="mut"></div><p><button onclick="tglink()">Kết nối Telegram</button> <span id="tgmsg" class="mut"></span></p></div>
+   <div class="card"><h3>🖥️ Máy đang quản lý</h3><div id="devlist"></div></div>
+   <div class="card"><h3>🎨 Ứng dụng</h3>
+    <div class="row"><button id="installBtn" style="display:none" onclick="installApp()">📲 Cài vào điện thoại</button>
+     <button id="themeBtn" onclick="toggleTheme()">🌙 Nền tối</button></div>
+    <p class="mut">Android: menu Chrome ⋮ → “Thêm vào màn hình chính” nếu nút cài không hiện.</p>
+    <p class="mut">Đăng nhập: {{ name or email }}</p>
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Đăng xuất</button></form></div>
+  </section>
  </div>
- <div id="devices"></div>
 </div>
+<nav class="bnav"><a data-go="home"><i>🏠</i>Tổng quan</a><a data-go="camera"><i>📺</i>Camera</a>
+ <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="settings"><i>⚙️</i>Cài đặt</a></nav>
+<div class="toast" id="toast"></div>
 <script>
 const CSRF=document.querySelector('meta[name=csrf-token]').content;
-document.getElementById('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối';
-async function api(url, body){const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:body?JSON.stringify(body):undefined});
- if(r.status===401){location.href='/login';return {};} return r.json();}
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 const $=id=>document.getElementById(id);
-const STATE={};  // trạng thái mới nhất mỗi máy
-async function pair(){const r=await api('/api/parent/pair',{code:pcode.value.trim(),name:pname.value.trim()});pmsg.textContent=r.message||r.error;load();}
-async function tglink(){const r=await api('/api/parent/telegram/link',{});if(r.url){window.open(r.url,'_blank');tgmsg.textContent='Bấm Start trong Telegram để hoàn tất.';}else tgmsg.textContent=r.error;}
-async function cmd(did,t){const r=await api(`/api/parent/devices/${did}/command`,{type:t});$('msg-'+did).textContent=r.message||r.error||'';}
-async function unlink(did){if(confirm('Bỏ quản lý máy này?')){await api(`/api/parent/devices/${did}/unlink`,{});location.reload();}}
-function liveUrls(v){const L=(v.status||{}).live||{};if(!L.active)return null;
- const pub=L.public_url||'';return {pub, video: pub?pub.replace('/live?','/video_feed?')+'&fps=5':'', snap: pub?pub.replace('/live?','/snapshot.jpg?'):'', lan:L.lan_url||'', note:L.note||''};}
-function showLive(did){const v=STATE[did];const u=v&&liveUrls(v);const img=$('live-'+did);
- if(u&&u.video){if(img.dataset.src!==u.video){img.src=u.video;img.dataset.src=u.video;}img.style.display='block';}
- else{img.removeAttribute('src');img.dataset.src='';img.style.display='none';}}
-async function liveOn(did){await cmd(did,'live_on');$('msg-'+did).textContent+=' — đang mở đường truyền trực tiếp (5–30 giây)…';}
-async function liveOff(did){await cmd(did,'live_off');const img=$('live-'+did);img.removeAttribute('src');img.dataset.src='';img.style.display='none';}
-function snap(did){const u=STATE[did]&&liveUrls(STATE[did]);
- if(u&&u.snap){window.open(u.snap+'&ts='+Date.now(),'_blank');}
- else if(u&&u.lan){window.open(u.lan.replace('/live?','/snapshot.jpg?'),'_blank');$('msg-'+did).textContent='Mở ảnh qua Wi-Fi nhà (chỉ được khi điện thoại cùng mạng với máy học sinh).';}
- else{$('msg-'+did).textContent='Bấm "📺 Xem trực tiếp" trước, hoặc gõ /anh trên Telegram để nhận ảnh.';}}
-function lanOpen(did){const u=STATE[did]&&liveUrls(STATE[did]);if(u&&u.lan)window.open(u.lan,'_blank');else $('msg-'+did).textContent='Bấm "📺 Xem trực tiếp" trước.';}
-function cardSkeleton(v){return `<div class="card" id="card-${v.id}">
- <div class="row" style="justify-content:space-between"><b id="name-${v.id}"></b><span id="online-${v.id}" class="pill"></span></div>
- <p class="mut" id="meta-${v.id}"></p><div id="stat-${v.id}"></div>
- <div class="row btns" style="margin-top:10px">
-  <button onclick="cmd('${v.id}','lock')">🔒 Khóa màn hình</button>
-  <button onclick="cmd('${v.id}','reset_ai')">♻️ Đặt lại giờ AI</button>
-  <button onclick="cmd('${v.id}','ai_on')">📷 Bật Camera AI</button>
-  <button onclick="cmd('${v.id}','ai_off')">⏸️ Tắt Camera AI</button>
-  <button onclick="cmd('${v.id}','recalibrate')">🔄 Hiệu chỉnh tư thế</button></div>
- <div class="row btns" style="margin-top:8px">
-  <button onclick="liveOn('${v.id}')">📺 Xem trực tiếp</button>
-  <button onclick="liveOff('${v.id}')">⏹️ Tắt xem</button>
-  <button onclick="snap('${v.id}')">📸 Chụp ảnh</button>
-  <button onclick="lanOpen('${v.id}')">🏠 Mở trong Wi-Fi nhà</button></div>
- <p id="msg-${v.id}" class="mut"></p><div id="ack-${v.id}" class="ack"></div>
- <img id="live-${v.id}" class="live" alt="Camera trực tiếp" data-src="">
- <details id="rep-${v.id}" ontoggle="if(this.open)report('${v.id}')"><summary>📊 Báo cáo hoạt động</summary>
-  <div class="row" style="margin:8px 0"><input type="date" id="date-${v.id}" onchange="report('${v.id}')"><span class="mut" id="tot-${v.id}"></span></div>
-  <div class="bar" id="bar-${v.id}"></div><div class="mut" id="legend-${v.id}" style="margin:6px 0"></div>
-  <table id="act-${v.id}"></table></details>
- <details><summary>🔒 Cấu hình chặn từ xa</summary>
-  <p class="mut">Mỗi mục cách nhau dấu phẩy. Máy áp dụng trong ≤30 giây.</p>
-  <label class="mut">Ứng dụng / game (tên .exe hoặc một phần tên)</label><textarea id="rapps-${v.id}"></textarea>
-  <label class="mut">Trang web (tên miền)</label><textarea id="rdom-${v.id}"></textarea>
-  <label class="mut">Từ khóa tiêu đề cửa sổ</label><textarea id="rkw-${v.id}"></textarea>
-  <p><button onclick="saveRules('${v.id}')">💾 Lưu & áp dụng</button> <span class="mut" id="rmsg-${v.id}"></span></p></details>
- <details><summary>🚨 Cảnh báo gần đây</summary><table id="alerts-${v.id}"></table></details>
- <p><button class="danger" onclick="unlink('${v.id}')">Bỏ quản lý máy này</button></p></div>`;}
-function todayVN(){return new Date(Date.now()+7*3600e3).toISOString().slice(0,10);}
-function fillRules(v){const r=(v.status||{}).rules||{};for(const [k,id] of [['apps','rapps'],['domains','rdom'],['keywords','rkw']]){
- const el=$(id+'-'+v.id);if(document.activeElement!==el&&!el.dataset.touched)el.value=(r[k]||[]).join(', ');el.oninput=()=>el.dataset.touched=1;}}
-async function saveRules(did){const sp=id=>$(id+'-'+did).value.split(',').map(x=>x.trim()).filter(Boolean);
- const r=await api(`/api/parent/devices/${did}/rules`,{apps:sp('rapps'),domains:sp('rdom'),keywords:sp('rkw')});
- $('rmsg-'+did).textContent=r.message||r.error;['rapps','rdom','rkw'].forEach(id=>delete $(id+'-'+did).dataset.touched);}
-const CAT={Hoc_tap:['Học tập','c-h'],Giai_tri:['Giải trí','c-g'],Khac:['Khác','c-k']};
-async function report(did){const di=$('date-'+did);if(!di.value)di.value=todayVN();
- const r=await api(`/api/parent/devices/${did}/activity?date=${di.value}`);const t=r.totals||{};const sum=Object.values(t).reduce((a,b)=>a+b,0);
- $('tot-'+did).textContent=sum?('Tổng '+Math.round(sum/60)+' phút dùng máy'):'Chưa có dữ liệu ngày này';
- $('bar-'+did).innerHTML=sum?Object.entries(CAT).map(([k,[n,c]])=>`<span class="${c}" style="width:${100*(t[k]||0)/sum}%"></span>`).join(''):'';
- $('legend-'+did).innerHTML=Object.entries(CAT).map(([k,[n]])=>`${n}: <b>${Math.round((t[k]||0)/60)}</b> phút (${sum?Math.round(100*(t[k]||0)/sum):0}%)`).join(' · ');
- $('act-'+did).innerHTML=(r.items||[]).map(i=>`<tr><td><span class="pill ${CAT[i.category]?CAT[i.category][1]:'c-k'}" style="color:#fff">${esc((CAT[i.category]||['Khác'])[0])}</span></td>
-  <td><b>${esc(i.app)}</b><div class="mut">${esc(i.title)}</div><div class="mut">${esc(i.reason||'')}</div></td><td style="text-align:right">${Math.max(1,Math.round(i.seconds/60))}′</td></tr>`).join('');}
-async function load(){
- const d=await api('/api/parent/devices');if(!d.devices)return;
- chats.innerHTML=(d.chats||[]).length?('Đã liên kết: '+d.chats.map(c=>'<span class="pill on">'+esc(c)+'</span>').join(' ')):'Chưa liên kết Telegram.';
- const box=$('devices');if(!d.devices.length){box.innerHTML='<div class="card mut">Chưa có máy nào. Nhập mã ghép ở trên.</div>';return;}
- for(const v of d.devices){STATE[v.id]=v;if(!$('card-'+v.id)){box.insertAdjacentHTML('beforeend',cardSkeleton(v));}
-  const s=v.status||{},p=s.posture||{};
-  $('name-'+v.id).textContent=v.name;const on=$('online-'+v.id);on.className='pill '+(v.online?'on':'off');on.textContent=v.online?'● Trực tuyến':'○ Ngoại tuyến';
-  $('meta-'+v.id).textContent=`${s.hostname||''} · cập nhật ${v.ago}s trước · vai trò: ${s.role||'?'}`;
-  $('stat-'+v.id).innerHTML=`<div class="row"><div><div class="big">${p.camera&&p.cfi!=null?Math.round(p.cfi)+'%':'—'}</div><div class="mut">Điểm tập trung CFI</div></div>
-   <div style="margin-left:18px"><div>${esc(p.camera?(p.state_vi||'Đang phân tích…'):'Camera AI đang tắt')}</div>
-   <div class="mut">${p.distance_cm?('Khoảng cách '+Math.round(p.distance_cm)+'cm · '):''}AI: ${Math.round((s.ai_seconds||0)/60)}/${s.max_ai_minutes||'?'} phút</div></div></div>`;
-  $('ack-'+v.id).innerHTML=(v.acks||[]).slice(0,3).map(a=>`<div class="${a.ok?'ok':'no'}">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
-  $('alerts-'+v.id).innerHTML=(v.alerts||[]).map(a=>`<tr><td class="mut">${esc(a.time)}</td><td>${esc(a.message)}</td></tr>`).join('')||'<tr><td class="mut">Chưa có cảnh báo.</td></tr>';
-  const u=liveUrls(v);if(u&&!u.pub&&u.note)$('msg-'+v.id).textContent='📺 '+u.note;
-  showLive(v.id);fillRules(v);}
-}
-load();setInterval(load,6000);
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function api(url,body){const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:body?JSON.stringify(body):undefined});
+ if(r.status===401){location.href='/login';return {};}return r.json();}
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',3500);}
+let DEV=[],CUR=null,VIEW='home',lastAck='';
+try{CUR=localStorage.getItem('sd_dev')}catch(e){}
+const cur=()=>DEV.find(d=>d.id===CUR)||DEV[0];
+function go(v){VIEW=v;document.querySelectorAll('[data-view]').forEach(s=>s.classList.toggle('show',s.dataset.view===v));
+ document.querySelectorAll('[data-go]').forEach(a=>a.classList.toggle('act',a.dataset.go===v));
+ if(v==='report')report();if(v==='rules')fillRules(true);if(v==='camera')showLive();window.scrollTo(0,0);}
+document.querySelectorAll('[data-go]').forEach(a=>a.onclick=()=>go(a.dataset.go));
+const fmtMin=s=>{s=Math.round((s||0)/60);return s>=60?Math.floor(s/60)+'g'+String(s%60).padStart(2,'0'):s+'′';};
+const CAT={Hoc_tap:['Học tập','#16a34a','📘'],Giai_tri:['Giải trí','#dc2626','🎮'],Khac:['Khác','#94a3b8','🗂️']};
+function appIcon(app,title){const t=(app+' '+title).toLowerCase();
+ const M=[['youtube','▶️'],['facebook','📘'],['tiktok','🎵'],['zalo','💬'],['chrome','🌐'],['msedge','🌐'],['firefox','🌐'],['coccoc','🌐'],['winword','📝'],['word','📝'],
+  ['excel','📊'],['powerpnt','📽️'],['zoom','🎥'],['teams','🎥'],['classin','🎥'],['code','💻'],['python','💻'],['notepad','🗒️'],['calc','🧮'],['geogebra','📐'],
+  ['steam','🎮'],['roblox','🎮'],['game','🎮'],['spotify','🎧'],['discord','💬'],['telegram','💬'],['explorer','📁'],['pdf','📕'],['acrobat','📕']];
+ for(const [k,i] of M) if(t.includes(k)) return i; return '🖥️';}
+function statusOf(v){const s=v.status||{},p=s.posture||{},n=v.now||{};
+ if(!v.online) return ['off','⚪ Máy đang tắt / mất mạng','Cập nhật lần cuối '+Math.round(v.ago/60)+' phút trước'];
+ if(p.camera&&p.state==='ABSENT') return ['warn','🟠 Học sinh đang vắng mặt','Không thấy ai trước camera'];
+ if(n.category==='Giai_tri') return ['bad','🔴 Đang giải trí',n.title];
+ if(p.camera&&['LOOK_AWAY','DROWSY','IDLE'].includes(p.state)) return ['warn','🟡 '+(p.state_vi||'Mất tập trung'),n.title||''];
+ if(n.category==='Hoc_tap') return ['ok','🟢 Đang học',n.title];
+ if(n.category==='Idle') return ['off','💤 Không dùng máy',n.title||''];
+ return ['ok','🟢 Đang dùng máy',n.title||(s.role==='student'?'Chế độ học sinh':'')];}
+function renderChips(){$('devchips').innerHTML=DEV.length>1?DEV.map(d=>`<span class="chip ${d.id===cur().id?'act':''}" onclick="pick('${d.id}')">${d.online?'🟢':'⚪'} ${esc(d.name)}</span>`).join(''):'';}
+function pick(id){CUR=id;try{localStorage.setItem('sd_dev',id)}catch(e){};renderAll();if(VIEW==='report')report();if(VIEW==='rules')fillRules(true);}
+function renderAll(){const v=cur();renderChips();renderSettings();
+ if(!v){$('h-name').textContent='Chưa có máy nào';$('h-st').textContent='➕ Ghép máy trong Cài đặt';$('hero').className='hero off';return;}
+ const [cls,st,sub]=statusOf(v),s=v.status||{},p=s.posture||{},t=v.today||{};
+ $('hero').className='hero '+cls;$('h-name').textContent=v.name+(s.role==='student'?' · đang ở chế độ học sinh':'');
+ $('h-st').textContent=st;$('h-sub').textContent=sub||'';
+ $('h-cfi').textContent=p.camera&&p.cfi!=null?Math.round(p.cfi)+'%':'—';
+ $('h-study').textContent=fmtMin(t.Hoc_tap);$('h-fun').textContent=fmtMin(t.Giai_tri);
+ $('h-ai').textContent=Math.round((s.ai_seconds||0)/60)+'/'+(s.max_ai_minutes||'?')+'′';
+ const sum=(t.Hoc_tap||0)+(t.Giai_tri||0)+(t.Khac||0);
+ $('h-bar').innerHTML=sum?['Hoc_tap','Giai_tri','Khac'].map(k=>`<span style="width:${100*(t[k]||0)/sum}%;background:${CAT[k][1]}"></span>`).join(''):'';
+ $('h-legend').textContent=sum?`Hôm nay: ${fmtMin(t.Hoc_tap)} học · ${fmtMin(t.Giai_tri)} giải trí · ${fmtMin(t.Khac)} khác`:'Chưa có dữ liệu hôm nay';
+ const n=v.now||{};$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.app||'')}</b></div><div class="mut">${esc(n.title)}</div></div>
+  ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}</div>`:'—';
+ $('alerts').innerHTML=(v.alerts||[]).slice(0,6).map(a=>`<div class="alert-row"><time>${esc(a.time)}</time><div>${esc(a.message)}</div></div>`).join('')||'Không có cảnh báo. 👍';
+ const acks=v.acks||[];if(acks.length){$('acks').style.display='block';$('acks').innerHTML='<h3>✅ Kết quả lệnh</h3>'+acks.slice(0,3).map(a=>`<div class="${a.ok?'':'err'}" style="font-size:14px;padding:3px 0">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
+  const k=acks[0].time+acks[0].msg;if(lastAck&&k!==lastAck)toast((acks[0].ok?'✅ ':'⚠️ ')+acks[0].msg);lastAck=k;}
+ if(VIEW==='camera')showLive();}
+function renderSettings(){$('devlist').innerHTML=DEV.map(d=>`<div class="app-row"><div class="ic">${d.online?'🟢':'⚪'}</div><div class="nm"><div><b>${esc(d.name)}</b></div>
+ <div class="mut">${esc((d.status||{}).hostname||'')} · ${d.online?'trực tuyến':'ngoại tuyến'}</div></div><button class="danger" onclick="unlink('${d.id}')">Bỏ</button></div>`).join('')||'<span class="mut">Chưa có máy.</span>';}
+async function load(){const d=await api('/api/parent/devices');if(!d.devices)return;DEV=d.devices;
+ if(!DEV.find(x=>x.id===CUR)&&DEV.length)CUR=DEV[0].id;
+ $('chats').innerHTML=(d.chats||[]).length?'Đã liên kết: '+d.chats.map(c=>'<span class="pill on">'+esc(c)+'</span>').join(' '):'Chưa liên kết Telegram.';
+ RULES_SRV=d.rules||{};renderAll();}
+let RULES_SRV={};
+async function cmd(t){const v=cur();if(!v)return;const r=await api(`/api/parent/devices/${v.id}/command`,{type:t});toast(r.message||r.error||'');}
+function lockNow(){if(confirm('Khóa màn hình máy học sinh ngay?'))cmd('lock');}
+async function pair(){const r=await api('/api/parent/pair',{code:$('pcode').value.trim(),name:$('pname').value.trim()});$('pmsg').textContent=r.message||r.error;load();}
+async function tglink(){const r=await api('/api/parent/telegram/link',{});if(r.url){window.open(r.url,'_blank');$('tgmsg').textContent='Bấm Start trong Telegram để hoàn tất.';}else $('tgmsg').textContent=r.error;}
+async function unlink(id){if(confirm('Bỏ quản lý máy này?')){await api(`/api/parent/devices/${id}/unlink`,{});load();}}
+// ---------- Camera ----------
+function liveUrls(v){const L=((v||{}).status||{}).live||{};if(!L.active)return null;const pub=L.public_url||'';
+ return {pub,video:pub?pub.replace('/live?','/video_feed?')+'&fps=8&raw=1':'',snap:pub?pub.replace('/live?','/snapshot.jpg?'):'',lan:L.lan_url||'',note:L.note||''};}
+function showLive(){const u=liveUrls(cur()),img=$('live'),ph=$('live-ph');
+ if(u&&u.video){if(img.dataset.src!==u.video){img.src=u.video;img.dataset.src=u.video;}img.style.display='block';ph.style.display='none';
+  $('cam-note').textContent='🟢 Đang xem trực tiếp (hình gốc, không lưu trên máy chủ).';}
+ else{img.removeAttribute('src');img.dataset.src='';img.style.display='none';ph.style.display='grid';
+  ph.textContent=u&&u.lan?'🏠 Chỉ xem được trong Wi-Fi nhà — bấm “Xem trong Wi-Fi nhà”':'📷 Bấm “Bật xem” để xem trực tiếp';
+  $('cam-note').textContent=u&&u.note?('📶 '+u.note):'Hình đi thẳng từ máy học sinh tới điện thoại, không lưu trên máy chủ.';}}
+async function liveOn(){await cmd('live_on');$('cam-note').textContent='⏳ Đang mở camera…';}
+async function liveOff(){await cmd('live_off');const i=$('live');i.removeAttribute('src');i.dataset.src='';i.style.display='none';$('live-ph').style.display='grid';}
+function snap(){const u=liveUrls(cur());if(u&&u.snap)window.open(u.snap+'&ts='+Date.now(),'_blank');
+ else if(u&&u.lan)window.open(u.lan.replace('/live?','/snapshot.jpg?'),'_blank');else toast('Bấm “Bật xem” trước, hoặc gõ /anh trong Telegram.');}
+function lanOpen(){const u=liveUrls(cur());if(u&&u.lan)window.open(u.lan,'_blank');else toast('Bấm “Bật xem” trước.');}
+// ---------- Báo cáo ----------
+const vnDay=off=>new Date(Date.now()+7*3600e3+off*864e5).toISOString().slice(0,10);
+function setDay(off){$('rdate').value=vnDay(off);report();}
+async function report(){const v=cur();if(!v)return;if(!$('rdate').value)$('rdate').value=vnDay(0);const day=$('rdate').value;
+ const [r,y]=await Promise.all([api(`/api/parent/devices/${v.id}/activity?date=${day}`),
+  api(`/api/parent/devices/${v.id}/activity?date=${new Date(new Date(day+'T00:00:00Z').getTime()-864e5).toISOString().slice(0,10)}`)]);
+ const t=r.totals||{},ty=y.totals||{},sum=(t.Hoc_tap||0)+(t.Giai_tri||0)+(t.Khac||0);
+ $('r-h').textContent=Math.round((t.Hoc_tap||0)/60);$('r-g').textContent=Math.round((t.Giai_tri||0)/60);$('r-k').textContent=Math.round((t.Khac||0)/60);
+ $('r-bar').innerHTML=sum?['Hoc_tap','Giai_tri','Khac'].map(k=>`<span style="width:${100*(t[k]||0)/sum}%;background:${CAT[k][1]}"></span>`).join(''):'';
+ const d=Math.round(((t.Hoc_tap||0)-(ty.Hoc_tap||0))/60),g=Math.round(((t.Giai_tri||0)-(ty.Giai_tri||0))/60);
+ $('r-cmp').textContent=`So với hôm trước: học ${d>=0?'+':''}${d} phút · giải trí ${g>=0?'+':''}${g} phút`;
+ const H=r.hours||{};let mx=1;for(let h=0;h<24;h++){const o=H[String(h).padStart(2,'0')]||{};mx=Math.max(mx,(o.Hoc_tap||0)+(o.Giai_tri||0)+(o.Khac||0));}
+ let bars='',labs='';for(let h=6;h<24;h++){const o=H[String(h).padStart(2,'0')]||{};
+  bars+=`<div title="${h}h">${['Hoc_tap','Giai_tri','Khac'].map(k=>`<span style="height:${100*(o[k]||0)/mx}%;background:${CAT[k][1]}"></span>`).join('')}</div>`;labs+=`<span>${h%3===0?h:''}</span>`;}
+ $('r-hours').innerHTML=bars;$('r-hlab').innerHTML=labs;
+ $('r-upd').textContent=r.updated?('Cập nhật lúc '+new Date(r.updated*1000).toLocaleTimeString('vi-VN')):'';
+ $('r-apps').innerHTML=(r.items||[]).map(i=>{const c=CAT[i.category]||CAT.Khac;return `<div class="app-row"><div class="ic">${appIcon(i.app,i.title)}</div>
+  <div class="nm"><div><b>${esc(i.app)}</b> <span class="tag" style="background:${c[1]}">${c[0]}</span></div><div class="mut">${esc(i.title)}</div>
+  ${i.reason?`<div class="mut" style="font-size:12px">${esc(i.reason)}</div>`:''}</div><div class="mn">${fmtMin(i.seconds)}</div></div>`}).join('')||'Chưa có dữ liệu ngày này.';}
+// ---------- Luật chặn theo nhóm ----------
+const GROUPS={
+ social:{n:'📱 Mạng xã hội',d:'Facebook, Instagram, TikTok, Threads, X',dom:['facebook.com','instagram.com','tiktok.com','threads.net','x.com','twitter.com','snapchat.com'],kw:['facebook','instagram','tiktok'],apps:[]},
+ game:{n:'🎮 Game',d:'Roblox, Steam, Riot, Genshin, Minecraft, web game',dom:['poki.com','y8.com','roblox.com','friv.com','crazygames.com','miniclip.com'],kw:[],apps:['roblox','steam','epicgameslauncher','riotclient','valorant','leagueclient','genshin','minecraft','garena','fc_online']},
+ shortvideo:{n:'🎬 Video ngắn & phim',d:'YouTube Shorts, Netflix, web phim',dom:['netflix.com','fptplay.vn','tv360.vn','phimmoichill.net','motchilli.vip'],kw:['shorts','phim'],apps:[]},
+ youtube:{n:'▶️ Toàn bộ YouTube',d:'Chặn cả bài giảng YouTube (thường nên tắt)',dom:['youtube.com','youtu.be'],kw:['youtube'],apps:[]},
+ shopping:{n:'🛒 Mua sắm',d:'Shopee, Lazada, Tiki, Temu',dom:['shopee.vn','lazada.vn','tiki.vn','sendo.vn','temu.com'],kw:['shopee'],apps:[]},
+ chat:{n:'💬 Chat & Discord',d:'Discord, Messenger web',dom:['discord.com','messenger.com'],kw:['discord'],apps:['discord']},
+ comics:{n:'📚 Truyện tranh',d:'Các web truyện tranh phổ biến',dom:['truyenqqto.com','nettruyenviet.com','blogtruyenmoi.com'],kw:['truyện tranh','manga'],apps:[]}};
+let rulesTouched=false;
+function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;const st=(v.status||{}),r=st.rules||{},srv=(v.rules||{});
+ const sel=new Set(srv.groups||[]);const all=new Set([...(r.domains||[]),...(r.apps||[]),...(r.keywords||[])]);
+ if(!srv.groups){for(const [k,g] of Object.entries(GROUPS)){if([...g.dom,...g.apps].some(x=>all.has(x)))sel.add(k);}}
+ $('groups').innerHTML=Object.entries(GROUPS).map(([k,g])=>`<div class="sw"><div><div class="t">${g.n}</div><div class="d">${g.d}</div></div>
+  <label class="tg"><input type="checkbox" data-g="${k}" ${sel.has(k)?'checked':''} onchange="rulesTouched=true"><span></span></label></div>`).join('');
+ const inG=new Set();for(const k of sel){const g=GROUPS[k];[...g.dom,...g.kw,...g.apps].forEach(x=>inG.add(x));}
+ $('x-apps').value=(r.apps||[]).filter(x=>!inG.has(x)).join(', ');$('x-dom').value=(r.domains||[]).filter(x=>!inG.has(x)).join(', ');
+ $('x-kw').value=(r.keywords||[]).filter(x=>!inG.has(x)).join(', ');
+ $('opt-always').checked=!!(srv.monitor_always??st.monitor_always);$('opt-dns').checked=srv.dns_block!==false;rulesTouched=false;
+ $('rmsg').textContent=st.dns_block?('Trên máy: '+st.dns_block):'';}
+async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
+ const groups=[...document.querySelectorAll('[data-g]')].filter(i=>i.checked).map(i=>i.dataset.g);
+ const apps=new Set(sp('x-apps')),dom=new Set(sp('x-dom')),kw=new Set(sp('x-kw'));
+ for(const k of groups){const g=GROUPS[k];g.apps.forEach(x=>apps.add(x));g.dom.forEach(x=>dom.add(x));g.kw.forEach(x=>kw.add(x));}
+ const r=await api(`/api/parent/devices/${v.id}/rules`,{apps:[...apps],domains:[...dom],keywords:[...kw],groups,
+  monitor_always:$('opt-always').checked,dns_block:$('opt-dns').checked});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
+// ---------- PWA ----------
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+let deferredPrompt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;$('installBtn').style.display='inline-block';});
+async function installApp(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt=null;$('installBtn').style.display='none';}}
+$('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối';
+const qs=new URLSearchParams(location.search);go({camera:'camera',report:'report'}[qs.get('tab')]||'home');
+load();setInterval(load,6000);setInterval(()=>{if(VIEW==='report'&&!document.hidden)report();},15000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
 </script>"""
 
 
@@ -521,6 +701,9 @@ def api_parent_devices():
             "status": dev.get("status") or {},
             "alerts": (dev.get("recent_alerts") or [])[:10],
             "acks": (dev.get("acks") or [])[:5],
+            "now": live_category(dev),
+            "rules": {k: v for k, v in (dev.get("rules") or {}).items() if k != "by"},
+            "today": ((db.get(f"activity_sum/{did}/{vn_date()}/totals")) or {}),
         })
     chats = list((db.get(f"parents/{uid}/chats") or {}).keys())
     return jsonify({"devices": out, "chats": chats})
@@ -591,6 +774,11 @@ def api_parent_activity(did):
     if not parent_owns(uid, did):
         return jsonify({"error": "Không có quyền với máy này."}), 403
     date = "".join(ch for ch in request.args.get("date", "") if ch.isdigit() or ch == "-")[:10] or vn_date()
+    summ = db.get(f"activity_sum/{did}/{date}")
+    if summ:
+        items = sorted((summ.get("apps") or {}).values(), key=lambda x: -int(x.get("seconds", 0)))[:40]
+        return jsonify({"date": date, "totals": summ.get("totals") or {}, "hours": summ.get("hours") or {},
+                        "items": items, "updated": summ.get("updated", 0)})
     batches = db.get(f"activity/{did}/{date}") or {}
     totals: Dict[str, int] = {"Hoc_tap": 0, "Giai_tri": 0, "Khac": 0}
     merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
@@ -694,6 +882,45 @@ def classify_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _add_to_summary(did: str, day: str, end_ts: int, items: List[Dict[str, Any]]) -> None:
+    """
+    Bảng tổng hợp theo ngày (nhỏ, đọc nhanh): tổng giây theo nhóm, theo giờ, theo ứng dụng.
+    Dashboard chỉ đọc bảng này -> không phải tải toàn bộ lô 30s của cả ngày (tiết kiệm băng thông Firebase).
+    """
+    path = f"activity_sum/{did}/{day}"
+    summ = db.get(path) or {}
+    totals = summ.get("totals") or {"Hoc_tap": 0, "Giai_tri": 0, "Khac": 0}
+    hours = summ.get("hours") or {}
+    apps = summ.get("apps") or {}
+    hh = time.strftime("%H", time.gmtime(end_ts + TZ_OFFSET_S))
+    for it in items:
+        cat = it.get("category") if it.get("category") in totals else "Khac"
+        sec = int(it.get("seconds", 0) or 0)
+        totals[cat] = int(totals.get(cat, 0)) + sec
+        hrow = hours.get(hh) or {}
+        hrow[cat] = int(hrow.get(cat, 0)) + sec
+        hours[hh] = hrow
+        key = fb_key(hashlib.md5(f"{it.get('app')}|{it.get('title')}".encode("utf-8")).hexdigest()[:16])
+        a = apps.get(key) or {"app": it.get("app", ""), "title": it.get("title", ""), "category": cat,
+                              "reason": it.get("reason", ""), "seconds": 0}
+        a["seconds"] = int(a.get("seconds", 0)) + sec
+        a["last"] = end_ts
+        apps[key] = a
+    if len(apps) > 150:  # giữ 150 mục nhiều thời gian nhất
+        apps = dict(sorted(apps.items(), key=lambda kv: -int(kv[1].get("seconds", 0)))[:150])
+    db.set(path, {"totals": totals, "hours": hours, "apps": apps, "updated": now()})
+
+
+def live_category(dev: Dict[str, Any]) -> Dict[str, Any]:
+    """Phân loại nhanh cửa sổ đang dùng NGAY LÚC NÀY (theo luật) cho thẻ trạng thái phụ huynh."""
+    nw = ((dev.get("status") or {}).get("now")) or {}
+    if not nw or nw.get("idle"):
+        return {"category": "Idle", "app": "", "title": nw.get("title", "")}
+    cat, _ = classify_rules(str(nw.get("exe", "")), str(nw.get("title", "")))
+    return {"category": cat, "app": nw.get("exe", ""), "title": str(nw.get("title", ""))[:90],
+            "age": now() - int(nw.get("t", 0) or 0)}
+
+
 # =====================================================================
 # API cho máy học sinh (agent)
 # =====================================================================
@@ -743,8 +970,10 @@ def api_agent_heartbeat():
     batch = data.get("activity")
     if isinstance(batch, dict) and batch.get("items"):
         items = classify_items([i for i in batch["items"] if isinstance(i, dict)][:25])
-        db.push(f"activity/{did}/{vn_date(batch.get('end'))}",
+        day = vn_date(batch.get("end"))
+        db.push(f"activity/{did}/{day}",
                 {"start": int(batch.get("start", 0) or 0), "end": int(batch.get("end", 0) or 0), "items": items})
+        _add_to_summary(did, day, int(batch.get("end", 0) or now()), items)
     if new_alerts:
         recent = (new_alerts + list(dev.get("recent_alerts") or []))[:20]
         updates["recent_alerts"] = recent
@@ -904,6 +1133,57 @@ def telegram_setup():
         ("may", "Danh sách máy"), ("status", "Tình trạng học tập"), ("lock", "Khóa màn hình"),
         ("reset_ai", "Đặt lại giờ AI"), ("anh", "Chụp ảnh camera"), ("help", "Hướng dẫn"))])
     return jsonify({"webhook": url, "telegram": res})
+
+
+# =====================================================================
+# Web App cài trên Android (PWA): manifest + service worker + trang ngoại tuyến
+# =====================================================================
+MANIFEST = {
+    "name": "Bàn Học Thông Minh - Phụ huynh", "short_name": "Bàn Học", "lang": "vi",
+    "description": "Theo dõi việc học, xem camera, khóa máy và nhận cảnh báo từ máy học sinh.",
+    "start_url": "/dashboard?src=pwa", "scope": "/", "display": "standalone", "orientation": "portrait",
+    "background_color": "#f4f6fb", "theme_color": "#2563eb",
+    "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+              {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}],
+    "shortcuts": [{"name": "Xem camera", "url": "/dashboard?tab=camera"},
+                  {"name": "Báo cáo hôm nay", "url": "/dashboard?tab=report"}],
+}
+
+SW_JS = """
+const CACHE='banhoc-v1';
+const SHELL=['/offline','/static/icon-192.png','/static/icon-512.png','/manifest.webmanifest'];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
+self.addEventListener('fetch',e=>{
+  const r=e.request; if(r.method!=='GET')return;
+  const u=new URL(r.url); if(u.origin!==location.origin)return;
+  if(u.pathname.startsWith('/static/')){e.respondWith(caches.match(r).then(m=>m||fetch(r)));return;}
+  if(r.mode==='navigate'){e.respondWith(fetch(r).catch(()=>caches.match('/offline')));}
+});
+"""
+
+OFFLINE_HTML = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Mất kết nối</title><body style="font-family:system-ui;background:#f4f6fb;color:#0f172a;display:grid;place-items:center;min-height:90vh;margin:0">
+<div style="text-align:center;padding:24px"><img src="/static/icon-192.png" width=96 style="border-radius:22px"><h2>Mất kết nối mạng</h2>
+<p style="color:#64748b">Điện thoại đang offline. Ứng dụng sẽ tự tải lại khi có mạng.</p>
+<button onclick="location.reload()" style="font:inherit;padding:12px 20px;border-radius:12px;border:0;background:#2563eb;color:#fff">Thử lại</button></div>
+<script>addEventListener('online',()=>location.reload())</script></body>"""
+
+
+@app.route("/manifest.webmanifest")
+def manifest():
+    return Response(__import__("json").dumps(MANIFEST, ensure_ascii=False), mimetype="application/manifest+json")
+
+
+@app.route("/sw.js")
+def service_worker():
+    return Response(SW_JS, mimetype="application/javascript", headers={"Cache-Control": "no-cache",
+                                                                       "Service-Worker-Allowed": "/"})
+
+
+@app.route("/offline")
+def offline_page():
+    return OFFLINE_HTML
 
 
 @app.route("/api/health")

@@ -135,6 +135,7 @@ class CloudAgent:
             "monitor_always": bool(cfg.get("monitor_always", False)),
             "monitoring": bool(st.get("monitoring_active")),
             "dns_block": cfg.get("dns_block_status", ""),
+            "now": dict(self.tracker.current),
             "hostname": socket.gethostname(),
             "version": AGENT_VERSION,
             "role": st.get("current_role", "?"),
