@@ -98,7 +98,30 @@ class PhanMemQuanLyBanHocEXE:
         # Gắn bảo vệ ngoại lệ giao diện & phím tắt dự phòng trên Tkinter
         attach_tkinter_failsafe(self.root, self.thoat_khan_cap)
 
+        # Hàng đợi gọi giao diện từ luồng nền (Tkinter chỉ an toàn khi thao tác trên luồng chính)
+        import queue
+
+        self._ui_q: "queue.Queue" = queue.Queue()
+        self._bom_ui()
         self.hien_man_hinh_dang_nhap()
+
+    def _goi_ui(self, fn) -> None:
+        self._ui_q.put(fn)
+
+    def _bom_ui(self) -> None:
+        try:
+            while True:
+                fn = self._ui_q.get_nowait()
+                try:
+                    fn()
+                except Exception as exc:
+                    safe_log(f"[UI] Lỗi cập nhật từ luồng nền: {exc}")
+        except Exception:
+            pass
+        try:
+            self.root.after(80, self._bom_ui)
+        except Exception:
+            pass
 
     # =====================================================================
     # TIỆN ÍCH HỆ THỐNG & AN TOÀN KHẨN CẤP (FAIL-SAFE UI)
@@ -116,7 +139,7 @@ class PhanMemQuanLyBanHocEXE:
 
     def _nhan_lenh_khoa_tu_xa(self) -> None:
         """Callback an toàn đa luồng khi Phụ huynh bấm 'Khóa máy từ xa' trên Web hoặc Bot Telegram."""
-        self.root.after(0, self._thuc_thi_khoa_tu_xa_ui)
+        self._goi_ui(self._thuc_thi_khoa_tu_xa_ui)
 
     def _thuc_thi_khoa_tu_xa_ui(self) -> None:
         self.hien_man_hinh_dang_nhap()
@@ -128,7 +151,7 @@ class PhanMemQuanLyBanHocEXE:
 
     def thoat_khan_cap_tu_luong_phu(self, ly_do: str) -> None:
         """Được gọi từ luồng Win32 RegisterHotKey hoặc luồng UNLOCK.txt."""
-        self.root.after(0, lambda: self.thoat_khan_cap(ly_do, hien_thong_bao=False))
+        self._goi_ui(lambda: self.thoat_khan_cap(ly_do, hien_thong_bao=False))
 
     def thoat_khan_cap(self, ly_do: str = "Khẩn cấp", hien_thong_bao: bool = True) -> None:
         self._huy_bo_dem_ui()
@@ -179,6 +202,7 @@ class PhanMemQuanLyBanHocEXE:
     def xoa_man_hinh(self) -> None:
         self._huy_bo_dem_ui()
         self._dong_dock()
+        self._dong_man_nghi()
         for widget in self.root.winfo_children():
             widget.destroy()
 
@@ -445,6 +469,7 @@ class PhanMemQuanLyBanHocEXE:
             side="right", padx=(6, 24), pady=16)
         self._ui_button(header, "🧰  Ứng dụng đang mở", self.mo_task_manager_hoc_sinh, kind="ghost").pack(
             side="right", padx=6, pady=16)
+        self._ui_button(header, "🚻  Xin đi vệ sinh", self.xin_di_ve_sinh, kind="ghost").pack(side="right", padx=6, pady=16)
         self.lbl_hs_watch = tk.Label(header, text="🟢 Đang được giám sát", bg="#dcfce7", fg="#166534",
                                      font=("Segoe UI", 10, "bold"), padx=12, pady=5)
         self.lbl_hs_watch.pack(side="right", padx=12)
@@ -563,11 +588,19 @@ class PhanMemQuanLyBanHocEXE:
         self._dock_apps.pack(side="left", fill="y", padx=4)
         nut(dock, "🆘", self.nhap_pin_cuu_ho, bg="#9f1239").pack(side="right", padx=(4, 10), pady=8)
         nut(dock, "🔒 Khóa", self.hien_man_hinh_dang_nhap).pack(side="right", padx=4, pady=8)
+        nut(dock, "🚻 Xin đi vệ sinh", self.xin_di_ve_sinh, bg="#0e7490").pack(side="right", padx=4, pady=8)
         self._dock_clock = tk.Label(dock, text="", bg="#0f172a", fg="white", font=("Segoe UI", 12, "bold"))
         self._dock_clock.pack(side="right", padx=12)
         self._dock_focus = tk.Label(dock, text="", bg="#0f172a", fg="#86efac", font=("Segoe UI", 10, "bold"))
         self._dock_focus.pack(side="right", padx=8)
+        self._dock_alert = tk.Label(dock, text="", bg="#0f172a", fg="#fcd34d", font=("Segoe UI", 10, "bold"))
+        self._dock_alert.pack(side="right", padx=8)
+        alerts = load_runtime_state().get("alerts") or []
+        self._dock_seen_alert = f"{alerts[0].get('time')}|{alerts[0].get('message')}" if alerts else ""
+        self._dock_last_ai = ""
         self._cap_nhat_dock()
+        if (load_runtime_state().get("toilet_break") or {}).get("active"):
+            self._hien_man_nghi()
 
     def _cap_nhat_dock(self) -> None:
         dock = getattr(self, "_dock", None)
@@ -582,6 +615,21 @@ class PhanMemQuanLyBanHocEXE:
             if pt.get("camera_connected") and pt.get("calibrated"):
                 cfi = float(pt.get("cfi_score", 100) or 0)
                 self._dock_focus.config(text=f"🎯 {cfi:.0f}%", fg="#86efac" if cfi >= 75 else ("#fcd34d" if cfi >= 50 else "#fca5a5"))
+            # Cảnh báo cho HỌC SINH: dải chữ trên dock (đang vi phạm) + thông báo nổi khi có cảnh báo mới
+            ai_alerts = (pt.get("alerts") or []) if pt.get("camera_connected") else []
+            tip = self._loi_khuyen(ai_alerts[0]) if ai_alerts else ""
+            self._dock_alert.config(text=tip[:70])
+            if ai_alerts and ai_alerts[0] != self._dock_last_ai:
+                self._toast_hoc_sinh(self._loi_khuyen(ai_alerts[0]))
+            self._dock_last_ai = ai_alerts[0] if ai_alerts else ""
+            alerts = load_runtime_state().get("alerts") or []
+            if alerts:
+                key = f"{alerts[0].get('time')}|{alerts[0].get('message')}"
+                if key != self._dock_seen_alert:
+                    self._dock_seen_alert = key
+                    msg = str(alerts[0].get("message", ""))
+                    if "Camera AI" not in msg and "Tư thế AI" not in msg and "vệ sinh" not in msg:
+                        self._toast_hoc_sinh(msg)
             wins = kiosk_guard.list_app_windows(self._dock_allowed.keys())[:8]
             sig = tuple((w["hwnd"], w["title"]) for w in wins)
             if sig != self._dock_apps_sig:
@@ -614,6 +662,24 @@ class PhanMemQuanLyBanHocEXE:
             safe_log(f"[UI] Lỗi cập nhật dock: {exc}")
         self._dock_job = self.root.after(1500, self._cap_nhat_dock)
 
+    @staticmethod
+    def _loi_khuyen(alert: str) -> str:
+        """Đổi cảnh báo kỹ thuật thành lời nhắc thân thiện cho học sinh."""
+        a = alert.upper()
+        for key, tip in (("BUỒN NGỦ", "😴 Bạn có vẻ buồn ngủ — đứng dậy vươn vai, uống nước nhé!"),
+                         ("NGHỊCH ĐỒ", "📵 Cất điện thoại / đồ chơi đi và quay lại bài nhé!"),
+                         ("XAO NHÃNG", "📱 Để điện thoại ra xa bàn học nhé!"),
+                         ("MẤT TẬP TRUNG", "👀 Tập trung vào bài nào!"),
+                         ("GỤC ĐẦU", "🙆 Ngồi dậy học tiếp nào, mệt thì xin nghỉ 5 phút nhé!"),
+                         ("CẬN THỊ", "📏 Ngồi xa màn hình ra một chút (ít nhất 30 cm)!"),
+                         ("SAI TƯ THẾ", "🧍 Ngồi thẳng lưng, đầu thẳng nhé!"),
+                         ("VẮNG MẶT", "🪑 Không thấy bạn trước camera — đi đâu thì bấm 🚻 xin phép nhé!"),
+                         ("NGHI ẢNH TĨNH", "📷 Đừng che hoặc đặt ảnh trước camera nhé!"),
+                         ("GIAN LẬN", "📷 Không dùng camera ảo khi học nhé!")):
+            if key in a:
+                return tip
+        return "⚠️ " + alert
+
     def _dong_dock(self) -> None:
         job = getattr(self, "_dock_job", None)
         if job is not None:
@@ -629,6 +695,212 @@ class PhanMemQuanLyBanHocEXE:
             except Exception:
                 pass
             self._dock = None
+    # ---------- Quét ứng dụng đã cài (Start Menu) để phụ huynh tick chọn ----------
+    def _hop_quet_ung_dung(self, cfg: Dict[str, Any], on_done) -> None:
+        from services.app_icons import emoji_for, get_icon_image
+        from services.app_scanner import scan_installed_apps
+
+        win = tk.Toplevel(self.root)
+        win.title("Chọn ứng dụng cho học sinh")
+        win.configure(bg=UI["bg"])
+        win.geometry("720x620")
+        win.transient(self.root)
+        win.grab_set()
+        tk.Label(win, text="🔍  Ứng dụng đã cài trên máy", bg=UI["bg"], fg=UI["txt"],
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=18, pady=(14, 2))
+        tk.Label(win, text="Tick các ứng dụng học tập muốn cho phép rồi bấm “Thêm”.", bg=UI["bg"], fg=UI["mut"],
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=18)
+        sbox = tk.Frame(win, bg=UI["card"], highlightbackground=UI["line"], highlightthickness=1)
+        sbox.pack(fill="x", padx=18, pady=10)
+        q = tk.StringVar()
+        tk.Label(sbox, text="🔎", bg=UI["card"]).pack(side="left", padx=(8, 0))
+        tk.Entry(sbox, textvariable=q, relief="flat", highlightthickness=0, bg=UI["card"],
+                 font=("Segoe UI", 10)).pack(side="left", fill="x", expand=True, padx=6, ipady=6)
+        lst_wrap = tk.Frame(win, bg=UI["bg"])
+        lst_wrap.pack(fill="both", expand=True, padx=18)
+        canvas = tk.Canvas(lst_wrap, bg=UI["card"], highlightthickness=1, highlightbackground=UI["line"])
+        sb = ttk.Scrollbar(lst_wrap, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        inner = tk.Frame(canvas, bg=UI["card"])
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        status = tk.Label(win, text="⏳ Đang quét menu Start…", bg=UI["bg"], fg=UI["mut"], font=("Segoe UI", 9))
+        status.pack(anchor="w", padx=18, pady=4)
+        have = {a.get("path", "").lower() for a in cfg.get("allowed_apps", [])}
+        state: Dict[str, Any] = {"apps": [], "vars": {}}
+
+        def ve() -> None:
+            for w in inner.winfo_children():
+                w.destroy()
+            key = q.get().strip().lower()
+            shown = 0
+            for a in state["apps"]:
+                if key and key not in a["name"].lower() and key not in a["exe_name"].lower():
+                    continue
+                shown += 1
+                var = state["vars"].setdefault(a["path"], tk.BooleanVar(value=False))
+                row = tk.Frame(inner, bg=UI["card"])
+                row.pack(fill="x", padx=6, pady=1)
+                already = a["path"].lower() in have
+                tk.Checkbutton(row, variable=var, bg=UI["card"], selectcolor=UI["card"], highlightthickness=0,
+                               state="disabled" if already else "normal").pack(side="left")
+                img = get_icon_image(a["path"], 22)
+                ic = tk.Label(row, image=img, bg=UI["card"]) if img is not None else \
+                    tk.Label(row, text=emoji_for(a["exe_name"]), bg=UI["card"], font=("Segoe UI Emoji", 12))
+                if img is not None:
+                    ic.image = img
+                ic.pack(side="left", padx=6)
+                tk.Label(row, text=a["name"], bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 10, "bold")).pack(side="left")
+                tk.Label(row, text=("  ✓ đã có" if already else f"  {a['exe_name']}"), bg=UI["card"],
+                         fg=UI["ok"] if already else UI["mut"], font=("Segoe UI", 9)).pack(side="left")
+                for w in row.winfo_children():
+                    if not isinstance(w, tk.Checkbutton) and not already:
+                        w.bind("<Button-1>", lambda _e, v=var: v.set(not v.get()))
+            status.config(text=f"{len(state['apps'])} ứng dụng · đang hiện {shown}")
+
+        q.trace_add("write", lambda *_a: ve())
+
+        def quet() -> None:
+            apps = scan_installed_apps()
+
+            def xong() -> None:
+                if not win.winfo_exists():
+                    return
+                state["apps"] = [a for a in apps if a["exe_name"].lower() not in FORBIDDEN_STUDENT_PROCESSES]
+                if not state["apps"]:
+                    status.config(text="Không đọc được menu Start (chỉ hỗ trợ Windows có pywin32).")
+                ve()
+            self._goi_ui(xong)
+
+        threading.Thread(target=quet, daemon=True).start()
+
+        def them() -> None:
+            added = 0
+            for a in state["apps"]:
+                var = state["vars"].get(a["path"])
+                if var is not None and var.get() and a["path"].lower() not in have:
+                    cfg.setdefault("allowed_apps", []).append({"name": a["name"], "exe_name": a["exe_name"],
+                                                               "path": a["path"]})
+                    added += 1
+            if added:
+                save_config(cfg)
+                on_done()
+            win.destroy()
+
+        bar = tk.Frame(win, bg=UI["bg"])
+        bar.pack(fill="x", padx=18, pady=(4, 14))
+        self._ui_button(bar, "➕  Thêm mục đã chọn", them).pack(side="right")
+        self._ui_button(bar, "Đóng", win.destroy, kind="ghost").pack(side="right", padx=8)
+
+    # ---------- Xin đi vệ sinh: khóa màn hình nghỉ + tính giờ từ lúc camera không còn thấy học sinh ----------
+    def xin_di_ve_sinh(self) -> None:
+        if self._current_mode != "student":
+            return
+        if not messagebox.askyesno("Xin đi vệ sinh", "Bạn muốn xin đi vệ sinh?\nMáy sẽ tạm khóa và tính giờ cho tới "
+                                   "khi bạn quay lại.", parent=self.root):
+            return
+        now = time.time()
+        update_runtime_state(toilet_break={"active": True, "start": now, "left_t": None})
+        gui_canh_bao_len_web(f"🚻 Học sinh xin đi vệ sinh lúc {time.strftime('%H:%M')}", "BREAK")
+        self._hien_man_nghi()
+
+    def _hien_man_nghi(self) -> None:
+        self._dong_man_nghi()
+        ov = tk.Toplevel(self.root)
+        ov.overrideredirect(True)
+        ov.attributes("-topmost", True)
+        ov.geometry(f"{self.root.winfo_screenwidth()}x{self.root.winfo_screenheight()}+0+0")
+        ov.configure(bg="#0f172a")
+        self._break_ov = ov
+        box = tk.Frame(ov, bg="#0f172a")
+        box.place(relx=0.5, rely=0.45, anchor="center")
+        tk.Label(box, text="🚻", bg="#0f172a", font=("Segoe UI Emoji", 54)).pack()
+        tk.Label(box, text="Đang nghỉ đi vệ sinh", bg="#0f172a", fg="white", font=("Segoe UI", 26, "bold")).pack(pady=(4, 2))
+        self._lbl_break_info = tk.Label(box, text="", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 12))
+        self._lbl_break_info.pack()
+        self._lbl_break_timer = tk.Label(box, text="00:00", bg="#0f172a", fg="#38bdf8", font=("Consolas", 56, "bold"))
+        self._lbl_break_timer.pack(pady=12)
+        tk.Label(box, text="Camera sẽ tự nhận ra khi bạn ngồi lại vào bàn.", bg="#0f172a", fg="#cbd5e1",
+                 font=("Segoe UI", 11)).pack()
+        tk.Button(box, text="✅  Tôi đã quay lại", command=lambda: self._ket_thuc_nghi("button"), bg=UI["ok"], fg="white",
+                  activebackground="#15803d", activeforeground="white", relief="flat", bd=0, padx=24, pady=10,
+                  font=("Segoe UI", 13, "bold"), cursor="hand2").pack(pady=18)
+        self._cap_nhat_man_nghi()
+
+    def _cap_nhat_man_nghi(self) -> None:
+        ov = getattr(self, "_break_ov", None)
+        if ov is None or not ov.winfo_exists():
+            return
+        brk = load_runtime_state().get("toilet_break") or {}
+        if not brk.get("active"):
+            dur = brk.get("duration_s")
+            self._dong_man_nghi()
+            if dur is not None:
+                self._toast_hoc_sinh(f"✅ Chào mừng trở lại! Bạn đã nghỉ {int(dur) // 60} phút {int(dur) % 60} giây.", ok=True)
+            return
+        now = time.time()
+        if brk.get("left_t"):
+            ref = float(brk["left_t"])
+            self._lbl_break_info.config(text=f"Rời bàn lúc {time.strftime('%H:%M', time.localtime(ref))}")
+        else:
+            ref = float(brk.get("start", now))
+            self._lbl_break_info.config(text=f"Đã xin lúc {time.strftime('%H:%M', time.localtime(ref))} · chờ camera "
+                                             "xác nhận rời bàn")
+        el = max(0, int(now - ref))
+        lim = int(load_config().get("toilet_max_minutes", 10)) * 60
+        self._lbl_break_timer.config(text=f"{el // 60:02d}:{el % 60:02d}", fg="#f87171" if el > lim else "#38bdf8")
+        self._break_job = self.root.after(1000, self._cap_nhat_man_nghi)
+
+    def _ket_thuc_nghi(self, by: str) -> None:
+        brk = load_runtime_state().get("toilet_break") or {}
+        if brk.get("active"):
+            now = time.time()
+            ref = float(brk.get("left_t") or brk.get("start") or now)
+            dur = int(now - ref)
+            update_runtime_state(toilet_break={**brk, "active": False, "back_t": now, "duration_s": dur, "ended_by": by})
+            gui_canh_bao_len_web(f"✅ Học sinh bấm “Đã quay lại” sau {dur // 60} phút {dur % 60} giây "
+                                 f"(tính từ {time.strftime('%H:%M', time.localtime(ref))})", "BREAK")
+        self._dong_man_nghi()
+
+    def _dong_man_nghi(self) -> None:
+        job = getattr(self, "_break_job", None)
+        if job is not None:
+            try:
+                self.root.after_cancel(job)
+            except Exception:
+                pass
+            self._break_job = None
+        ov = getattr(self, "_break_ov", None)
+        if ov is not None:
+            try:
+                ov.destroy()
+            except Exception:
+                pass
+            self._break_ov = None
+
+    # ---------- Thông báo nổi cho học sinh (luôn nằm trên mọi ứng dụng, cạnh thanh dock) ----------
+    def _toast_hoc_sinh(self, text: str, ok: bool = False, seconds: float = 7.0) -> None:
+        old = getattr(self, "_toast", None)
+        if old is not None:
+            try:
+                old.destroy()
+            except Exception:
+                pass
+        t = tk.Toplevel(self.root)
+        t.overrideredirect(True)
+        t.attributes("-topmost", True)
+        bg = "#065f46" if ok else "#7f1d1d"
+        t.configure(bg=bg)
+        tk.Label(t, text=text, bg=bg, fg="white", font=("Segoe UI", 11, "bold"), wraplength=420, justify="left",
+                 padx=16, pady=12).pack()
+        t.update_idletasks()
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        t.geometry(f"+{sw - t.winfo_width() - 16}+{sh - 56 - t.winfo_height() - 12}")
+        self._toast = t
+        t.after(int(seconds * 1000), lambda: t.winfo_exists() and t.destroy())
+
     # ---------- Bộ dựng giao diện dùng chung ----------
     def _ui_button(self, parent, text, cmd, kind="primary"):
         styles = {"primary": (UI["acc"], "white", "#1d4ed8"), "ghost": ("#eef2ff", "#1e3a8a", "#e0e7ff"),
@@ -1012,9 +1284,11 @@ class PhanMemQuanLyBanHocEXE:
         return ent
 
     def _label(self, parent, text: str, bold: bool = True, mut: bool = False, size: int = 10) -> tk.Label:
+        """Nhãn căn trái, tự xuống dòng theo bề rộng thật của khung chứa (không bị cắt chữ 2 đầu)."""
         lbl = tk.Label(parent, text=text, bg=parent.cget("bg"), fg=UI["mut"] if mut else UI["txt"], justify="left",
-                       font=("Segoe UI", size, "bold" if bold else "normal"), wraplength=820)
-        lbl.pack(anchor="w")
+                       anchor="w", font=("Segoe UI", size, "bold" if bold else "normal"), wraplength=300)
+        lbl.pack(anchor="w", fill="x")
+        lbl.bind("<Configure>", lambda e: lbl.config(wraplength=max(120, e.width - 4)))
         return lbl
 
     def _check(self, parent, text: str, value: bool) -> tk.BooleanVar:
@@ -1135,7 +1409,10 @@ class PhanMemQuanLyBanHocEXE:
             save_config(cfg)
             ve_lai()
 
-        self._ui_button(c_apps, "➕  Thêm ứng dụng", them_app).pack(anchor="w", pady=(10, 0))
+        abar = tk.Frame(c_apps, bg=UI["card"])
+        abar.pack(anchor="w", pady=(10, 0))
+        self._ui_button(abar, "🔍  Quét ứng dụng đã cài", lambda: self._hop_quet_ung_dung(cfg, ve_lai)).pack(side="left")
+        self._ui_button(abar, "➕  Chọn file .exe", them_app, kind="ghost").pack(side="left", padx=8)
         self._ui_button(c_dirs, "➕  Thêm thư mục", them_dir).pack(anchor="w", pady=(10, 0))
         ve_lai()
 
@@ -1157,13 +1434,32 @@ class PhanMemQuanLyBanHocEXE:
         e_good = self._entry(right, ", ".join(cfg.get("allowed_urls", [])))
         self._label(right, "Từ khóa bài giảng YouTube được miễn chặn")
         e_kw = self._entry(right, ", ".join(cfg.get("academic_keywords", [])))
-        self._label(right, "Thời gian tối đa dùng ChatGPT / chatbot AI (phút mỗi phiên)")
+        self._label(right, "Thời gian tối đa dùng ChatGPT / chatbot AI (phút mỗi ngày)")
         e_ai = self._entry(right, str(cfg.get("max_ai_minutes", 15)))
+
+        from services.giam_sat_worker import DEFAULT_YT_KEYWORDS
+
+        yt = self._card(page, "▶️  YouTube", pady=(12, 0))
+        self._label(yt, "Bài giảng vẫn xem được. Chỉ đóng tab khi TỪ KHÓA TÌM KIẾM hoặc TÊN VIDEO chứa từ khóa dưới đây "
+                        "(trừ khi có từ khóa bài giảng như toán, vật lý...).", bold=False, mut=True, size=9)
+        v_ytm = tk.StringVar(value=cfg.get("youtube_mode", "keyword"))
+        seg = tk.Frame(yt, bg=UI["card"])
+        seg.pack(fill="x", pady=8)
+        for val, txt in (("keyword", "🔎 Chặn theo từ khóa"), ("block", "⛔ Chặn toàn bộ"), ("allow", "✅ Cho phép hết")):
+            tk.Radiobutton(seg, text=txt, value=val, variable=v_ytm, indicatoron=0, bg="#f1f5f9", fg=UI["txt"],
+                           selectcolor="#dbeafe", relief="flat", bd=0, padx=10, pady=7, cursor="hand2",
+                           font=("Segoe UI", 9, "bold")).pack(side="left", expand=True, fill="x", padx=2)
+        self._label(yt, "Từ khóa cấm khi tìm / xem trên YouTube")
+        e_ytk = self._entry(yt, ", ".join(cfg.get("youtube_keywords") or DEFAULT_YT_KEYWORDS))
+        v_shorts = self._check(yt, "Chặn YouTube Shorts (video ngắn lướt liên tục)", cfg.get("youtube_block_shorts", True))
 
         def luu() -> None:
             split = lambda e: [x.strip() for x in e.get().split(",") if x.strip()]  # noqa: E731
             cfg["bad_urls"], cfg["bad_tabs"], cfg["bad_apps"] = split(e_urls), split(e_tabs), split(e_apps)
             cfg["allowed_urls"], cfg["academic_keywords"] = split(e_good), split(e_kw)
+            cfg["youtube_mode"] = v_ytm.get()
+            cfg["youtube_keywords"] = [x.lower() for x in split(e_ytk)]
+            cfg["youtube_block_shorts"] = bool(v_shorts.get())
             try:
                 cfg["max_ai_minutes"] = max(1, int(e_ai.get().strip()))
             except ValueError:
@@ -1242,7 +1538,7 @@ class PhanMemQuanLyBanHocEXE:
                     out = fn()
                 except Exception as exc:
                     out = exc
-                self.root.after(0, lambda: xong(out))
+                self._goi_ui(lambda: xong(out))
 
             def xong(out):
                 if lbl_busy.winfo_exists():
@@ -1254,7 +1550,7 @@ class PhanMemQuanLyBanHocEXE:
             def fn():
                 for name, (_pv, _st, idx) in previews.items():
                     img, info = camera_setup.grab_preview(idx)
-                    self.root.after(0, lambda n=name, im=img, inf=info: show_result(n, im, inf))
+                    self._goi_ui(lambda n=name, im=img, inf=info: show_result(n, im, inf))
             chay_nen(fn)
 
         def tu_nhan_dien() -> None:
@@ -1262,12 +1558,12 @@ class PhanMemQuanLyBanHocEXE:
                 res = camera_setup.auto_assign(cfg)
                 for r in res["results"]:
                     if r["name"] in previews:
-                        self.root.after(0, lambda r=r: show_result(r["name"], r.get("image"), r))
+                        self._goi_ui(lambda r=r: show_result(r["name"], r.get("image"), r))
 
                 def gan():
                     for name, var in role_vars.items():
                         var.set("main" if name == res["main"] else ("desk" if name == res["desk"] else "off"))
-                self.root.after(0, gan)
+                self._goi_ui(gan)
             chay_nen(fn)
 
         bar = tk.Frame(page, bg=UI["bg"])
@@ -1285,7 +1581,17 @@ class PhanMemQuanLyBanHocEXE:
                             cfg.get("posture_object_detection", True))
         v_photo = self._check(c_ai, "Tự gửi 1 ảnh bằng chứng qua Telegram khi học sinh cầm điện thoại/đồ chơi "
                                     "(tối đa 1 ảnh / 5 phút)", cfg.get("auto_photo_on_object", True))
+        v_act = self._check(c_ai, "Nhận diện hành động bằng mô hình MoViNet (nhắn tin, chơi game, ăn, ngáp...)",
+                            cfg.get("posture_action_recognition", True))
         v_draw = self._check(c_ai, "Vẽ điểm mốc AI trên màn hình giám sát nội bộ", cfg.get("posture_draw_landmarks", True))
+        from services.posture_ai_engine import SCAN_MODES
+
+        self._label(c_ai, "Chế độ quét", size=9)
+        mode_labels = {v["label"]: k for k, v in SCAN_MODES.items()}
+        v_mode = tk.StringVar(value=SCAN_MODES.get(cfg.get("ai_scan_mode", "standard"), SCAN_MODES["standard"])["label"])
+        ttk.Combobox(c_ai, textvariable=v_mode, values=list(mode_labels), state="readonly", width=58).pack(anchor="w", pady=(2, 8))
+        self._label(c_ai, "Phút tối đa cho mỗi lần đi vệ sinh (quá giờ sẽ báo phụ huynh)", size=9)
+        e_wc = self._entry(c_ai, str(cfg.get("toilet_max_minutes", 10)))
         self._label(c_ai, "Loại ống kính camera chính", size=9)
         fov_opts = {"Webcam thường (~70°)": 70.0, "Góc rộng (~90°)": 90.0, "Siêu rộng (~120°)": 120.0}
         cur_fov = float(cfg.get("camera_hfov_deg", 70.0))
@@ -1301,7 +1607,7 @@ class PhanMemQuanLyBanHocEXE:
         tk.Label(c_tip, bg=UI["card"], fg=UI["txt"], justify="left", font=("Segoe UI", 10), wraplength=360, text=(
             "Camera chính (trên màn hình):\n"
             "  • Ngang tầm mắt, chúc xuống 10–15° để thấy cả mặt, 2 vai và mép bàn.\n"
-            "  • Học sinh ngồi cách 50–70 cm, ở giữa khung hình.\n"
+            "  • Học sinh ngồi cách 40–70 cm (tối thiểu 30 cm), ở giữa khung hình.\n"
             "  • Webcam góc rộng 90–120° thấy được tay khi viết.\n\n"
             "Camera mặt bàn (tùy chọn):\n"
             "  • Kẹp lên đèn bàn / giá đỡ, cao 40–60 cm, chúc thẳng xuống vở.\n"
@@ -1319,6 +1625,12 @@ class PhanMemQuanLyBanHocEXE:
             cfg["posture_object_detection"] = bool(v_obj.get())
             cfg["auto_photo_on_object"] = bool(v_photo.get())
             cfg["posture_draw_landmarks"] = bool(v_draw.get())
+            cfg["posture_action_recognition"] = bool(v_act.get())
+            cfg["ai_scan_mode"] = mode_labels.get(v_mode.get(), "standard")
+            try:
+                cfg["toilet_max_minutes"] = max(1, int(e_wc.get().strip()))
+            except ValueError:
+                cfg["toilet_max_minutes"] = 10
             cfg["camera_hfov_deg"] = fov_opts.get(v_fov.get(), 70.0)
             cfg["camera_width"], cfg["camera_height"] = res_opts.get(v_res.get(), (1280, 720))
             save_config(cfg)
@@ -1369,7 +1681,7 @@ class PhanMemQuanLyBanHocEXE:
             if messagebox.askyesno("Đặt lại", "Xóa bộ đếm thời gian và lịch sử cảnh báo?", parent=self.root):
                 self.bo_giam_sat.app_usage = {}
                 self.bo_giam_sat.ai_seconds = 0
-                update_runtime_state(alerts=[], app_usage={}, ai_seconds=0)
+                update_runtime_state(alerts=[], app_usage={}, ai_seconds=0, ai_reset_at=time.time())
                 self.vao_che_do_phu_huynh(start="stats")
 
         self._ui_button(page, "🧹  Đặt lại bộ đếm & cảnh báo", dat_lai, kind="danger").pack(anchor="e", pady=(12, 0))

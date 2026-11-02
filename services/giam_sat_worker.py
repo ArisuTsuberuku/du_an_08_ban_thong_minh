@@ -12,7 +12,8 @@ import ctypes
 import os
 import threading
 import time
-from typing import Any, Callable, Dict, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from urllib.parse import parse_qs, urlparse
 
 import psutil
 import pyautogui
@@ -35,6 +36,75 @@ BAD_TABS = ["facebook", "tiktok", "shopee", "phim", "youtube", "game", "truyện
 BAD_APPS = ["roblox", "league", "valorant", "steam", "fc_online", "genshin"]
 URL_WEB = "http://127.0.0.1:5000/api/nhan_canh_bao"
 URL_STATS = "http://127.0.0.1:5000/api/cap_nhat_thong_ke"
+
+# Chatbot AI tính giờ (khớp trong URL hoặc tiêu đề cửa sổ)
+DEFAULT_AI_DOMAINS = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "claude.ai", "copilot.microsoft.com",
+                      "chat.deepseek.com", "perplexity.ai", "poe.com", "grok.com", "chat.qwen.ai", "meta.ai",
+                      "chat.mistral.ai", "you.com"]
+AI_TITLE_HINTS = ["chatgpt", "gemini", "copilot", "deepseek", "perplexity", "grok"]
+IDLE_PAUSE_S = 120.0      # không chạm phím/chuột > 2 phút -> ngừng tính giờ AI & ứng dụng
+
+# YouTube: mặc định CHỈ chặn tìm kiếm / video có từ khóa giải trí, bài giảng vẫn xem được
+DEFAULT_YT_KEYWORDS = ["free fire", "liên quân", "lien quan", "minecraft", "roblox", "pubg", "genshin", "gameplay",
+                       "game", "mukbang", "prank", "asmr", "tiktok", "review phim", "phim", "anime", "mv ",
+                       "nhạc remix", "remix", "vlog", "livestream game", "highlight"]
+
+
+def _idle_seconds() -> float:
+    try:
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+        ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii))
+        return (ctypes.windll.kernel32.GetTickCount() - lii.dwTime) / 1000.0
+    except Exception:
+        return 0.0
+
+
+def _youtube_query(url_l: str) -> str:
+    """Từ khóa người dùng gõ trên YouTube (youtube.com/results?search_query=...)."""
+    try:
+        q = parse_qs(urlparse(url_l if "://" in url_l else "https://" + url_l).query)
+        return " ".join(q.get("search_query", []) + q.get("q", [])).strip().lower()
+    except Exception:
+        return ""
+
+
+def danh_gia_youtube(url_l: str, title_l: str, cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Luật riêng cho YouTube (None = không phải trang YouTube):
+      - youtube_mode = "block": chặn toàn bộ; "allow": cho hết; "keyword" (mặc định): chỉ chặn khi
+        TỪ KHÓA TÌM KIẾM hoặc TIÊU ĐỀ VIDEO chứa từ khóa cấm, trừ khi có từ khóa bài giảng (toán, vật lý...).
+      - youtube_block_shorts: chặn YouTube Shorts (video ngắn gây nghiện).
+    """
+    is_yt = ("youtube.com" in url_l or "youtu.be" in url_l or title_l.endswith("- youtube")
+             or " - youtube -" in title_l)
+    if not is_yt:
+        return None
+    mode = str(cfg.get("youtube_mode", "keyword")).lower()
+    ok = {"exempt": False, "is_ai": False, "should_block": False, "reason": ""}
+    if mode == "allow":
+        return ok
+    if mode == "block":
+        return {**ok, "should_block": True, "reason": "YouTube đang bị chặn toàn bộ"}
+    if cfg.get("youtube_block_shorts", True) and ("/shorts" in url_l or title_l.startswith("#shorts")):
+        return {**ok, "should_block": True, "reason": "YouTube Shorts (video ngắn)"}
+    query = _youtube_query(url_l)
+    title = title_l.replace("- youtube", "").strip()
+    text = f" {query} {title} "
+    kws = [k.lower() for k in (cfg.get("youtube_keywords") or DEFAULT_YT_KEYWORDS) if k and k.strip()]
+    kws += [t.lower() for t in cfg.get("bad_tabs", []) if t and t.lower() not in ("youtube", "youtu.be")]
+    hit = next((k for k in kws if k.strip() and k in text), None)
+    if not hit:
+        return ok
+    academic = [k.lower() for k in cfg.get("academic_keywords", [])]
+    if any(a and a in text for a in academic) and hit.strip() not in ("free fire", "liên quân", "roblox", "minecraft"):
+        return ok   # "bài giảng vật lý ... game" -> vẫn cho học
+    src = f"tìm kiếm “{query}”" if query else f"video “{title_l[:60]}”"
+    return {**ok, "should_block": True, "reason": f"YouTube {src} (từ khóa '{hit.strip()}')"}
+
 
 BROWSER_PROCESS_NAMES: Set[str] = {
     "chrome.exe",
@@ -182,17 +252,23 @@ def phan_loai_truy_cap_web(
     ):
         return {"exempt": True, "is_ai": False, "should_block": False, "reason": ""}
 
-    ai_domains = [d.lower() for d in cfg.get("ai_domains", ["chatgpt.com", "gemini.google.com", "claude.ai"])]
+    ai_domains = [d.lower() for d in (cfg.get("ai_domains") or DEFAULT_AI_DOMAINS)]
     allowed_urls = [u.lower() for u in cfg.get("allowed_urls", [])]
     bad_urls = [u.lower() for u in cfg.get("bad_urls", [])]
     bad_tabs = [t.lower() for t in cfg.get("bad_tabs", BAD_TABS)]
     academic_kw = [k.lower() for k in cfg.get("academic_keywords", [])]
 
     combined = f"{url_l} {title_l}"
-    is_ai = any(ai in combined for ai in ai_domains)
+    is_ai = any(ai in combined for ai in ai_domains) or (not url_l and any(
+        h in title_l for h in AI_TITLE_HINTS) and any(b in title_l for b in ("chrome", "edge", "cốc cốc", "brave", "firefox")))
     if is_ai:
         # Chatbot AI được phép mở (nhưng bộ đếm thời gian sẽ giám sát ngưỡng MAX_AI_MINUTES)
         return {"exempt": False, "is_ai": True, "should_block": False, "reason": ""}
+
+    # 1b. YouTube: chặn theo từ khóa tìm kiếm / tiêu đề thay vì chặn cả trang
+    yt = danh_gia_youtube(url_l, title_l, cfg)
+    if yt is not None:
+        return yt
 
     # 2. Nếu URL khớp trực tiếp danh sách Link học tập được phép (olm.vn, vietjack.com, scholar.google...)
     if url_l and any(good in url_l for good in allowed_urls):
@@ -240,9 +316,13 @@ class BoGiamSatThongMinh:
         self.on_remote_lock = on_remote_lock
 
         state = load_runtime_state()
-        self.app_usage: Dict[str, int] = dict(state.get("app_usage", {}))
-        self.ai_seconds: int = int(state.get("ai_seconds", 0))
-        self._last_ai_alert_at_sec: int = 0
+        today = time.strftime("%Y-%m-%d")
+        same_day = state.get("usage_day") in (None, today)
+        self.app_usage: Dict[str, float] = dict(state.get("app_usage", {})) if same_day else {}
+        self.ai_seconds: float = float(state.get("ai_seconds", 0)) if same_day else 0.0
+        self._usage_day = today
+        self._ai_reset_seen = float(state.get("ai_reset_at", 0) or 0)
+        self._last_ai_alert_at_sec: float = 0
 
     def bat_dau(self) -> None:
         if self.dang_chay:
@@ -266,13 +346,30 @@ class BoGiamSatThongMinh:
     def _gui_thong_ke(self, cfg: Dict[str, Any]) -> None:
         _, stats_url = _get_web_endpoints(cfg)
         try:
+            usage = {k: int(v) for k, v in self.app_usage.items()}
             requests.post(
                 stats_url,
-                json={"app_usage": self.app_usage, "ai_seconds": self.ai_seconds},
+                json={"app_usage": usage, "ai_seconds": int(self.ai_seconds)},
                 timeout=0.9,
             )
+            update_runtime_state(usage_day=self._usage_day)
         except Exception:
-            update_runtime_state(app_usage=self.app_usage, ai_seconds=self.ai_seconds)
+            update_runtime_state(app_usage={k: int(v) for k, v in self.app_usage.items()},
+                                 ai_seconds=int(self.ai_seconds), usage_day=self._usage_day)
+
+    def _kiem_tra_dat_lai(self, state: Dict[str, Any]) -> None:
+        """Sang ngày mới -> đếm lại từ 0; phụ huynh bấm 'Đặt lại giờ AI' (web/Telegram) -> về 0 ngay."""
+        today = time.strftime("%Y-%m-%d")
+        if today != self._usage_day:
+            self._usage_day = today
+            self.ai_seconds = 0.0
+            self.app_usage = {}
+            self._last_ai_alert_at_sec = 0
+        reset_at = float(state.get("ai_reset_at", 0) or 0)
+        if reset_at > self._ai_reset_seen:
+            self._ai_reset_seen = reset_at
+            self.ai_seconds = 0.0
+            self._last_ai_alert_at_sec = 0
 
     def _vong_lap_giam_sat(self) -> None:
         # Khởi tạo COM bắt buộc trên Windows cho uiautomation khi chạy trong Thread phụ
@@ -290,8 +387,14 @@ class BoGiamSatThongMinh:
                 pass
 
         tick_count = 0
+        last_t = time.monotonic()
         try:
             while self.dang_chay:
+                # Thời gian THỰC giữa 2 vòng quét (UIA + quét tiến trình mất 0.3-2s) thay cho cộng cứng 1s/vòng
+                now_m = time.monotonic()
+                dt = max(0.0, min(5.0, now_m - last_t))
+                last_t = now_m
+                active = _idle_seconds() < IDLE_PAUSE_S
                 # 1. Kiểm tra công tắc cứu hộ UNLOCK.txt
                 if check_and_consume_unlock_file():
                     emergency_restore_and_exit("Phát hiện file cứu hộ UNLOCK.txt trong luồng giám sát", 0)
@@ -308,6 +411,7 @@ class BoGiamSatThongMinh:
                             pass
                         break
 
+                self._kiem_tra_dat_lai(state)
                 cfg = load_config()
                 max_ai_min = int(cfg.get("max_ai_minutes", 15))
                 bad_apps = [a.lower() for a in cfg.get("bad_apps", BAD_APPS)]
@@ -318,14 +422,16 @@ class BoGiamSatThongMinh:
                 }
 
                 # --- LỚP PHÒNG THỦ 1: QUÉT LINK ADDRESS (URL) & TIÊU ĐỀ CỬA SỔ ---
+                fg_proc = ""
                 try:
-                    win_title, _, is_browser = lay_thong_tin_cua_so_active()
+                    win_title, fg_proc, is_browser = lay_thong_tin_cua_so_active()
                     if win_title or is_browser:
                         current_url = lay_link_address_trinh_duyet(is_browser) if is_browser else ""
                         verdict = phan_loai_truy_cap_web(current_url, win_title, cfg)
 
-                        if verdict["is_ai"]:
-                            self.ai_seconds += 1
+                        if verdict["is_ai"] and active:
+                            # Chỉ tính khi tab AI đang ở trên cùng VÀ học sinh đang thao tác (không tính lúc bỏ máy)
+                            self.ai_seconds += dt
                             threshold_sec = max_ai_min * 60
                             # Cảnh báo ngay khi chạm ngưỡng và nhắc lại mỗi 5 phút nếu vẫn cố dùng
                             if self.ai_seconds >= threshold_sec and (
@@ -350,7 +456,10 @@ class BoGiamSatThongMinh:
 
                 # --- LỚP PHÒNG THỦ 2: QUÉT & TIÊU DIỆT GAME NGẦM + ĐẾM GIỜ ỨNG DỤNG ---
                 try:
-                    seen_allowed_this_tick: Set[str] = set()
+                    # Giờ dùng ứng dụng = thời gian ứng dụng đó ĐANG Ở TRÊN CÙNG (không tính app chạy nền)
+                    if active and fg_proc and fg_proc in allowed_map:
+                        label = f"{allowed_map[fg_proc]} ({fg_proc})"
+                        self.app_usage[label] = self.app_usage.get(label, 0) + dt
                     for proc in psutil.process_iter(["pid", "name"]):
                         pname = proc.info.get("name")
                         if not pname:
@@ -368,11 +477,6 @@ class BoGiamSatThongMinh:
                                 pass
                             continue
 
-                        # Cộng đúng 1 giây mỗi chu kỳ cho mỗi ứng dụng học tập đang mở (không nhân bội theo subprocess)
-                        if pname_l in allowed_map and pname_l not in seen_allowed_this_tick:
-                            seen_allowed_this_tick.add(pname_l)
-                            display_label = f"{allowed_map[pname_l]} ({pname})"
-                            self.app_usage[display_label] = self.app_usage.get(display_label, 0) + 1
                 except Exception:
                     pass
 

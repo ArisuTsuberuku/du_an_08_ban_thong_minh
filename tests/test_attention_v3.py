@@ -127,6 +127,36 @@ def test_nod_off_counts_nod():
     assert m.nod_count == 1, out
 
 
+def test_face_covered_by_phone_is_playing():
+    m = AttentionModel()
+    _, t = run(m, 3, lambda t, i: face(t))
+    out, _ = run(m, 14, lambda t, i: FrameFeatures(t=t, face_ok=False, pose_ok=False, face_covered=True,
+                                                    hands_zone="raised"), t0=t)
+    assert out["state"] == "PLAYING", out
+    assert out["evidence"]["absent"] == 0.0
+
+
+def test_break_suppresses_absent_and_alerts():
+    m = AttentionModel()
+    out, _ = run(m, 60, lambda t, i: FrameFeatures(t=t, face_ok=False, pose_ok=False, on_break=True))
+    assert out["state"] == "BREAK" and not out["alerts"], out
+
+
+def test_action_texting_adds_play_evidence():
+    m = AttentionModel()
+    out, _ = run(m, 15, lambda t, i: face(t, face_down_delta=0.08, look_down=0.6, action_group="phone",
+                                          action_vi="nhắn tin điện thoại", action_score=0.45))
+    assert out["state"] == "PLAYING", out
+
+
+def test_min_distance_30cm():
+    m = AttentionModel()
+    out, _ = run(m, 30, lambda t, i: face(t, distance_cm=35.0))
+    assert "TOO_CLOSE" not in out["alert_codes"], out
+    out, _ = run(m, 30, lambda t, i: face(t, distance_cm=25.0), t0=30)
+    assert "TOO_CLOSE" in out["alert_codes"], out
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):

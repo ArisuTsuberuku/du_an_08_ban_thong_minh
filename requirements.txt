@@ -12,3 +12,5 @@ opencv-contrib-python>=4.9.0,<5
 mediapipe>=0.10.14
 # Liệt kê tên Webcam DirectShow để ưu tiên chọn đúng "HD Webcam" thay vì Camera ảo
 pygrabber>=0.2
+# Nhận diện hành động MoViNet (TFLite) — có bản cho Python 3.14 Windows
+ai-edge-litert>=2.0

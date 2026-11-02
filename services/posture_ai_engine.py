@@ -78,6 +78,24 @@ LABEL_KEYS = {ord("1"): "SCREEN", ord("2"): "WRITING", ord("3"): "READING",
 
 OBJECT_MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/object_detector/"
                     "efficientdet_lite0/int8/latest/efficientdet_lite0.tflite")
+OBJECT_MODELS = {
+    "lite0": ("efficientdet_lite0.tflite", OBJECT_MODEL_URL),
+    "lite2": ("efficientdet_lite2.tflite", "https://storage.googleapis.com/mediapipe-models/object_detector/"
+                                           "efficientdet_lite2/int8/latest/efficientdet_lite2.tflite"),
+}
+# Chế độ quét Camera AI: (độ rộng ảnh AI, nghỉ giữa 2 khung, chu kỳ quét đồ vật, mô hình đồ vật, nhận diện hành động)
+SCAN_MODES = {
+    "eco": {"proc_width": 480, "sleep": 0.12, "obj_interval": 2.0, "obj_model": "lite0", "action": False,
+            "label": "Tiết kiệm (máy yếu, ~7 khung/giây)"},
+    "standard": {"proc_width": 640, "sleep": 0.07, "obj_interval": 1.0, "obj_model": "lite0", "action": True,
+                 "label": "Tiêu chuẩn (~12 khung/giây, đồ vật 1 lần/giây)"},
+    "accurate": {"proc_width": 960, "sleep": 0.03, "obj_interval": 0.5, "obj_model": "lite2", "action": True,
+                 "label": "Quét kỹ (máy mạnh, ~15-20 khung/giây, đồ vật 2 lần/giây, mô hình lớn)"},
+}
+
+
+def scan_mode(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    return SCAN_MODES.get(str(cfg.get("ai_scan_mode", "standard")), SCAN_MODES["standard"])
 # Lớp COCO quan tâm -> (nhãn tiếng Việt, loại). phone/toy = giải trí; book = học tập (miễn trừ)
 OBJECT_CLASSES = {
     "cell phone": ("điện thoại", "phone"),
@@ -154,29 +172,43 @@ def _blendshape_dict(raw: Any) -> Dict[str, float]:
 
 class ObjectWatcher:
     """
-    Nhận diện đồ vật (EfficientDet-Lite0, 80 lớp COCO) ~1 lần/giây trên ảnh 640px:
-    điện thoại, tay cầm game/điều khiển, gấu bông, bóng... (giải trí) và sách/vở (học tập).
-    Chạy được độc lập cho camera chính lẫn camera mặt bàn.
+    Nhận diện đồ vật (EfficientDet-Lite0 / Lite2, 80 lớp COCO): điện thoại, tay cầm game, gấu bông, bóng...
+    (giải trí) và sách/vở (học tập). Quét tốt hơn bản đầu:
+      - Ngưỡng riêng từng lớp (điện thoại cầm tay hay bị che -> 0.30; đồ chơi 0.45).
+      - Ngoài ảnh toàn khung, cắt thêm VÙNG QUANH BÀN TAY từ ảnh gốc độ phân giải cao -> đồ vật nhỏ trong tay
+        to ra trước mô hình (EfficientDet chỉ nhìn ảnh 320-448px nên ảnh toàn khung làm điện thoại chỉ còn vài chục px).
+      - Bỏ phiếu theo thời gian: cần >= 2 lần thấy trong ~3.5s (hoặc 1 lần rất chắc) mới tính -> ít báo nhầm.
     """
 
-    def __init__(self, interval_s: float = 1.0, score_threshold: float = 0.42):
+    CLASS_MIN = {"cell phone": 0.30, "remote": 0.35, "book": 0.40}
+    DEFAULT_MIN = 0.45
+
+    def __init__(self, interval_s: float = 1.0, model: str = "lite0"):
         self.interval_s = interval_s
         self._last_t = 0.0
         self.last: List[Dict[str, Any]] = []
+        self._hist: "deque[Tuple[float, List[Dict[str, Any]]]]" = deque()
         self.ok = False
+        self.model = model
         try:
             import mediapipe as mp
             from mediapipe.tasks.python.core import base_options
             from mediapipe.tasks.python import vision
 
-            path = ensure_model_file("efficientdet_lite0.tflite", OBJECT_MODEL_URL, min_bytes=1_000_000)
+            fname, url = OBJECT_MODELS.get(model, OBJECT_MODELS["lite0"])
+            try:
+                path = ensure_model_file(fname, url, min_bytes=1_000_000)
+            except Exception:
+                fname, url = OBJECT_MODELS["lite0"]
+                path = ensure_model_file(fname, url, min_bytes=1_000_000)
+                self.model = "lite0"
             with open(path, "rb") as fh:
                 buf = fh.read()
             opts = vision.ObjectDetectorOptions(
                 base_options=base_options.BaseOptions(model_asset_buffer=buf),
                 running_mode=vision.RunningMode.IMAGE,
-                max_results=8,
-                score_threshold=score_threshold,
+                max_results=10,
+                score_threshold=0.28,
                 category_allowlist=list(OBJECT_CLASSES.keys()),
             )
             self._mp = mp
@@ -186,29 +218,72 @@ class ObjectWatcher:
             safe_log(f"[AI] Không bật được nhận diện đồ vật: {exc}")
             self._det = None
 
-    def detect(self, bgr: np.ndarray, now: float, force: bool = False) -> List[Dict[str, Any]]:
-        if not self.ok or (not force and now - self._last_t < self.interval_s):
-            return self.last
-        self._last_t = now
+    def _run(self, bgr: np.ndarray, offset: Tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)) -> List[Dict[str, Any]]:
+        """Chạy detector trên 1 ảnh; offset = vị trí (x0,y0,x1,y1) của ảnh này trong khung gốc (chuẩn hóa)."""
         h, w = bgr.shape[:2]
-        try:
-            img = self._mp.Image(image_format=self._mp.ImageFormat.SRGB,
-                                 data=np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
-            res = self._det.detect(img)
-        except Exception:
-            return self.last
+        img = self._mp.Image(image_format=self._mp.ImageFormat.SRGB,
+                             data=np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
+        res = self._det.detect(img)
+        ox0, oy0, ox1, oy1 = offset
+        sx, sy = ox1 - ox0, oy1 - oy0
         out = []
         for d in res.detections or []:
             cat = d.categories[0] if d.categories else None
             if cat is None or cat.category_name not in OBJECT_CLASSES:
                 continue
+            if float(cat.score) < self.CLASS_MIN.get(cat.category_name, self.DEFAULT_MIN):
+                continue
             bb = d.bounding_box
             vi, kind = OBJECT_CLASSES[cat.category_name]
+            box = (ox0 + bb.origin_x / w * sx, oy0 + bb.origin_y / h * sy,
+                   ox0 + (bb.origin_x + bb.width) / w * sx, oy0 + (bb.origin_y + bb.height) / h * sy)
             out.append({"label": cat.category_name, "vi": vi, "kind": kind, "score": round(float(cat.score), 2),
-                        "box": (bb.origin_x / w, bb.origin_y / h, (bb.origin_x + bb.width) / w,
-                                (bb.origin_y + bb.height) / h), "t": now})
-        self.last = out
+                        "box": box})
         return out
+
+    @staticmethod
+    def _iou(a, b) -> float:
+        ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+        iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        inter = ix * iy
+        ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        return inter / ua if ua > 0 else 0.0
+
+    def detect(self, bgr: np.ndarray, now: float, force: bool = False,
+               rois: Optional[List[Tuple[float, float, float, float]]] = None,
+               hires: Optional[np.ndarray] = None) -> List[Dict[str, Any]]:
+        """Trả danh sách đồ vật ĐÃ ỔN ĐỊNH (bỏ phiếu theo thời gian). rois cắt từ hires (ảnh gốc) nếu có."""
+        if not self.ok or (not force and now - self._last_t < self.interval_s):
+            return self.last
+        self._last_t = now
+        found: List[Dict[str, Any]] = []
+        try:
+            found = self._run(bgr)
+            src = hires if hires is not None else bgr
+            H, W = src.shape[:2]
+            for roi in (rois or [])[:2]:
+                x0, y0, x1, y1 = roi
+                px0, py0, px1, py1 = int(max(0, x0) * W), int(max(0, y0) * H), int(min(1, x1) * W), int(min(1, y1) * H)
+                if px1 - px0 < 48 or py1 - py0 < 48:
+                    continue
+                for o in self._run(src[py0:py1, px0:px1], (px0 / W, py0 / H, px1 / W, py1 / H)):
+                    dup = next((f for f in found if f["label"] == o["label"] and self._iou(f["box"], o["box"]) > 0.3), None)
+                    if dup is None:
+                        found.append(o)
+                    elif o["score"] > dup["score"]:
+                        dup.update(o)
+        except Exception:
+            return self.last
+        self._hist.append((now, found))
+        while self._hist and now - self._hist[0][0] > max(3.5, self.interval_s * 3.5):
+            self._hist.popleft()
+        stable = []
+        for o in found:
+            hits = sum(1 for _t, lst in self._hist if any(x["label"] == o["label"] for x in lst))
+            if hits >= 2 or o["score"] >= 0.6:
+                stable.append({**o, "t": now, "hits": hits})
+        self.last = stable
+        return stable
 
     @staticmethod
     def held_by(obj: Dict[str, Any], hand_pts: Sequence[Tuple[float, float]], pad: float = 0.06) -> bool:
@@ -305,8 +380,23 @@ class PostureAIEngine:
         except Exception:
             _ocfg = {}
         self.objects: Optional[ObjectWatcher] = None
+        self.mode = scan_mode(_ocfg)
+        self.proc_width = int(self.mode["proc_width"])
         if self._use_tasks_api and _ocfg.get("posture_object_detection", True):
-            self.objects = ObjectWatcher(interval_s=float(_ocfg.get("object_detect_interval_s", 1.0)))
+            self.objects = ObjectWatcher(interval_s=float(self.mode["obj_interval"]), model=self.mode["obj_model"])
+        self.actions = None
+        if self.mode.get("action") and _ocfg.get("posture_action_recognition", True):
+            try:
+                from services.action_recognizer import ActionRecognizer
+
+                self.actions = ActionRecognizer(resolve_models_dir())
+                if not self.actions.ok:
+                    safe_log(f"[AI] Nhận diện hành động tắt: {self.actions.reason}")
+                    self.actions = None
+            except Exception as exc:
+                safe_log(f"[AI] Nhận diện hành động tắt: {exc}")
+                self.actions = None
+        self.on_break = False
         self.desk_cam = None
         if _ocfg.get("desk_camera_enabled") and open_camera:
             try:
@@ -318,6 +408,8 @@ class PostureAIEngine:
                 safe_log(f"[DESK-CAM] Không khởi động được camera mặt bàn: {exc}")
         self.camera_setup: Dict[str, Any] = {"score": None, "hints": []}
         self._last_setup_check = 0.0
+        self._last_head: Optional[Tuple[float, List[Tuple[float, float]]]] = None
+        self._pad_hist: "deque[Tuple[float, float, float, float]]" = deque()
         self._hand_vis_hist: "deque[Tuple[float, bool]]" = deque()
 
         # Trạng thái hiệu chỉnh gốc cá nhân hóa (5 giây đầu)
@@ -825,11 +917,35 @@ class PostureAIEngine:
         info["hands_in_frame"] = any(x[2] for x in wr)
         return info
 
+    @staticmethod
+    def _roi_around(pts: List[Tuple[float, float]], w: int, h: int, min_frac: float = 0.32,
+                    grow: float = 2.2) -> Optional[Tuple[float, float, float, float]]:
+        """Ô vuông (theo pixel) bao quanh các điểm, nới grow lần, tối thiểu min_frac cạnh ngắn của khung."""
+        if not pts:
+            return None
+        xs = [p[0] * w for p in pts]
+        ys = [p[1] * h for p in pts]
+        cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+        side = max(max(xs) - min(xs), max(ys) - min(ys)) * grow
+        side = max(side, min_frac * min(w, h))
+        return ((cx - side / 2) / w, (cy - side / 2) / h, (cx + side / 2) / w, (cy + side / 2) / h)
+
     def _object_features(self, frame: np.ndarray, now: float, hand_pts: List[Tuple[float, float]],
-                         feats: FrameFeatures) -> List[Dict[str, Any]]:
+                         feats: FrameFeatures, head_pts: Optional[List[Tuple[float, float]]] = None) -> List[Dict[str, Any]]:
         objs: List[Dict[str, Any]] = []
         if self.objects is not None and self.objects.ok:
-            for o in self.objects.detect(frame, now):
+            h, w = frame.shape[:2]
+            rois = []
+            r1 = self._roi_around(hand_pts, w, h)
+            if r1:
+                rois.append(r1)
+            if head_pts and not feats.face_ok:      # mặt bị che -> soi vùng đầu (điện thoại giơ trước mặt)
+                r2 = self._roi_around(head_pts, w, h, min_frac=0.45, grow=3.0)
+                if r2:
+                    rois.append(r2)
+            raw = self.last_raw_frame
+            hires = raw if raw is not None and abs(raw.shape[1] / raw.shape[0] - w / h) < 0.02 else None
+            for o in self.objects.detect(frame, now, rois=rois, hires=hires):
                 o = dict(o)
                 o["held"] = bool(hand_pts) and ObjectWatcher.held_by(o, hand_pts)
                 o["cam"] = "main"
@@ -844,6 +960,13 @@ class PostureAIEngine:
                     feats.ext_motion = 0.02 if d.get("writing") else 0.0
         held = near = book = None
         for o in objs:
+            if o["kind"] in ("phone", "toy") and not o.get("held") and head_pts and not feats.face_ok:
+                # Điện thoại / đồ chơi che ngay trước mặt (tay khuất sau đồ vật) cũng tính là đang cầm
+                hx = [p[0] for p in head_pts]
+                hy = [p[1] for p in head_pts]
+                x0, y0, x1, y1 = o["box"]
+                if x0 < max(hx) + 0.05 and x1 > min(hx) - 0.05 and y0 < max(hy) + 0.08 and y1 > min(hy) - 0.08:
+                    o["held"] = True
             if o["kind"] in ("phone", "toy"):
                 if o.get("held") and (held is None or o["score"] > held["score"]):
                     held = o
@@ -1015,14 +1138,48 @@ class PostureAIEngine:
         if hands_detected or body.get("hands_in_frame"):
             self.last_hand_time = now
 
-        # 3b. Đồ vật trên tay / trong tầm tay (1 lần/giây)
-        objs = self._object_features(frame, now, body.get("hand_pts", []), feats)
+        # 3a. Điểm bàn tay (kể cả khi Pose hỏng vì bị che) + vùng đầu (Pose 0-10 hoặc khung mặt gần nhất)
+        hand_pts = list(body.get("hand_pts", []))
+        if not hand_pts:
+            for hand in (res.left_hand_landmarks, res.right_hand_landmarks):
+                if hand:
+                    hand_pts += [(p.x, p.y) for p in hand]
+        head_pts: List[Tuple[float, float]] = []
+        if face_ok:
+            fl = res.face_landmarks
+            head_pts = [(fl[i].x, fl[i].y) for i in (10, 152, 234, 454)]
+            self._last_head = (now, head_pts)
+        elif res.pose_landmarks and len(res.pose_landmarks) >= 11:
+            head_pts = [(res.pose_landmarks[i].x, res.pose_landmarks[i].y) for i in range(11)
+                        if 0.0 <= res.pose_landmarks[i].y <= 1.0]
+        if not head_pts and self._last_head and now - self._last_head[0] < 4.0:
+            head_pts = self._last_head[1]
+        if not face_ok and hand_pts and head_pts:
+            hx = [p[0] for p in head_pts]
+            hy = [p[1] for p in head_pts]
+            mx, my = 0.6 * (max(hx) - min(hx) + 0.05), 0.6 * (max(hy) - min(hy) + 0.05)
+            feats.face_covered = any(min(hx) - mx <= x <= max(hx) + mx and min(hy) - my <= y <= max(hy) + my
+                                     for x, y in hand_pts)
 
-        # 3c. Kiểm tra góc đặt webcam (liên tục trong lúc hiệu chỉnh, sau đó 2s/lần)
-        if not self.calibrated or now - self._last_setup_check >= 2.0:
+        # 3b. Đồ vật trên tay / trước mặt / trong tầm tay
+        objs = self._object_features(frame, now, hand_pts, feats, head_pts=head_pts)
+        if feats.held_kind in ("phone", "toy") and not face_ok:
+            feats.face_covered = True
+
+        # 3b'. Nhận diện hành động (MoViNet) trên vùng nửa người trên
+        if self.actions is not None:
+            roi = self._roi_around(head_pts + hand_pts, w, h, min_frac=0.6, grow=1.6) if head_pts else None
+            self.actions.push(frame, roi)
+            act = self.actions.latest()
+            if act and act.get("confident"):
+                feats.action_group, feats.action_vi = act.get("group"), act.get("vi")
+                feats.action_score = float(act.get("score", 0.0))
+        feats.on_break = bool(self.on_break)
+
+        # 3c. Kiểm tra góc đặt webcam: chỉ chấm trên khung RÕ (thấy mặt + 2 vai), tránh kết luận sai khi bị che
+        if face_ok and pose_ok and (not self.calibrated or now - self._last_setup_check >= 2.0):
             self._last_setup_check = now
-            self.camera_setup = self._camera_setup_check(res, w, h, raw_pitch,
-                                                         body.get("hands_in_frame") if pose_ok else None)
+            self.camera_setup = self._camera_setup_check(res, w, h, raw_pitch, body.get("hands_in_frame"))
 
         # 4. Hiệu chỉnh gốc 5s: chỉ nhận mẫu khi ngồi đúng vùng khoảng cách chuẩn
         calib_hint = ""
@@ -1051,9 +1208,23 @@ class PostureAIEngine:
         # Chống ảnh tĩnh PAD: chỉ xét khi nhìn thẳng (cúi đầu khó thấy chớp mắt)
         if ar.get("eyes_closed"):
             self.last_blink_time = now
-        if (face_ok and self.calibrated and ar.get("head_down_level", 0) == 0 and not ar.get("eyes_down")
-                and now - self.last_blink_time > 40.0):
-            extra_alerts.append("CẢNH BÁO PAD: Không chớp mắt >40s (nghi ảnh tĩnh)")
+        # Chống ảnh tĩnh (PAD) v2: người thật luôn có vi chuyển động đầu + biểu cảm dù mở mắt lâu (đọc chăm chú).
+        # Chỉ nghi ảnh tĩnh khi ĐỒNG THỜI: không chớp mắt > 60s + mũi gần như bất động + blendshape gần như không đổi
+        # trong 20s (ảnh in/ảnh trên điện thoại cho lưới mặt đứng yên tuyệt đối).
+        if face_ok:
+            lm = res.face_landmarks
+            expr = sum(bs.get(k, 0.0) for k in ("browInnerUp", "jawOpen", "mouthSmileLeft", "eyeSquintLeft",
+                                                  "eyeBlinkLeft", "mouthPressLeft"))
+            self._pad_hist.append((now, lm[1].x, lm[1].y, expr))
+        while self._pad_hist and now - self._pad_hist[0][0] > 20.0:
+            self._pad_hist.popleft()
+        if (face_ok and self.calibrated and now - self.last_blink_time > 60.0 and len(self._pad_hist) >= 40
+                and self._pad_hist[-1][0] - self._pad_hist[0][0] > 15.0):
+            arr = np.array([p[1:] for p in self._pad_hist], dtype=np.float64)
+            head_still = float(arr[:, 0].std() + arr[:, 1].std()) < 0.0015
+            expr_still = (not bs) or float(arr[:, 2].std()) < 0.01
+            if head_still and expr_still:
+                extra_alerts.append("NGHI ẢNH TĨNH: Mặt bất động tuyệt đối >20s và không chớp mắt >60s")
 
         alerts = extra_alerts + list(ar["alerts"])
         visual_focus = float(ar["cfi"])
@@ -1115,6 +1286,9 @@ class PostureAIEngine:
             ev_txt = (f"Bang chung -> MatTT:{ev.get('look_away', 0) * 100:.0f}% BuonNgu:{ev.get('drowsy', 0) * 100:.0f}% "
                       f"Nghich:{ev.get('play', 0) * 100:.0f}% GucDau:{ev.get('idle', 0) * 100:.0f}% "
                       f"| PERCLOS {ar.get('perclos_rel', 0):.0f}%")
+        act = ar.get("action")
+        if act and act.get("score", 0) >= 0.2:
+            ev_txt += f" | HANH DONG: {to_ascii(act.get('vi') or '')} {act['score'] * 100:.0f}%"
         if self.current_label:
             ev_txt += f" | NHAN: {self.current_label}"
         cv2.putText(frame, ev_txt, (12, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (148, 163, 184), 1)
@@ -1157,6 +1331,11 @@ class PostureAIEngine:
             "objects": [{"vi": o["vi"], "kind": o["kind"], "score": o["score"], "held": bool(o.get("held")),
                          "cam": o.get("cam", "main")} for o in objs],
             "held_object": held["vi"] if held else None,
+            "face_covered": bool(feats.face_covered),
+            "action": ar.get("action"),
+            "on_break": bool(self.on_break),
+            "present": bool(face_ok or pose_ok or feats.face_covered),
+            "scan_mode": self.mode.get("label", ""),
             "camera_setup": self.camera_setup,
             "evidence": ar.get("evidence", {}),
         }
@@ -1191,9 +1370,9 @@ class PostureAIEngine:
         self.last_raw_frame = frame
         # AI chỉ cần ảnh ~640px: thu nhỏ để giữ tốc độ khi webcam chạy 720p/1080p (tọa độ điểm mốc là tỉ lệ nên không đổi)
         proc = frame
-        if frame.shape[1] > AI_PROC_WIDTH:
-            scale = AI_PROC_WIDTH / frame.shape[1]
-            proc = cv2.resize(frame, (AI_PROC_WIDTH, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+        if frame.shape[1] > self.proc_width:
+            scale = self.proc_width / frame.shape[1]
+            proc = cv2.resize(frame, (self.proc_width, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
 
         # Khung hình đen liên tục = Webcam đang bị tiến trình khác giữ (vd: trang_web.py đã bật AI) hoặc nắp che camera
         small = frame[::16, ::16]
@@ -1242,6 +1421,9 @@ class PostureAIEngine:
         if getattr(self, "objects", None) is not None:
             self.objects.close()
             self.objects = None
+        if getattr(self, "actions", None) is not None:
+            self.actions.close()
+            self.actions = None
         if self.cap is not None:
             try:
                 self.cap.release()
@@ -1291,6 +1473,9 @@ class PostureAIServiceWorker:
         self._last_posture_alert_time: float = 0.0
         self._active_codes: set = set()
         self._code_last: Dict[str, float] = {}
+        self._brk: Optional[Dict[str, Any]] = None
+        self._brk_state: Dict[str, Any] = {}
+        self._brk_read_t = 0.0
 
     def start(self) -> None:
         if self.running:
@@ -1329,6 +1514,65 @@ class PostureAIServiceWorker:
                 except Exception:
                     pass
 
+    def _update_break(self, telemetry: Dict[str, Any], cfg: Dict[str, Any], now: float) -> None:
+        """
+        Nghỉ đi vệ sinh: học sinh bấm "Xin đi vệ sinh" -> runtime_state.toilet_break.active.
+        Camera tính giờ TỪ LÚC KHÔNG CÒN THẤY học sinh (left_t) tới lúc thấy lại liên tục 3s -> tự kết thúc + báo
+        phụ huynh thời lượng; quá toilet_max_minutes thì nhắc 1 lần.
+        """
+        if now - self._brk_read_t >= 1.0:
+            self._brk_read_t = now
+            from core.config_manager import load_runtime_state
+
+            self._brk_state = load_runtime_state().get("toilet_break") or {}
+        st = self._brk_state
+        active = bool(st.get("active"))
+        if self._engine is not None:
+            self._engine.on_break = active
+        if not active:
+            self._brk = None
+            return
+        if self._brk is None or self._brk.get("id") != st.get("start"):
+            self._brk = {"id": st.get("start"), "absent_since": None, "left_t": st.get("left_t"),
+                         "present_since": None, "warned": False}
+        b = self._brk
+        present = bool(telemetry.get("camera_connected")) and bool(telemetry.get("present"))
+        if not present:
+            b["present_since"] = None
+            if b["absent_since"] is None:
+                b["absent_since"] = now
+            if b["left_t"] is None and now - b["absent_since"] >= 3.0:
+                b["left_t"] = b["absent_since"]
+                st = {**st, "left_t": b["left_t"]}
+                self._brk_state = st
+                update_runtime_state(toilet_break=st)
+        else:
+            if b["left_t"] is not None:
+                if b["present_since"] is None:
+                    b["present_since"] = now
+                if now - b["present_since"] >= 3.0 and b["present_since"] - b["left_t"] >= 10.0:
+                    dur = b["present_since"] - b["left_t"]
+                    st = {**st, "active": False, "back_t": b["present_since"], "duration_s": int(dur), "ended_by": "camera"}
+                    self._brk_state = st
+                    update_runtime_state(toilet_break=st)
+                    self._emit_posture_violation(telemetry, cfg, message=(
+                        f"✅ Học sinh đã quay lại bàn học sau {int(dur // 60)} phút {int(dur % 60)} giây "
+                        f"(rời chỗ {time.strftime('%H:%M', time.localtime(b['left_t']))} → "
+                        f"về {time.strftime('%H:%M', time.localtime(b['present_since']))})"), event_type="BREAK")
+                    self._brk = None
+                    if self._engine is not None:
+                        self._engine.on_break = False
+                    return
+            else:
+                b["absent_since"] = None
+        max_s = float(cfg.get("toilet_max_minutes", 10)) * 60.0
+        ref = b["left_t"] or float(st.get("start", now) or now)
+        if not b["warned"] and now - ref > max_s:
+            b["warned"] = True
+            self._emit_posture_violation(telemetry, cfg, message=(
+                f"⏰ Học sinh đi vệ sinh đã quá {int(max_s // 60)} phút "
+                f"(rời chỗ lúc {time.strftime('%H:%M', time.localtime(ref))}) mà chưa quay lại"), event_type="BREAK")
+
     # Sự kiện báo NGAY cho phụ huynh khi vừa xuất hiện (mỗi loại cách nhau >= 2 phút)
     INSTANT_CODES = {"PLAYING": "🎮", "DROWSY": "😴", "PHONE_NEAR": "📱", "IDLE": "💤"}
 
@@ -1349,7 +1593,8 @@ class PostureAIServiceWorker:
                 update_runtime_state(auto_snapshot_request={"t": now, "reason": text})
         self._active_codes = set(codes)
 
-    def _emit_posture_violation(self, telemetry: Dict[str, Any], cfg: Dict[str, Any], message: str = "") -> None:
+    def _emit_posture_violation(self, telemetry: Dict[str, Any], cfg: Dict[str, Any], message: str = "",
+                                event_type: str = "POSTURE_OR_HW") -> None:
         cfi = float(telemetry.get("visual_focus_score", 100.0))
         alerts = telemetry.get("alerts") or []
         detail = alerts[0] if alerts else "Tư thế ngồi thiếu tập trung kéo dài"
@@ -1359,7 +1604,7 @@ class PostureAIServiceWorker:
         try:
             requests.post(
                 f"http://127.0.0.1:{port}/api/nhan_canh_bao",
-                json={"message": msg, "event_type": "POSTURE_OR_HW"},
+                json={"message": msg, "event_type": event_type},
                 timeout=1.5,
             )
         except Exception:
@@ -1384,7 +1629,8 @@ class PostureAIServiceWorker:
                 port = int(cfg.get("web_port", 5000))
                 self._publish_raw(now, port)
 
-                if telemetry.get("calibrated"):
+                self._update_break(telemetry, cfg, now)
+                if telemetry.get("calibrated") and not telemetry.get("on_break"):
                     self._emit_instant_events(telemetry, cfg, now)
                 # Theo dõi ngưỡng CFI < 50% duy trì liên tục > 15 giây để bắn cảnh báo POSTURE_OR_HW
                 cfi = float(telemetry.get("visual_focus_score", 100.0))
@@ -1431,7 +1677,7 @@ class PostureAIServiceWorker:
                             update_runtime_state(recalibrate_posture_requested=False)
                             self._engine.reset_calibration()
 
-                time.sleep(0.08)  # ~12 FPS tối ưu CPU cho máy tính bàn học
+                time.sleep(float(getattr(self._engine, "mode", {}).get("sleep", 0.08)))  # nhịp theo chế độ quét
         except Exception as exc:
             safe_log(f"[WARN] Luồng Posture AI dừng do lỗi: {exc}")
         finally:

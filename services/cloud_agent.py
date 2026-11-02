@@ -132,12 +132,15 @@ class CloudAgent:
         return {
             "live": {k: lv.get(k) for k in ("active", "lan_url", "public_url", "expires", "note")},
             "rules": {"apps": cfg.get("bad_apps", []), "domains": cfg.get("bad_urls", []),
-                      "keywords": cfg.get("bad_tabs", [])},
+                      "keywords": cfg.get("bad_tabs", []), "youtube_mode": cfg.get("youtube_mode", "keyword"),
+                      "youtube_keywords": cfg.get("youtube_keywords") or [],
+                      "youtube_shorts": bool(cfg.get("youtube_block_shorts", True))},
             "rules_ver": int(cfg.get("rules_ver", 0) or 0),
             "monitor_always": bool(cfg.get("monitor_always", False)),
             "monitoring": bool(st.get("monitoring_active")),
             "dns_block": cfg.get("dns_block_status", ""),
             "now": dict(self.tracker.current),
+            "break": {k: (st.get("toilet_break") or {}).get(k) for k in ("active", "start", "left_t", "duration_s")},
             "open_apps": self.tracker.open_apps,
             "hostname": socket.gethostname(),
             "version": AGENT_VERSION,
@@ -152,6 +155,7 @@ class CloudAgent:
                 "state_vi": pt.get("activity_state_vi"),
                 "distance_cm": pt.get("distance_cm"),
                 "held_object": pt.get("held_object"),
+                "action": pt.get("action"),
                 "camera_score": (pt.get("camera_setup") or {}).get("score"),
                 "camera_hint": ((pt.get("camera_setup") or {}).get("hints") or [""])[0],
                 "alerts": (pt.get("alerts") or [])[:3],
@@ -214,7 +218,7 @@ class CloudAgent:
                     ctypes.windll.user32.LockWorkStation()
                     msg = "Đã khóa Windows (app SmartDesk không chạy nên dùng khóa của Windows)"
             elif ctype == "reset_ai":
-                update_runtime_state(ai_seconds=0)
+                update_runtime_state(ai_seconds=0, ai_reset_at=time.time())
                 msg = "Đã đặt lại giờ dùng AI về 0"
             elif ctype in ("ai_on", "ai_off"):
                 from services.posture_controller import posture_manager
@@ -298,10 +302,19 @@ class CloudAgent:
         cfg["rules_ver"] = int(rules.get("ver", 0) or 0)
         if "monitor_always" in rules:
             cfg["monitor_always"] = bool(rules.get("monitor_always"))
+        if rules.get("youtube_mode") in ("keyword", "block", "allow"):
+            cfg["youtube_mode"] = rules["youtube_mode"]
+        if isinstance(rules.get("youtube_keywords"), list):
+            cfg["youtube_keywords"] = clean(rules.get("youtube_keywords"))
+        if "youtube_shorts" in rules:
+            cfg["youtube_block_shorts"] = bool(rules.get("youtube_shorts"))
         dns_on = bool(rules.get("dns_block", True))
         from services.hosts_blocker import apply_hosts_block
 
-        ok_dns, dns_msg = apply_hosts_block(cfg["bad_urls"] if dns_on else [])
+        # Chặn DNS tận gốc KHÔNG áp cho YouTube khi đang ở chế độ "chặn theo từ khóa" (để bài giảng vẫn vào được)
+        yt_doms = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com")
+        dns_list = [d for d in cfg["bad_urls"] if cfg.get("youtube_mode", "keyword") == "block" or d not in yt_doms]
+        ok_dns, dns_msg = apply_hosts_block(dns_list if dns_on else [])
         cfg["dns_block_status"] = dns_msg
         save_config(cfg)
         self._last_monitor_check = 0.0

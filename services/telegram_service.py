@@ -223,7 +223,7 @@ def handle_incoming_command(command_text: str) -> Optional[str]:
             "Máy tính của học sinh sẽ chuyển ngay về Màn hình Khóa trong vòng ~1 giây."
         )
     if cmd == "/reset_ai":
-        update_runtime_state(ai_seconds=0)
+        update_runtime_state(ai_seconds=0, ai_reset_at=time.time())
         return "♻️ <b>Đã đặt lại bộ đếm thời gian dùng ChatGPT / Chatbot AI về 0 phút!</b>"
     return None
 

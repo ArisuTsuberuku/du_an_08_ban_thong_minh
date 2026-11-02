@@ -70,6 +70,10 @@ COMMAND_TYPES = {
     "live_off": "⏹️ Tắt xem trực tiếp",
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+# Web Push (thông báo trên điện thoại kể cả khi đã đóng web): tạo khóa bằng cloud/tao_khoa_vapid.py
+VAPID_PUBLIC = os.environ.get("VAPID_PUBLIC_KEY", "").strip()
+VAPID_PRIVATE = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@banhocthongminh.vercel.app").strip()
 GEMINI_MODELS = [m.strip() for m in os.environ.get(
     "GEMINI_MODEL", "gemini-flash-lite-latest,gemini-flash-latest,gemini-2.0-flash").split(",") if m.strip()]
 ACTIVITY_AI = os.environ.get("ACTIVITY_AI", "1") == "1"
@@ -332,6 +336,8 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px}
 .chip{white-space:nowrap;border:1px solid var(--line);background:var(--card);padding:8px 14px;border-radius:999px;cursor:pointer;font-size:14px}
 .chip.act{background:var(--acc);color:#fff;border-color:var(--acc)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 12px}.seg button{flex:1;min-width:120px}
+.seg button.act{background:var(--acc);color:#fff;border-color:var(--acc)}
 .hero{border-radius:18px;padding:18px;color:#fff;margin-bottom:12px}
 .hero.ok{background:linear-gradient(135deg,#16a34a,#22c55e)}.hero.warn{background:linear-gradient(135deg,#d97706,#f59e0b)}
 .hero.bad{background:linear-gradient(135deg,#dc2626,#f97316)}.hero.off{background:linear-gradient(135deg,#475569,#94a3b8)}
@@ -446,6 +452,11 @@ h3{margin:4px 0 10px}
      <label class="mut">Ứng dụng / game (tên .exe, cách nhau dấu phẩy)</label><textarea id="x-apps"></textarea>
      <label class="mut">Trang web (tên miền)</label><textarea id="x-dom"></textarea>
      <label class="mut">Từ khóa tiêu đề cửa sổ</label><textarea id="x-kw"></textarea></details></div>
+   <div class="card"><h3>▶️ YouTube</h3><p class="mut">Bài giảng vẫn xem bình thường. Máy chỉ đóng tab khi <b>từ khóa tìm kiếm</b> hoặc <b>tên video</b> chứa từ khóa giải trí.</p>
+    <div class="seg" id="yt-mode"><button type="button" data-m="keyword" onclick="ytMode(this)">🔎 Chặn theo từ khóa</button><button type="button" data-m="block" onclick="ytMode(this)">⛔ Chặn toàn bộ</button><button type="button" data-m="allow" onclick="ytMode(this)">✅ Cho phép hết</button></div>
+    <div id="yt-kw-box"><label class="mut">Từ khóa cấm khi tìm / xem (cách nhau dấu phẩy)</label><textarea id="yt-kw" oninput="rulesTouched=true"></textarea>
+    <div class="sw"><div><div class="t">Chặn YouTube Shorts</div><div class="d">Video ngắn lướt liên tục, dễ nghiện</div></div>
+     <label class="tg"><input type="checkbox" id="yt-shorts" checked onchange="rulesTouched=true"><span></span></label></div></div></div>
    <div class="card"><h3>⚙️ Cách giám sát</h3>
     <div class="sw"><div><div class="t">Giám sát cả khi học sinh chưa đăng nhập</div><div class="d">Bật: chặn & báo mọi lúc máy bật. Tắt: chỉ khi học sinh vào chế độ học.</div></div>
      <label class="tg"><input type="checkbox" id="opt-always"><span></span></label></div>
@@ -459,6 +470,9 @@ h3{margin:4px 0 10px}
     <div class="row"><input id="pcode" placeholder="Mã 6 số" inputmode="numeric" maxlength="6" style="width:120px">
      <input id="pname" placeholder="Tên máy (vd: Máy của Minh)" style="flex:1"><button class="pri" style="background:var(--acc);color:#fff" onclick="pair()">Ghép</button></div>
     <p id="pmsg" class="mut"></p></div>
+   <div class="card"><h3>🔔 Thông báo trên máy này</h3><p class="mut">Hiện cảnh báo ngay trên điện thoại / máy tính kể cả khi không mở web (Android Chrome, Edge, PC).</p>
+    <div class="row"><button class="pri" style="background:var(--acc);color:#fff" onclick="enableNotify()">🔔 Bật thông báo</button>
+     <button onclick="testNotify()">Gửi thử</button></div><p id="nmsg" class="mut"></p></div>
    <div class="card"><h3>💬 Telegram</h3><p class="mut">Nhận cảnh báo tức thì; gõ /status /lock /anh để điều khiển.</p>
     <div id="chats" class="mut"></div><p><button onclick="tglink()">Kết nối Telegram</button> <span id="tgmsg" class="mut"></span></p></div>
    <div class="card"><h3>🖥️ Máy đang quản lý</h3><div id="devlist"></div></div>
@@ -480,6 +494,23 @@ const $=id=>document.getElementById(id);
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function api(url,body){const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:body?JSON.stringify(body):undefined});
  if(r.status===401){location.href='/login';return {};}return r.json();}
+const VAPID='{{ vapid }}';let seenAlerts=null;
+function b64u(s){const p='='.repeat((4-s.length%4)%4),b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...b].map(c=>c.charCodeAt(0)));}
+function nstat(){const e=$('nmsg');if(!e)return;if(!('Notification' in window)){e.textContent='Trình duyệt này không hỗ trợ thông báo.';return;}
+ e.textContent=Notification.permission==='granted'?('✅ Đã bật'+(VAPID?' · nhận cả khi đóng web':' · chỉ khi web đang mở')):(Notification.permission==='denied'?'⛔ Đã chặn — mở cài đặt trang để cho phép':'Chưa bật');}
+async function enableNotify(){if(!('Notification' in window))return nstat();const p=await Notification.requestPermission();
+ if(p==='granted'&&VAPID&&'serviceWorker' in navigator&&'PushManager' in window){try{const reg=await navigator.serviceWorker.ready;
+  let sub=await reg.pushManager.getSubscription();if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(VAPID)});
+  const r=await api('/api/parent/push',sub.toJSON());if(r.error)toast(r.error);}catch(e){toast('Không đăng ký được Web Push: '+e.message);}}
+ nstat();}
+async function testNotify(){if(VAPID){const r=await api('/api/parent/push/test',{});toast(r.message||r.error);}else showNote('🔔 Thông báo thử','Cảnh báo sẽ hiện như thế này.');}
+async function showNote(title,body){try{if('Notification' in window&&Notification.permission==='granted'){const reg=await navigator.serviceWorker.ready;
+ reg.showNotification(title,{body,icon:'/static/icon-192.png',tag:'live-'+Date.now(),vibrate:[200,100,200]});}}catch(e){}}
+function checkNewAlerts(list){const keys=[];for(const d of list)for(const a of (d.alerts||[]))keys.push([d.id+'|'+a.time+'|'+a.message,d,a]);
+ if(seenAlerts===null){seenAlerts=new Set(keys.map(k=>k[0]));return;}
+ const fresh=keys.filter(k=>!seenAlerts.has(k[0]));fresh.forEach(k=>seenAlerts.add(k[0]));
+ for(const [,d,a] of fresh.slice(0,3)){toast('🚨 '+d.name+': '+a.message);if(navigator.vibrate)navigator.vibrate([150,80,150]);
+  if(document.hidden&&!VAPID)showNote('🖥️ '+d.name,a.message);}}
 function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',3500);}
 let DEV=[],CUR=null,VIEW='home',lastAck='';
 try{CUR=localStorage.getItem('sd_dev')}catch(e){}
@@ -498,6 +529,8 @@ function appIcon(app,title){const t=(app+' '+title).toLowerCase();
 function statusOf(v){const s=v.status||{},p=s.posture||{},n=v.now||{};
  if(!v.online) return ['off','⚪ Máy đang tắt / mất mạng','Cập nhật lần cuối '+Math.round(v.ago/60)+' phút trước'];
  if(p.camera&&p.state==='ABSENT') return ['warn','🟠 Học sinh đang vắng mặt','Không thấy ai trước camera'];
+ const br=s.break||{};if(br.active){const ref=br.left_t||br.start;const mins=ref?Math.max(0,Math.round((Date.now()/1000-ref)/60)):0;
+  return ['warn','🚻 Đang đi vệ sinh',(br.left_t?'Rời bàn lúc '+new Date(br.left_t*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'Vừa xin phép')+' · '+mins+' phút'];}
  if(p.camera&&p.state==='PLAYING') return ['bad','🔴 '+(p.state_vi||'Nghịch đồ'),p.held_object?('Đang cầm '+p.held_object):(n.title||'')];
  if(n.category==='Giai_tri') return ['bad','🔴 Đang giải trí',n.title];
  if(p.camera&&['LOOK_AWAY','DROWSY','IDLE'].includes(p.state)) return ['warn','🟡 '+(p.state_vi||'Mất tập trung'),n.title||''];
@@ -526,6 +559,7 @@ function renderAll(){const v=cur();renderChips();renderSettings();
  if(VIEW==='camera')showLive();}
 function renderOpen(list,p){const box=$('openbox');let h='';
  if(p&&p.held_object)h+=`<div class="alert-row" style="margin-top:8px"><time>📷 AI</time><div>Đang cầm <b>${esc(p.held_object)}</b></div></div>`;
+ if(p&&p.action&&p.action.vi)h+=`<div class="alert-row"><time>🧠 AI</time><div>Hành động: <b>${esc(p.action.vi)}</b> (${Math.round((p.action.score||0)*100)}%)</div></div>`;
  if(list.length){const tag=c=>CAT[c]?`<span class="tag" style="background:${CAT[c][1]}">${CAT[c][0]}</span>`:'';
   h+=`<div class="mut" style="margin:12px 0 4px;font-size:13px;font-weight:700">ĐANG MỞ · ${list.length} ứng dụng</div>`+list.map(a=>{
    const items=(a.tabs.length?a.tabs:a.windows);const sub=a.tabs.length?`${a.tabs.length} tab`:(a.windows[0]?a.windows[0].title:'');
@@ -538,7 +572,7 @@ function renderSettings(){$('devlist').innerHTML=DEV.map(d=>`<div class="app-row
 async function load(){const d=await api('/api/parent/devices');if(!d.devices)return;DEV=d.devices;
  if(!DEV.find(x=>x.id===CUR)&&DEV.length)CUR=DEV[0].id;
  $('chats').innerHTML=(d.chats||[]).length?'Đã liên kết: '+d.chats.map(c=>'<span class="pill on">'+esc(c)+'</span>').join(' '):'Chưa liên kết Telegram.';
- RULES_SRV=d.rules||{};renderAll();}
+ RULES_SRV=d.rules||{};checkNewAlerts(DEV);renderAll();}
 let RULES_SRV={};
 async function cmd(t){const v=cur();if(!v)return;const r=await api(`/api/parent/devices/${v.id}/command`,{type:t});toast(r.message||r.error||'');}
 function lockNow(){if(confirm('Khóa màn hình máy học sinh ngay?'))cmd('lock');}
@@ -583,11 +617,13 @@ const GROUPS={
  social:{n:'📱 Mạng xã hội',d:'Facebook, Instagram, TikTok, Threads, X',dom:['facebook.com','instagram.com','tiktok.com','threads.net','x.com','twitter.com','snapchat.com'],kw:['facebook','instagram','tiktok'],apps:[]},
  game:{n:'🎮 Game',d:'Roblox, Steam, Riot, Genshin, Minecraft, web game',dom:['poki.com','y8.com','roblox.com','friv.com','crazygames.com','miniclip.com'],kw:[],apps:['roblox','steam','epicgameslauncher','riotclient','valorant','leagueclient','genshin','minecraft','garena','fc_online']},
  shortvideo:{n:'🎬 Video ngắn & phim',d:'YouTube Shorts, Netflix, web phim',dom:['netflix.com','fptplay.vn','tv360.vn','phimmoichill.net','motchilli.vip'],kw:['shorts','phim'],apps:[]},
- youtube:{n:'▶️ Toàn bộ YouTube',d:'Chặn cả bài giảng YouTube (thường nên tắt)',dom:['youtube.com','youtu.be'],kw:['youtube'],apps:[]},
  shopping:{n:'🛒 Mua sắm',d:'Shopee, Lazada, Tiki, Temu',dom:['shopee.vn','lazada.vn','tiki.vn','sendo.vn','temu.com'],kw:['shopee'],apps:[]},
  chat:{n:'💬 Chat & Discord',d:'Discord, Messenger web',dom:['discord.com','messenger.com'],kw:['discord'],apps:['discord']},
  comics:{n:'📚 Truyện tranh',d:'Các web truyện tranh phổ biến',dom:['truyenqqto.com','nettruyenviet.com','blogtruyenmoi.com'],kw:['truyện tranh','manga'],apps:[]}};
 let rulesTouched=false;
+const YT_DEFAULT=['free fire','liên quân','minecraft','roblox','pubg','genshin','gameplay','game','mukbang','prank','asmr','tiktok','review phim','phim','anime','nhạc remix','livestream game'];
+function ytMode(b){document.querySelectorAll('#yt-mode button').forEach(x=>x.classList.toggle('act',x===b));$('yt-kw-box').style.display=b.dataset.m==='keyword'?'block':'none';rulesTouched=true;}
+function ytSet(m){const b=document.querySelector(`#yt-mode button[data-m="${m}"]`)||document.querySelector('#yt-mode button');ytMode(b);}
 function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;const st=(v.status||{}),r=st.rules||{},srv=(v.rules||{});
  const sel=new Set(srv.groups||[]);const all=new Set([...(r.domains||[]),...(r.apps||[]),...(r.keywords||[])]);
  if(!srv.groups){for(const [k,g] of Object.entries(GROUPS)){if([...g.dom,...g.apps].some(x=>all.has(x)))sel.add(k);}}
@@ -596,21 +632,27 @@ function fillRules(force){const v=cur();if(!v||(rulesTouched&&!force))return;con
  const inG=new Set();for(const k of sel){const g=GROUPS[k];[...g.dom,...g.kw,...g.apps].forEach(x=>inG.add(x));}
  $('x-apps').value=(r.apps||[]).filter(x=>!inG.has(x)).join(', ');$('x-dom').value=(r.domains||[]).filter(x=>!inG.has(x)).join(', ');
  $('x-kw').value=(r.keywords||[]).filter(x=>!inG.has(x)).join(', ');
- $('opt-always').checked=!!(srv.monitor_always??st.monitor_always);$('opt-dns').checked=srv.dns_block!==false;rulesTouched=false;
+ $('opt-always').checked=!!(srv.monitor_always??st.monitor_always);$('opt-dns').checked=srv.dns_block!==false;
+ const legacyYt=(srv.groups||[]).includes('youtube');ytSet(srv.youtube_mode||r.youtube_mode||(legacyYt?'block':'keyword'));
+ const ykw=(srv.youtube_keywords&&srv.youtube_keywords.length?srv.youtube_keywords:(r.youtube_keywords&&r.youtube_keywords.length?r.youtube_keywords:YT_DEFAULT));
+ $('yt-kw').value=ykw.join(', ');$('yt-shorts').checked=(srv.youtube_shorts??r.youtube_shorts)!==false;rulesTouched=false;
  $('rmsg').textContent=st.dns_block?('Trên máy: '+st.dns_block):'';}
 async function saveRules(){const v=cur();if(!v)return;const sp=id=>$(id).value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
  const groups=[...document.querySelectorAll('[data-g]')].filter(i=>i.checked).map(i=>i.dataset.g);
  const apps=new Set(sp('x-apps')),dom=new Set(sp('x-dom')),kw=new Set(sp('x-kw'));
  for(const k of groups){const g=GROUPS[k];g.apps.forEach(x=>apps.add(x));g.dom.forEach(x=>dom.add(x));g.kw.forEach(x=>kw.add(x));}
+ const ym=(document.querySelector('#yt-mode button.act')||{}).dataset?.m||'keyword';
+ ['youtube.com','youtu.be'].forEach(x=>{if(ym!=='block')dom.delete(x);else dom.add(x);});kw.delete('youtube');
  const r=await api(`/api/parent/devices/${v.id}/rules`,{apps:[...apps],domains:[...dom],keywords:[...kw],groups,
-  monitor_always:$('opt-always').checked,dns_block:$('opt-dns').checked});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
+  monitor_always:$('opt-always').checked,dns_block:$('opt-dns').checked,youtube_mode:ym,youtube_keywords:sp('yt-kw'),
+  youtube_shorts:$('yt-shorts').checked});$('rmsg').textContent=r.message||r.error;toast(r.message||r.error);rulesTouched=false;}
 // ---------- PWA ----------
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 let deferredPrompt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;$('installBtn').style.display='inline-block';});
 async function installApp(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt=null;$('installBtn').style.display='none';}}
 $('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối';
 const qs=new URLSearchParams(location.search);go({camera:'camera',report:'report'}[qs.get('tab')]||'home');
-load();setInterval(load,6000);setInterval(()=>{if(VIEW==='report'&&!document.hidden)report();},15000);
+load();nstat();setInterval(load,6000);setInterval(()=>{if(VIEW==='report'&&!document.hidden)report();},15000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
 </script>"""
 
@@ -696,7 +738,7 @@ def dashboard():
         session["csrf"] = secrets.token_urlsafe(16)
     return render_template_string(DASH_HTML, email=session.get("email", ""), name=session.get("name", ""),
                                   picture=session.get("picture", ""), csrf=session["csrf"],
-                                  cmds=list(COMMAND_TYPES.items()))
+                                  cmds=list(COMMAND_TYPES.items()), vapid=VAPID_PUBLIC)
 
 
 # =====================================================================
@@ -776,7 +818,10 @@ def api_parent_rules(did):
     rules = {"apps": clean(data.get("apps")), "domains": clean(data.get("domains")),
              "keywords": clean(data.get("keywords")), "ver": int(time.time() * 1000), "by": uid,
              "monitor_always": bool(data.get("monitor_always", False)), "dns_block": bool(data.get("dns_block", True)),
-             "groups": [str(g)[:30] for g in (data.get("groups") or [])][:20]}
+             "groups": [str(g)[:30] for g in (data.get("groups") or [])][:20],
+             "youtube_mode": data.get("youtube_mode") if data.get("youtube_mode") in ("keyword", "block", "allow") else "keyword",
+             "youtube_keywords": clean(data.get("youtube_keywords")),
+             "youtube_shorts": bool(data.get("youtube_shorts", True))}
     db.set(f"devices/{did}/rules", rules)
     mark_watching(did, force=True)
     return jsonify({"ok": True, "message": "Đã lưu. Máy sẽ áp dụng trong ≤30 giây."})
@@ -1035,22 +1080,82 @@ def api_agent_heartbeat():
 
 
 def _notify_alerts(did: str, dev: Dict[str, Any], alerts: List[Dict[str, Any]]) -> None:
+    """Cảnh báo mới -> Telegram của mọi phụ huynh + Web Push (thông báo điện thoại). Chống spam theo loại."""
     chats = chats_of_device(did)
-    if not chats:
+    owners = list((dev.get("owners") or {}).keys())
+    if not chats and not owners:
         return
     cooldowns = dev.get("tg_cooldown") or {}
-    name = html.escape(dev.get("name") or did)
+    raw_name = dev.get("name") or did
+    name = html.escape(raw_name)
     sent_types = {}
     for a in alerts:
         typ = fb_key(str(a.get("type", "GENERIC")))[:30] or "generic"
-        if now() - int(cooldowns.get(typ, 0) or 0) < ALERT_COOLDOWN_S or typ in sent_types:
+        # Nghỉ vệ sinh luôn báo (sự kiện bắt đầu / kết thúc), các loại khác cách nhau ALERT_COOLDOWN_S
+        if typ.lower() != "break" and (now() - int(cooldowns.get(typ, 0) or 0) < ALERT_COOLDOWN_S or typ in sent_types):
             continue
         sent_types[typ] = now()
         msg = f"🚨 <b>{name}</b>\n{html.escape(str(a.get('message', '')))}\n<i>{html.escape(str(a.get('time', '')))}</i>"
         for chat in chats:
             tg_send(chat, msg)
+        web_push_owners(owners, f"🖥️ {raw_name}", str(a.get("message", ""))[:180], tag=f"{did}-{typ}")
     if sent_types:
         db.update(f"devices/{did}/tg_cooldown", sent_types)
+
+
+def web_push_owners(uids: List[str], title: str, body: str, tag: str = "sd") -> int:
+    """Gửi Web Push tới mọi trình duyệt phụ huynh đã bật thông báo. Đăng ký hết hạn (404/410) tự xóa."""
+    if not (VAPID_PUBLIC and VAPID_PRIVATE):
+        return 0
+    try:
+        from pywebpush import WebPushException, webpush
+    except Exception:
+        return 0
+    import json as _json
+
+    sent = 0
+    payload = _json.dumps({"title": title, "body": body, "tag": tag, "url": "/dashboard"}, ensure_ascii=False)
+    for uid in uids:
+        for key, rec in (db.get(f"parents/{fb_key(uid)}/push") or {}).items():
+            sub = (rec or {}).get("sub")
+            if not isinstance(sub, dict):
+                continue
+            try:
+                webpush(subscription_info=sub, data=payload, vapid_private_key=VAPID_PRIVATE,
+                        vapid_claims={"sub": VAPID_SUBJECT}, ttl=3600, timeout=6)
+                sent += 1
+            except WebPushException as exc:
+                code = getattr(getattr(exc, "response", None), "status_code", 0)
+                if code in (404, 410):
+                    db.delete(f"parents/{fb_key(uid)}/push/{key}")
+            except Exception:
+                pass
+    return sent
+
+
+@app.route("/api/parent/push", methods=["POST"])
+@login_required
+def api_parent_push():
+    """Lưu đăng ký Web Push của trình duyệt / app Android hiện tại."""
+    uid = current_uid()
+    sub = request.get_json(silent=True) or {}
+    ep = str(sub.get("endpoint", ""))
+    keys = sub.get("keys") or {}
+    if not ep.startswith("https://") or len(ep) > 600 or not keys.get("p256dh") or not keys.get("auth"):
+        return jsonify({"error": "Đăng ký thông báo không hợp lệ"}), 400
+    clean = {"endpoint": ep, "keys": {"p256dh": str(keys["p256dh"])[:200], "auth": str(keys["auth"])[:100]}}
+    db.set(f"parents/{uid}/push/{sha256(ep)[:24]}", {"sub": clean, "t": now(),
+                                                       "ua": request.headers.get("User-Agent", "")[:120]})
+    return jsonify({"ok": True, "push": bool(VAPID_PUBLIC and VAPID_PRIVATE)})
+
+
+@app.route("/api/parent/push/test", methods=["POST"])
+@login_required
+def api_parent_push_test():
+    n = web_push_owners([current_uid()], "🔔 Bàn Học Thông Minh", "Thông báo thử: điện thoại này sẽ nhận cảnh báo.",
+                        tag="test")
+    return jsonify({"ok": True, "sent": n, "message": f"Đã gửi tới {n} thiết bị." if n else
+                    "Chưa gửi được (máy chủ chưa có khóa VAPID hoặc thiết bị chưa bật)."})
 
 
 @app.route("/api/agent/snapshot", methods=["POST"])
@@ -1200,7 +1305,7 @@ MANIFEST = {
 }
 
 SW_JS = """
-const CACHE='banhoc-v1';
+const CACHE='banhoc-v2';
 const SHELL=['/offline','/static/icon-192.png','/static/icon-512.png','/manifest.webmanifest'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
@@ -1210,6 +1315,12 @@ self.addEventListener('fetch',e=>{
   if(u.pathname.startsWith('/static/')){e.respondWith(caches.match(r).then(m=>m||fetch(r)));return;}
   if(r.mode==='navigate'){e.respondWith(fetch(r).catch(()=>caches.match('/offline')));}
 });
+self.addEventListener('push',e=>{let d={};try{d=e.data.json();}catch(_){d={body:e.data?e.data.text():''};}
+  e.waitUntil(self.registration.showNotification(d.title||'Bàn Học Thông Minh',{body:d.body||'',icon:'/static/icon-192.png',
+   badge:'/static/icon-192.png',tag:d.tag||'sd',renotify:true,vibrate:[200,100,200],data:{url:d.url||'/dashboard'}}));});
+self.addEventListener('notificationclick',e=>{e.notification.close();const url=(e.notification.data||{}).url||'/dashboard';
+  e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{for(const c of cs){if(c.url.includes('/dashboard'))return c.focus();}
+   return clients.openWindow(url);}));});
 """
 
 OFFLINE_HTML = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">

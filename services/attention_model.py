@@ -65,12 +65,13 @@ DEFAULT_THRESHOLDS: Dict[str, float] = {
     "absent_fill_s": 5.0,
     "idle_fill_s": 120.0,
     "play_fill_s": 8.0,
+    "action_min": 0.30,           # tổng xác suất nhóm hành động MoViNet >= 0.30 mới tính là bằng chứng
     "phone_near_fill_s": 25.0,
     "posture_fill_s": 20.0,
     "cfi_tau_s": 8.0,
     # --- Khoảng cách mắt -> webcam (cm) ---
-    "min_distance_cm": 40.0,
-    "calib_min_cm": 40.0,
+    "min_distance_cm": 30.0,
+    "calib_min_cm": 30.0,
     "calib_max_cm": 85.0,
     "max_reliable_cm": 110.0,
     # --- Công thái học ---
@@ -87,6 +88,7 @@ STATE_VI = {
     "DROWSY": "Buồn ngủ",
     "IDLE": "Gục đầu / bất động lâu",
     "PLAYING": "Nghịch đồ / dùng điện thoại",
+    "BREAK": "Đang nghỉ (đi vệ sinh)",
     "ABSENT": "Vắng mặt",
     "NO_DATA": "Chưa đủ dữ liệu",
 }
@@ -98,6 +100,7 @@ STATE_ASCII = {
     "DROWSY": "BUON NGU",
     "IDLE": "GUC DAU BAT DONG",
     "PLAYING": "NGHICH DO / DIEN THOAI",
+    "BREAK": "DANG NGHI (VE SINH)",
     "ABSENT": "VANG MAT",
     "NO_DATA": "DANG THU THAP",
 }
@@ -137,6 +140,11 @@ class FrameFeatures:
     near_object: Optional[str] = None      # đồ trong khung hình nhưng không cầm (điện thoại trên bàn)
     yawn_event: bool = False
     ext_motion: Optional[float] = None     # vi chuyển động tay từ camera mặt bàn (nếu có)
+    face_covered: bool = False             # tay / đồ vật che mặt (điện thoại giơ trước mặt...)
+    action_group: Optional[str] = None     # nhóm hành động MoViNet: study|phone|play|eat|drowsy|other
+    action_vi: Optional[str] = None
+    action_score: float = 0.0
+    on_break: bool = False                 # học sinh đang xin nghỉ (đi vệ sinh) -> không tính vắng mặt
 
 
 class _Bucket:
@@ -368,16 +376,25 @@ class AttentionModel:
         else:
             level_for_state = level
 
-        absent_now = not f.face_ok and not f.pose_ok
+        absent_now = not f.face_ok and not f.pose_ok and not f.face_covered
+        if f.on_break:
+            absent_now = False
         head_down_ctx = level_for_state >= 1 or eyes_down
         idle_now = level >= 1 and motion_now < th["motion_idle"] and (closed or not f.face_ok) and not looking_away
 
         # ---------- Nghịch đồ / điện thoại ----------
         play_gain = 0.0
+        act_on = f.action_group is not None and f.action_score >= th["action_min"]
         if f.held_kind in ("phone", "toy"):
             play_gain = 2.5
         elif f.hands_zone == "raised" and f.hands_together and (head_down_ctx or eyes_down):
             play_gain = 1.0   # 2 tay chụm trước ngực, mắt nhìn vào tay = tư thế cầm điện thoại/đồ chơi
+        elif f.face_covered:
+            play_gain = 0.8   # tay / đồ vật che mặt lâu (giơ điện thoại trước mặt)
+        if act_on and f.action_group in ("phone", "play") and f.held_kind != "book":
+            play_gain = max(play_gain, 0.6) + (0.6 if play_gain > 0 else 0.0)   # MoViNet: nhắn tin / chơi game...
+        if f.on_break:
+            play_gain = 0.0
         a_play = self.b_play.step(play_gain > 0, dt, gain=play_gain or 1.0)
         a_phone = self.b_phone.step(bool(f.near_object) and play_gain == 0, dt)
         if f.held_object:
@@ -393,13 +410,18 @@ class AttentionModel:
             drowsy_gain = 1.0
         elif slow_blinks >= th["slow_blinks_drowsy"]:
             drowsy_gain = 0.6
+        if act_on and f.action_group == "drowsy":
+            drowsy_gain = max(drowsy_gain, 0.5) + (0.5 if drowsy_gain > 0 else 0.0)   # MoViNet: ngáp / ngủ
+        if f.on_break:
+            drowsy_gain = 0.0
         a_drowsy = self.b_drowsy.step(drowsy_gain > 0, dt, gain=drowsy_gain or 1.0)
         if nod_event:
             self.b_drowsy.bump(th["drowsy_fill_s"] * 0.6)
             a_drowsy = self.b_drowsy.step(True, 0.0)
         if f.yawn_event and len(self._yawns) >= 2:
             self.b_drowsy.bump(1.5)
-        a_look = self.b_look.step(looking_away and not absent_now and not a_play, dt)
+        a_look = self.b_look.step(looking_away and not absent_now and not a_play and not f.face_covered
+                                  and not f.on_break, dt)
         a_absent = self.b_absent.step(absent_now, dt)
         a_idle = self.b_idle.step(idle_now, dt)
         if f.distance_cm is not None:
@@ -414,7 +436,9 @@ class AttentionModel:
         )
 
         # ---------- Trạng thái hiện tại ----------
-        if a_absent:
+        if f.on_break:
+            state = "BREAK"
+        elif a_absent:
             state = "ABSENT"
         elif a_drowsy:
             state = "DROWSY"
@@ -435,6 +459,7 @@ class AttentionModel:
 
         # ---------- CFI: EMA của điểm tức thời ----------
         inst = {"SCREEN": 100.0, "WRITING": 100.0, "READING": 95.0, "LOOK_AWAY": 35.0, "PLAYING": 25.0,
+                "BREAK": self.cfi,
                 "DROWSY": 20.0, "IDLE": 45.0, "ABSENT": 0.0, "NO_DATA": self.cfi}[state]
         if state in FOCUS_STATES:
             inst -= 25.0 * max(self.b_look.ratio, self.b_drowsy.ratio, self.b_play.ratio) ** 2
@@ -479,6 +504,8 @@ class AttentionModel:
             alerts.append("SAI TƯ THẾ: Lệch vai / vẹo lưng")
             codes.append("SHOULDER")
 
+        if f.on_break:
+            alerts, codes = [], []
         return {
             "state": state,
             "state_vi": STATE_VI[state],
@@ -500,6 +527,9 @@ class AttentionModel:
             "low_quality": bool(too_far),
             "nod_count": self.nod_count,
             "head_turned": bool(looking_away),
+            "face_covered": bool(f.face_covered),
+            "action": ({"group": f.action_group, "vi": f.action_vi, "score": round(f.action_score, 2)}
+                       if f.action_group else None),
             "hands_zone": f.hands_zone,
             "evidence": {
                 "look_away": round(self.b_look.ratio, 2),
