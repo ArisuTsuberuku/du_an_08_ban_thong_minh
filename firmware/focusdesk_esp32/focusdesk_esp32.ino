@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.3.0"
+#define FW_VERSION   "2.3.1"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -264,11 +264,8 @@ bool connectToPhone() {
     }
   }
   bleConnected = true; bleLinkNew = true;
-  // App chỉ gửi "CHARGED" lúc vừa cắm sạc -> nếu cắm TRƯỚC khi tủ kết nối thì lỡ mất. Đọc giá trị hiện có (nếu đọc được).
-  if (pCmdChar && pCmdChar->canRead()) {
-    String v = pCmdChar->readValue();
-    if (v.length()) handleBleCmd((const uint8_t*)v.c_str(), v.length());
-  }
+  // KHÔNG đọc charCmd ở đây: app hiện tại (Code APK) khai báo READ nhưng không trả lời yêu cầu đọc -> readValue()
+  // chặn loop() tới ~30 s (mất ping với máy tính). App bản mới tự gửi trạng thái sạc ngay sau khi ký (xem GIAO_THUC.md).
   requestVerify();
   return true;
 }
@@ -385,6 +382,7 @@ void setup() {
   doorClosed = doorRaw = digitalRead(PIN_DOOR) == LOW;
 
   BLEDevice::init("FocusDesk_ESP32");
+  BLEDevice::setMTU(185);                           // chữ ký DER ~72 byte, khóa công khai 91 byte -> cần MTU > 23
   BLEScan* scan = BLEDevice::getScan();
   scan->setAdvertisedDeviceCallbacks(new AdvCB());
   scan->setInterval(1349); scan->setWindow(449); scan->setActiveScan(true);
