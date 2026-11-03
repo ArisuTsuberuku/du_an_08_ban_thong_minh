@@ -44,3 +44,8 @@ cloudflared_by_focusdesk.txt
 # Bản build cũ (exe) — không đưa lên kho mã
 dist/
 hosts_goc.bak
+
+# Skills cho AI agent (Antigravity .agents / Claude Code .claude) - giu tren may, KHONG day len GitHub
+# (docx/pdf/pptx/xlsx/skill-creator la ban quyen Anthropic, khong duoc phat hanh lai trong repo public)
+.agents/skills/
+.claude/skills/
