@@ -51,12 +51,14 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `beep` | `ms` (50 – 3000) | còi + đèn đỏ | — |
 | `reset_key` | — | xóa khóa công khai điện thoại đã ghép, ngắt BLE; điện thoại kết nối **tiếp theo** được ghép mới; event `key_reset` | `busy` (đang trong ca) |
 | `end` | `reason` | kết thúc ca sớm → event `session_end` | `no_session` |
+| `start` | `session_ms` (10 000 – 14 400 000, bỏ trống = theo `cfg`) | **chỉ để thử nghiệm**: vào ca ngay, bỏ qua cửa / sạc / chữ ký; mọi tin trong ca có `"test":true` → FocusDesk không ghi ca, không tính vi phạm, không tưới (chỉ báo kèm “🧪 [Thử nghiệm]”) | `busy` |
+| `io` | — | thử dây: đèn đỏ 0,6 s → đèn xanh 0,6 s → còi 0,3 s (không bật bơm) | — |
 | `cfi`, `set_time` | `score` / `ms` | tên cũ trong code của nhóm — vẫn nhận | — |
 | khác | | | `unknown` |
 
 ## 4. Tin ESP32 → máy tính
 
-`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.1.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
+`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.2.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
 (`dev` phải là `focusdesk-box`, phần mềm chờ tối đa 2,5 s sau khi mở cổng).
 
 **Trường trạng thái** (có trong `hello`, `state` và mọi `event`):
@@ -70,6 +72,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `ble`, `verified`, `paired` | đã nối BLE với app · chữ ký TEE ca này đã hợp lệ · đã lưu khóa điện thoại |
 | `session_s`, `left_s` | thời lượng ca đang đặt · số giây còn lại của ca |
 | `viol`, `cfi`, `pump` | số vi phạm trong ca · CFI tủ đang dùng · bơm đang chạy |
+| `test` | `true` khi đang trong ca thử nghiệm (lệnh `start`) |
 | `lock` | luôn `"none"` ở v2 |
 
 **Sự kiện** `{"t":"event","e":…}`:
@@ -131,10 +134,12 @@ Phụ huynh (web)        Cloud (Vercel)            FocusDesk (PC)               
 ```
 {"t":"hello","id":1}
 {"t":"cfg","id":2,"session_ms":60000,"led_cfi":50,"buzz_cfi":30}
-{"t":"ping","id":3,"cfi":20}            ← trong ca: đèn đỏ nháy + còi
-{"t":"water","id":4,"ms":2000}
-{"t":"end","id":5,"reason":"admin"}
-{"t":"reset_key","id":6}
+{"t":"io","id":3}                       ← thử dây: đỏ → xanh → còi
+{"t":"start","id":4,"session_ms":60000} ← ca thử 1 phút (không cần điện thoại)
+{"t":"ping","id":5,"cfi":20}            ← trong ca: đèn đỏ nháy + còi
+{"t":"water","id":6,"ms":2000}
+{"t":"end","id":7,"reason":"admin"}
+{"t":"reset_key","id":8}
 ```
 
 ## 8. Phía app Android (không đổi)

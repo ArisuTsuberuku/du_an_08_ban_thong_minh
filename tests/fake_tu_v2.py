@@ -23,6 +23,9 @@ class FakeCabinet:
         self.offset = 0.0
         self.pumped = []          # các lần bơm (ms)
         self.cfg_seen = []
+        self.test = False
+        self.io_count = 0
+        self.len_s = None
         self.lock = threading.RLock()
 
     # ---------------------------------------------------------------- tiện ích
@@ -39,7 +42,8 @@ class FakeCabinet:
         return {"proto": 2, "phase": self.phase, "active": self.phase == "active",
                 "door": "closed" if self.door_closed else "open", "lid": "closed" if self.door_closed else "open",
                 "phone": self.charging, "ble": True, "verified": self.verified, "paired": self.paired, "lock": "none",
-                "session_s": self.session_ms // 1000, "left_s": left, "viol": self.viol, "cfi": self.cfi, "pump": False}
+                "session_s": self.session_ms // 1000, "left_s": left, "viol": self.viol, "cfi": self.cfi, "pump": False,
+                "test": self.test}
 
     def _event(self, e, **extra):
         self._send({"t": "event", "e": e, **extra, **self.state()})
@@ -58,13 +62,14 @@ class FakeCabinet:
             if self.phase == "idle" and self.door_closed and self.charging and self.verified:
                 self.phase, self.start, self.viol = "active", self.now(), 0
                 self._event("session_started")
-            if self.phase == "active" and self.now() - self.start >= self.session_ms / 1000:
+            if self.phase == "active" and self.now() - self.start >= (self.len_s or self.session_ms / 1000):
                 self._end("time_up")
 
     def _end(self, reason):
         dur = int(self.now() - self.start)
         self._event("session_end", reason=reason, dur_s=dur)
-        self.phase, self.verified = "done", False
+        self.phase, self.verified = ("done" if self.door_closed else "idle"), False
+        self.test, self.len_s = False, None
 
     def feed(self, line: bytes):
         m = json.loads(line)
@@ -98,6 +103,17 @@ class FakeCabinet:
                     self.paired = self.verified = False
                     self._ack(i)
                     self._event("key_reset")
+            elif t == "start":
+                if self.phase == "active":
+                    self._ack(i, False, "busy")
+                else:
+                    self._ack(i)
+                    self.phase, self.start, self.viol, self.test = "active", self.now(), 0, True
+                    self.len_s = int(m.get("session_ms") or self.session_ms) / 1000
+                    self._event("session_started")
+            elif t == "io":
+                self.io_count += 1
+                self._ack(i)
             elif t == "end":
                 if self.phase != "active":
                     self._ack(i, False, "no_session")

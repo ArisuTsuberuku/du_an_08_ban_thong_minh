@@ -40,7 +40,8 @@ BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware 
 
 STATE_KEYS = ("phone", "lid", "lock", "nonce", "fw", "box_id", "paired", "unlock_left",
               # v2 (tủ điện thoại)
-              "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active")
+              "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active", "test",
+              "cfi")
 DEFAULT_BOX_CFG = {"session_min": 25, "led_cfi": 50, "buzz_cfi": 30}
 
 BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
@@ -393,6 +394,14 @@ class PhoneBoxLink:
             r["err"] = "Đang trong ca học — chờ hết giờ học rồi reset"
         return r
 
+    def start_test(self, session_min: float = 1.0) -> Dict[str, Any]:
+        """THỬ NGHIỆM: tủ vào ca ngay (bỏ qua cửa / sạc / chữ ký điện thoại). Ca thử không ghi điểm, không tưới cây."""
+        return self.command("start", session_ms=int(max(10, min(240 * 60, float(session_min) * 60)) * 1000))
+
+    def test_io(self) -> Dict[str, Any]:
+        """THỬ NGHIỆM: nháy lần lượt đèn đỏ -> đèn xanh -> còi (1,5 s), không bật bơm."""
+        return self.command("io")
+
     def end_session(self, reason: str = "pc") -> Dict[str, Any]:
         return self.command("end", reason=reason)
 
@@ -550,6 +559,16 @@ def _v2_event(e: str, d: Dict[str, Any]) -> None:
     from services import study_sessions
 
     active = bool(d.get("active"))
+    if d.get("test"):                                # ca THỬ NGHIỆM (Admin): không ghi ca, không vi phạm, không tưới
+        if e == "session_started":
+            sec = int(d.get("session_s") or 0)
+            _alert(f"🧪 [Thử nghiệm] Tủ vào ca thử {f'{sec // 60} phút ' if sec >= 60 else ''}"
+                   f"{f'{sec % 60} giây' if sec % 60 or sec < 60 else ''}".strip())
+        elif e == "session_end":
+            _alert(f"🧪 [Thử nghiệm] Hết ca thử ({int(d.get('dur_s') or 0)} giây, {d.get('viol', 0)} lần mở cửa/rút sạc)")
+        elif e in ("door_open", "phone_out") and active:
+            _alert("🧪 [Thử nghiệm] " + _V2_TEXT[e])
+        return
     if e == "session_started":
         mins = round(float(d.get("session_s") or 0) / 60.0, 1)
         st = load_runtime_state()

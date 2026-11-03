@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.1.0"
+#define FW_VERSION   "2.2.0"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -79,6 +79,8 @@ int currentCfi = -1;                        // -1 = chưa có / camera tắt
 unsigned long cfiAt = 0;
 unsigned long sessionStart = 0, sessionLen = 0;
 int sessionViol = 0;
+bool testSession = false;                   // ca THỬ NGHIỆM (lệnh start): bỏ qua điều kiện điện thoại, PC không chấm điểm
+unsigned long ioUntil = 0, ioStart = 0;     // lệnh io: thử lần lượt đèn đỏ -> đèn xanh -> còi
 unsigned long pumpOffAt = 0, greenUntil = 0, alarmUntil = 0;
 unsigned long lastRed = 0, lastGreen = 0, lastBuzz = 0, lastScan = 0;
 
@@ -106,11 +108,12 @@ void fillState(JsonDocument& d) {
   d["verified"] = (bool)signatureVerified;
   d["paired"] = hasPubKey;
   d["lock"] = "none";                             // v2 không còn khóa cơ khí
-  d["session_s"] = sessionMs / 1000UL;
+  d["session_s"] = (phase == ACTIVE ? sessionLen : sessionMs) / 1000UL;   // trong ca: thời lượng ca đang chạy
   d["left_s"] = leftS();
   d["viol"] = sessionViol;
   d["cfi"] = currentCfi;
   d["pump"] = pumpOffAt != 0;
+  d["test"] = testSession;
 }
 
 void sendHello() {
@@ -139,14 +142,16 @@ void sendAck(int id, bool ok, const char* err = nullptr) {
 }
 
 // ================================================================ ca học
-void startSession() {
-  phase = ACTIVE; sessionStart = millis(); sessionLen = sessionMs; sessionViol = 0;
+void startSession(bool test = false, unsigned long lenMs = 0) {
+  phase = ACTIVE; sessionStart = millis(); sessionLen = lenMs ? lenMs : sessionMs; sessionViol = 0; testSession = test;
   sendEvent("session_started");
 }
 
 void endSession(const char* reason) {
   sendEvent("session_end", reason);
-  phase = DONE; signatureVerified = false;          // ca sau phải xác thực lại điện thoại
+  phase = doorClosed ? DONE : IDLE;                 // cửa đã mở sẵn -> sẵn sàng ca mới luôn
+  signatureVerified = false;                        // ca sau phải xác thực lại điện thoại
+  testSession = false;
   greenUntil = millis() + 5000; alarmUntil = 0;
   digitalWrite(LED_RED_PIN, LOW); digitalWrite(BUZZER_PIN, LOW);
 }
@@ -279,6 +284,15 @@ void handleLine(const String& line) {
     if (phase == ACTIVE) { sendAck(id, false, "busy"); return; }   // đang trong ca -> không cho đổi điện thoại
     sendAck(id, true); resetKey(); return;
   }
+  if (t == "start") {                               // CHỈ ĐỂ THỬ NGHIỆM: vào ca ngay, không cần cửa / sạc / chữ ký
+    if (phase == ACTIVE) { sendAck(id, false, "busy"); return; }
+    unsigned long ms = m["session_ms"] | 0UL;
+    if (ms) ms = constrain(ms, 10000UL, 240UL * 60000UL);
+    phase = IDLE; sendAck(id, true); startSession(true, ms); return;
+  }
+  if (t == "io") {                                  // thử dây: đỏ 0,6 s -> xanh 0,6 s -> còi 0,3 s (không bật bơm)
+    ioStart = millis(); ioUntil = ioStart + 1500; sendAck(id, true); return;
+  }
   if (t == "end") {
     if (phase != ACTIVE) { sendAck(id, false, "no_session"); return; }
     sendAck(id, true); endSession(m["reason"] | "pc"); return;
@@ -367,6 +381,16 @@ void loop() {
   if (greenUntil && (long)(now - greenUntil) < 0) {
     if (now - lastGreen > 200) { digitalWrite(LED_GREEN_PIN, !digitalRead(LED_GREEN_PIN)); lastGreen = now; }
   } else { digitalWrite(LED_GREEN_PIN, LOW); greenUntil = 0; }
+
+  // 4b. Lệnh io (thử dây) — ưu tiên hơn mọi hiệu ứng khác
+  if (ioUntil) {
+    if ((long)(now - ioUntil) >= 0) { ioUntil = 0; digitalWrite(LED_RED_PIN, LOW); digitalWrite(LED_GREEN_PIN, LOW); digitalWrite(BUZZER_PIN, LOW); }
+    else {
+      unsigned long e = now - ioStart;
+      digitalWrite(LED_RED_PIN, e < 600); digitalWrite(LED_GREEN_PIN, e >= 600 && e < 1200); digitalWrite(BUZZER_PIN, e >= 1200);
+    }
+    return;
+  }
 
   // 5. Đèn đỏ + còi: chỉ trong ca; theo CFI (camera AI trên PC) hoặc khi vừa vi phạm / lệnh beep
   bool alarm = alarmUntil && (long)(now - alarmUntil) < 0;

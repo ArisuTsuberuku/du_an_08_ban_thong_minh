@@ -61,6 +61,7 @@ class TestCabinetV2(unittest.TestCase):
         self.assertNotIn("mac", c)                       # v2 không ký HMAC
 
     def test_full_session_door_charge_time_up(self):
+        self.assertTrue(wait(lambda: self.box.cfg_seen))   # chờ cfg tự gửi lúc kết nối xong rồi mới đổi thời lượng
         self.box.session_ms = 60000
         self.box.plug(True)
         self.assertIsNone(ss.current())                  # chưa đóng cửa -> chưa có ca
@@ -107,6 +108,20 @@ class TestCabinetV2(unittest.TestCase):
         self.assertTrue(wait(lambda: self.box.cfi == 20, 5), "ping phải mang CFI xuống tủ")
         pb.set_test_cfi(None)
         self.assertTrue(wait(lambda: self.box.cfi == -1, 5))   # không ở chế độ học sinh -> -1 (tủ tắt đèn/còi)
+
+    def test_test_session_not_recorded(self):
+        self.assertTrue(self.link.test_io()["ok"])
+        self.assertEqual(self.box.io_count, 1)
+        self.assertTrue(self.link.start_test(1)["ok"])
+        self.assertTrue(wait(lambda: self.link.state.get("test") and self.link.state.get("phase") == "active"))
+        self.assertIsNone(ss.current())                  # ca thử: không mở ca học trên máy
+        self.box.close_door()
+        self.box.open_door()                             # mở cửa trong ca thử: báo [Thử nghiệm], không ghi vi phạm
+        self.assertTrue(wait(lambda: any("Thử nghiệm" in a and "Cửa tủ" in a for a in alerts)), alerts)
+        self.box.fast_forward(61)
+        self.assertTrue(wait(lambda: any("Hết ca thử" in a for a in alerts)), alerts)
+        self.assertFalse(STATE.get("session_reports"))   # không gửi web chấm điểm / tưới cây
+        self.assertTrue(wait(lambda: self.link.state.get("phase") == "idle"))   # cửa đang mở -> về chờ luôn
 
     def test_set_studying_does_not_lock_v2(self):
         self.assertEqual(pb.set_studying(True), {"ok": True})
