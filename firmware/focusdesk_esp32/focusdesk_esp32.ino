@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.3.1"
+#define FW_VERSION   "2.4.0"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -46,6 +46,8 @@
 #define PUMP_MAX_MS    10000UL
 #define CFI_STALE_MS   10000UL  // quá 10 s không nhận CFI -> coi như không có camera (tắt đèn/còi)
 #define DEBOUNCE_MS       60UL
+#define PAIR_WINDOW_MS  120000UL  // sau reset_key: 2 phút để điện thoại mới ghép (chống điện thoại lạ ghép trộm)
+#define PAIR_BOOT_MS    300000UL  // tủ mới tinh (chưa có khóa): mở ghép 5 phút sau khi cấp điện
 
 // ---------------------------------------------------------------- BLE UUID (giữ như app Android của nhóm)
 static BLEUUID serviceUUID("12345678-1234-5678-1234-567890abcdef");
@@ -73,7 +75,14 @@ volatile bool bleCharging = false;
 volatile bool bleCmdNew = false, bleLinkNew = false, bleLostNew = false;   // cờ từ tác vụ BLE -> loop() gửi JSON
 char bleCmdRaw[33] = "";                    // giá trị thô app gửi qua charCmd (gỡ lỗi: event ble_cmd)
 bool simCharge = false;                     // lệnh "charge" (THỬ NGHIỆM): giả lập điện thoại đang sạc
-uint8_t cmdProps = 0;                       // bit0 notify, bit1 indicate, bit2 read của charCmd
+uint8_t cmdProps = 0;
+unsigned long pairUntil = 0;                // còn trong cửa sổ ghép khi millis() < pairUntil
+char keyFp[7] = "";                         // MÃ GHÉP 6 số của điện thoại đã ghép (giống app hiển thị): SHA-256(khóa DER)
+char expectFp[7] = "";                      // phụ huynh nhập mã 6 số trên web -> tủ chỉ nhận đúng điện thoại có mã này
+char gotFp[7] = "";
+bool pairMismatchNew = false;
+volatile bool verifyFailNew = false;        // chữ ký sai -> báo PC (điện thoại có khóa khác khóa đã ghép)
+bool pairRefusedNew = false;                       // bit0 notify, bit1 indicate, bit2 read của charCmd
 bool doorClosed = false, charging = false;
 bool doorRaw = false; unsigned long doorChangedAt = 0;
 
@@ -94,6 +103,23 @@ BLERemoteCharacteristic *pNonceChar = nullptr, *pSignChar = nullptr, *pPubKeyCha
 
 // ================================================================ gửi JSON cho máy tính (1 dòng / tin)
 void sendDoc(JsonDocument& d) { serializeJson(d, Serial); Serial.println(); }
+
+bool pairOpen() { return pairUntil && (long)(millis() - pairUntil) < 0; }
+
+// Mã ghép 6 số = (4 byte đầu SHA-256 của khóa công khai, số nguyên không dấu) mod 1 000 000 — app tính giống hệt
+void fpOf(const uint8_t* key, size_t len, char* out) {
+  uint8_t h[32];
+  mbedtls_md_context_t md; mbedtls_md_init(&md);
+  mbedtls_md_setup(&md, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);
+  mbedtls_md_starts(&md); mbedtls_md_update(&md, key, len); mbedtls_md_finish(&md, h); mbedtls_md_free(&md);
+  uint32_t v = ((uint32_t)h[0] << 24) | ((uint32_t)h[1] << 16) | ((uint32_t)h[2] << 8) | h[3];
+  snprintf(out, 7, "%06lu", (unsigned long)(v % 1000000UL));
+}
+
+void computeFp() {
+  if (!hasPubKey) { keyFp[0] = 0; return; }
+  fpOf(savedPubKey, savedPubKeyLen, keyFp);
+}
 
 unsigned long leftS() {
   if (phase != ACTIVE) return 0;
@@ -119,6 +145,9 @@ void fillState(JsonDocument& d) {
   d["pump"] = pumpOffAt != 0;
   d["test"] = testSession;
   d["sim_charge"] = simCharge;
+  d["key_fp"] = keyFp;
+  d["pair_left"] = pairOpen() ? (pairUntil - millis()) / 1000UL : 0;
+  if (pairOpen() && expectFp[0]) d["pair_expect"] = expectFp;
 }
 
 void sendHello() {
@@ -208,8 +237,10 @@ void handleBleCmd(const uint8_t* data, size_t len) {
 
 static void notifyCallback(BLERemoteCharacteristic* ch, uint8_t* data, size_t len, bool) {
   if (ch->getUUID().equals(charSignUUID)) {
-    if (hasPubKey && len > 0 && verifyECDSASignature(savedPubKey, savedPubKeyLen, currentNonce, sizeof(currentNonce), data, len))
-      signatureVerified = true;
+    if (hasPubKey && len > 0) {
+      if (verifyECDSASignature(savedPubKey, savedPubKeyLen, currentNonce, sizeof(currentNonce), data, len)) signatureVerified = true;
+      else verifyFailNew = true;
+    }
   } else if (ch->getUUID().equals(charCmdUUID)) {
     handleBleCmd(data, len);
   }
@@ -253,13 +284,17 @@ bool connectToPhone() {
     if (pCmdChar->canNotify()) pCmdChar->registerForNotify(notifyCallback);
     else if (pCmdChar->canIndicate()) pCmdChar->registerForNotify(notifyCallback, false);   // app dùng indicate
   }
-  if (!hasPubKey && pPubKeyChar) {                  // chưa ghép: lưu khóa công khai của điện thoại ĐẦU TIÊN kết nối
+  if (!hasPubKey && pPubKeyChar && !pairOpen()) pairRefusedNew = true;   // hết giờ ghép -> không nhận khóa lạ
+  if (!hasPubKey && pPubKeyChar && pairOpen()) {    // trong cửa sổ ghép: lưu khóa của điện thoại ĐẦU TIÊN kết nối
     String v = pPubKeyChar->readValue();
-    if (v.length() > 50 && v.length() <= sizeof(savedPubKey)) {
+    if (v.length() > 50 && v.length() <= sizeof(savedPubKey)) fpOf((const uint8_t*)v.c_str(), v.length(), gotFp);
+    if (v.length() > 50 && v.length() <= sizeof(savedPubKey) && expectFp[0] && strcmp(gotFp, expectFp) != 0) {
+      pairMismatchNew = true;                       // không đúng điện thoại phụ huynh chọn -> không ghép, chờ máy khác
+    } else if (v.length() > 50 && v.length() <= sizeof(savedPubKey)) {
       savedPubKeyLen = v.length();
       memcpy(savedPubKey, (const uint8_t*)v.c_str(), savedPubKeyLen);
       prefs.putBytes("pubkey", savedPubKey, savedPubKeyLen);
-      hasPubKey = true;
+      hasPubKey = true; pairUntil = 0; expectFp[0] = 0; computeFp();
       sendEvent("paired");
     }
   }
@@ -272,7 +307,8 @@ bool connectToPhone() {
 
 void resetKey() {
   prefs.remove("pubkey");
-  hasPubKey = false; savedPubKeyLen = 0; signatureVerified = false;
+  hasPubKey = false; savedPubKeyLen = 0; signatureVerified = false; keyFp[0] = 0;
+  pairUntil = millis() + PAIR_WINDOW_MS;            // 2 phút cho điện thoại mới bấm "Liên kết lại tủ"
   if (pClient && pClient->isConnected()) pClient->disconnect();
   sendEvent("key_reset");
 }
@@ -309,6 +345,9 @@ void handleLine(const String& line) {
   }
   if (t == "reset_key") {
     if (phase == ACTIVE) { sendAck(id, false, "busy"); return; }   // đang trong ca -> không cho đổi điện thoại
+    const char* ex = m["expect"] | "";
+    expectFp[0] = 0;
+    if (strlen(ex) == 6) { strncpy(expectFp, ex, 6); expectFp[6] = 0; }
     sendAck(id, true); resetKey(); return;
   }
   if (t == "start") {                               // CHỈ ĐỂ THỬ NGHIỆM: vào ca ngay, không cần cửa / sạc / chữ ký
@@ -377,6 +416,8 @@ void setup() {
   prefs.begin("focusdesk", false);
   savedPubKeyLen = prefs.getBytesLength("pubkey");
   if (savedPubKeyLen > 0 && savedPubKeyLen <= sizeof(savedPubKey)) { prefs.getBytes("pubkey", savedPubKey, savedPubKeyLen); hasPubKey = true; }
+  computeFp();
+  if (!hasPubKey) pairUntil = millis() + PAIR_BOOT_MS;
   sessionMs = prefs.getULong("sess_ms", sessionMs);
   ledCfi = prefs.getInt("led", ledCfi); buzzCfi = prefs.getInt("buzz", buzzCfi);
   doorClosed = doorRaw = digitalRead(PIN_DOOR) == LOW;
@@ -403,6 +444,13 @@ void loop() {
     fillState(d); sendDoc(d);
   }
   if (bleLostNew) { bleLostNew = false; sendEvent("ble_lost"); }
+  if (verifyFailNew) { verifyFailNew = false; sendEvent("verify_failed"); }
+  if (pairRefusedNew) { pairRefusedNew = false; sendEvent("pair_refused"); }
+  if (pairMismatchNew) {
+    pairMismatchNew = false;
+    JsonDocument d; d["t"] = "event"; d["e"] = "pair_mismatch"; d["got"] = gotFp; d["expect"] = expectFp; fillState(d); sendDoc(d);
+    if (pClient && pClient->isConnected()) pClient->disconnect();   // nhả để điện thoại đúng kết nối
+  }
   if (bleCmdNew) {                                   // gỡ lỗi: hiện đúng chuỗi app gửi (Serial monitor)
     bleCmdNew = false;
     JsonDocument d; d["t"] = "event"; d["e"] = "ble_cmd"; d["v"] = bleCmdRaw; fillState(d); sendDoc(d);

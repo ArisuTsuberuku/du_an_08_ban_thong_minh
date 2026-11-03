@@ -49,7 +49,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `cfg` | `session_ms` (60 000 – 14 400 000) hoặc `session_min`; `led_cfi`, `buzz_cfi` (0–100) | lưu vào bộ nhớ (Preferences), áp dụng **từ ca sau** | — |
 | `water` | `ms` (300 – 10 000, mặc định 2500) | bật rơ-le bơm, event `watering` → `watered` | — |
 | `beep` | `ms` (50 – 3000) | còi + đèn đỏ | — |
-| `reset_key` | — | xóa khóa công khai điện thoại đã ghép, ngắt BLE; điện thoại kết nối **tiếp theo** được ghép mới; event `key_reset` | `busy` (đang trong ca) |
+| `reset_key` | `expect` (tùy chọn): mã ghép 6 số trên app | xóa khóa điện thoại đã ghép, ngắt BLE, **mở cửa sổ ghép 2 phút**; có `expect` thì chỉ nhận đúng điện thoại có mã đó (khác mã → event `pair_mismatch`, không ghép); event `key_reset` | `busy` (đang trong ca) |
 | `end` | `reason` | kết thúc ca sớm → event `session_end` | `no_session` |
 | `start` | `session_ms` (10 000 – 14 400 000, bỏ trống = theo `cfg`) | **chỉ để thử nghiệm**: vào ca ngay, bỏ qua cửa / sạc / chữ ký; mọi tin trong ca có `"test":true` → FocusDesk không ghi ca, không tính vi phạm, không tưới (chỉ báo kèm “🧪 [Thử nghiệm]”) | `busy` |
 | `io` | — | thử dây: đèn đỏ 0,6 s → đèn xanh 0,6 s → còi 0,3 s (không bật bơm) | — |
@@ -59,7 +59,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 
 ## 4. Tin ESP32 → máy tính
 
-`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.3.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
+`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.4.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
 (`dev` phải là `focusdesk-box`, phần mềm chờ tối đa 2,5 s sau khi mở cổng).
 
 **Trường trạng thái** (có trong `hello`, `state` và mọi `event`):
@@ -74,6 +74,8 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `session_s`, `left_s` | thời lượng ca đang đặt · số giây còn lại của ca |
 | `viol`, `cfi`, `pump` | số vi phạm trong ca · CFI tủ đang dùng · bơm đang chạy |
 | `test` | `true` khi đang trong ca thử nghiệm (lệnh `start`) |
+| `key_fp` | **mã ghép 6 số** của điện thoại đã ghép = (4 byte đầu SHA-256 của khóa công khai DER, số không dấu) mod 1 000 000 — app tính giống hệt; rỗng = chưa ghép |
+| `pair_left`, `pair_expect` | số giây còn lại của cửa sổ ghép · mã phụ huynh đã nhập (nếu có) |
 | `lock` | luôn `"none"` ở v2 |
 
 **Sự kiện** `{"t":"event","e":…}`:
@@ -84,7 +86,10 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `session_end` | hết giờ (`reason:"time_up"`) hoặc lệnh `end`; kèm `dur_s` | chốt ca theo `dur_s` của tủ → gửi web chấm |
 | `door_open` / `door_close` | công tắc hành trình đổi trạng thái (chống dội 60 ms) | `active:true` → vi phạm `PHONE` + báo; còn lại im lặng |
 | `phone_in` / `phone_out` | bắt đầu / ngừng sạc (BLE `CHARGED`/`UNCHARGED` hoặc chân `PIN_CHARGE`) | như trên |
-| `paired`, `key_reset` | ghép điện thoại mới / đã xóa khóa | báo phụ huynh |
+| `paired`, `key_reset` | ghép điện thoại mới (kèm `key_fp`) / đã xóa khóa | báo phụ huynh “đã ghép điện thoại mã 482 913” |
+| `pair_mismatch` | điện thoại có mã `got` khác mã `expect` phụ huynh nhập | báo phụ huynh, tủ ngắt máy đó, không ghép |
+| `pair_refused` | có điện thoại chưa ghép muốn ghép nhưng hết cửa sổ ghép | báo phụ huynh bấm “Ghép điện thoại mới” |
+| `verify_failed` | chữ ký sai (điện thoại có khóa khác khóa đã ghép: cài lại app / tạo khóa mới) | báo phụ huynh ghép lại |
 | `watering`, `watered` | bơm bật / tắt | ghi nhật ký |
 | `ble_connected` | tủ vừa nối BLE với app; kèm `has_sign`, `has_cmd`, `cmd_notify`, `cmd_indicate`, `cmd_read` | ghi nhật ký (gỡ lỗi app) |
 | `ble_cmd` | app gửi chuỗi qua `…de4`; `v` = chuỗi thô | ghi nhật ký — xem đúng chữ app gửi |
@@ -146,7 +151,14 @@ Phụ huynh (web)        Cloud (Vercel)            FocusDesk (PC)               
 {"t":"reset_key","id":8}
 ```
 
-## 8. Phía app Android (không đổi)
+## 7b. Ghép điện thoại từ web phụ huynh (giống mã ghép 6 số của máy tính)
+
+1. App điện thoại (bản 2.0, `Code APK/FocusDesk`) hiện **Mã ghép 6 số**.
+2. Web phụ huynh → thẻ Tủ điện thoại → **📱 Ghép điện thoại mới** → nhập mã → lệnh `box_reset_key {code}` → FocusDesk → `reset_key {expect}`.
+3. Trong 2 phút, trên app bấm **Liên kết lại tủ** → tủ đọc khóa, tính mã, đúng `expect` mới lưu → event `paired` → web hiện “Mã ghép điện thoại: 482 913”.
+4. Tủ mới tinh (chưa có khóa) tự mở cửa sổ ghép 5 phút sau khi cấp điện. Ngoài cửa sổ ghép, tủ không nhận khóa lạ (`pair_refused`).
+
+## 8. Phía app Android
 
 Service BLE `12345678-1234-5678-1234-567890abcdef`: `…de1` nonce (ESP32 ghi 32 byte ngẫu nhiên), `…de2` chữ ký
 (app ký SHA-256(nonce) bằng khóa TEE, notify), `…de3` khóa công khai DER (ESP32 đọc lần ghép đầu), `…de4` lệnh

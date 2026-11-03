@@ -2189,9 +2189,22 @@ class PhanMemQuanLyBanHocEXE:
                         kind="ghost").pack(side="left", padx=6)
         self._ui_button(f_cmd, "⏹️ end (kết thúc ca)", lambda: chay(lambda: box.end_session("admin"), "Kết thúc ca"),
                         kind="ghost").pack(side="left")
-        self._ui_button(f_cmd, "🔑 reset_key", lambda: messagebox.askyesno(
-            "Reset khóa điện thoại", "Xóa khóa điện thoại đã ghép? Điện thoại kết nối tủ kế tiếp sẽ được ghép mới.",
-            parent=self.root) and chay(box.reset_key, "Reset khóa điện thoại"), kind="ghost").pack(side="left", padx=6)
+        def ghep_dt() -> None:
+            from tkinter import simpledialog
+
+            ma = simpledialog.askstring("📱 Ghép điện thoại mới",
+                                        "Nhập MÃ GHÉP 6 SỐ hiện trên app điện thoại\n(để trống = nhận điện thoại đầu tiên "
+                                        "kết nối).\nKhóa cũ bị xóa; trong 2 phút bấm “Liên kết lại tủ” trên app.",
+                                        parent=self.root)
+            if ma is None:
+                return
+            ma = "".join(ch for ch in ma if ch.isdigit())
+            if ma and len(ma) != 6:
+                messagebox.showwarning("Mã ghép", "Mã ghép phải đủ 6 chữ số.", parent=self.root)
+                return
+            chay(lambda: box.reset_key(expect=ma), f"Ghép điện thoại {'mã ' + ma if ma else 'mới'}")
+
+        self._ui_button(f_cmd, "📱 Ghép điện thoại (reset_key)", ghep_dt, kind="ghost").pack(side="left", padx=6)
         self._ui_button(f_cmd, "📡 get", lambda: chay(lambda: (box.send_text('{"t":"get"}'), {"ok": True})[1],
                                                      "get (xem RX ở Serial monitor)"), kind="ghost").pack(side="left")
 
@@ -2209,11 +2222,15 @@ class PhanMemQuanLyBanHocEXE:
                        "done": "✅ Hết giờ học (mở tủ / rút sạc không báo) — MỞ rồi ĐÓNG lại cửa để bắt đầu ca mới"
                        }.get(st.get("phase"), "⏸️ Chờ: đóng cửa + cắm sạc + điện thoại xác thực")
                 cfi = phone_box.current_cfi()
+                pl = int(st.get("pair_left") or 0)
+                cho_ghep = (f" · ⏳ chờ điện thoại ghép{(' mã ' + st['pair_expect']) if st.get('pair_expect') else ''}"
+                            f" còn {pl} s") if pl else ""
                 lbl.config(fg=UI["txt"], text=(
                     f"🟢 Tủ v2 {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n{pha}\n"
                     f"🚪 cửa {'đóng' if st.get('door') == 'closed' else 'MỞ'} · "
                     f"{('🔌 đang sạc' + (' (giả lập)' if st.get('sim_charge') else '')) if st.get('phone') else '📭 chưa sạc'} · BLE {'✓' if st.get('ble') else '✗'} · "
                     f"{'🔑 đã xác thực' if st.get('verified') else ('🔑 đã ghép' if st.get('paired') else '🔑 CHƯA GHÉP')}\n"
+                    f"📱 Mã ghép: {st.get('key_fp') or '— (chưa ghép)'}{cho_ghep}\n"
                     f"Ca {int(st.get('session_s') or 0) // 60} phút · CFI gửi tủ: {cfi if cfi >= 0 else '—'}"
                     f"{' · 💧 đang bơm' if st.get('pump') else ''}"))
             else:

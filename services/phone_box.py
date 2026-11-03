@@ -41,7 +41,7 @@ BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware 
 STATE_KEYS = ("phone", "lid", "lock", "nonce", "fw", "box_id", "paired", "unlock_left",
               # v2 (tủ điện thoại)
               "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active", "test",
-              "cfi", "sim_charge")
+              "cfi", "sim_charge", "key_fp", "pair_left", "pair_expect")
 DEFAULT_BOX_CFG = {"session_min": 25, "led_cfi": 50, "buzz_cfi": 30}
 
 BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
@@ -387,9 +387,11 @@ class PhoneBoxLink:
         c = box_cfg()
         return self.set_cfg(c["session_min"], c["led_cfi"], c["buzz_cfi"])
 
-    def reset_key(self) -> Dict[str, Any]:
-        """Xóa khóa công khai điện thoại đã ghép -> điện thoại kết nối kế tiếp được ghép mới. Đang trong ca: bị từ chối."""
-        r = self.command("reset_key", timeout=4.0)
+    def reset_key(self, expect: str = "") -> Dict[str, Any]:
+        """Xóa khóa điện thoại đã ghép, mở cửa sổ ghép 2 phút. expect = mã ghép 6 số trên app (chỉ nhận đúng điện thoại đó).
+        Đang trong ca: bị từ chối."""
+        extra = {"expect": expect} if expect and len(expect) == 6 and expect.isdigit() else {}
+        r = self.command("reset_key", timeout=4.0, **extra)
         if not r.get("ok") and r.get("err") == "busy":
             r["err"] = "Đang trong ca học — chờ hết giờ học rồi reset"
         return r
@@ -553,9 +555,21 @@ _V2_TEXT = {
     "session_end": "⏰ Hết giờ học — ca {m} phút đã xong (tưới cây nếu ca đạt chuẩn)",
     "door_open": "⚠️ Cửa tủ điện thoại bị mở trong giờ học",
     "phone_out": "⚠️ Điện thoại bị rút sạc / lấy ra khỏi tủ trong giờ học",
-    "key_reset": "🔑 Đã reset khóa điện thoại — điện thoại kết nối tiếp theo sẽ được ghép",
-    "paired": "🔑 Tủ đã ghép điện thoại mới",
+    "key_reset": "🔑 Đã reset khóa điện thoại — tủ chờ điện thoại mới ghép trong 2 phút (app: “Liên kết lại tủ”)",
+    "paired": "✅ Tủ đã ghép điện thoại mã {code} — kiểm tra trùng với mã trên app của con",
+    "pair_mismatch": "⚠️ Điện thoại mã {got} vừa kết nối nhưng KHÁC mã phụ huynh nhập ({exp}) — tủ không ghép",
+    "pair_refused": "⚠️ Có điện thoại muốn ghép nhưng tủ đã hết giờ ghép — bấm “Ghép điện thoại mới” trên web",
+    "verify_failed": "🔑 Điện thoại kết nối nhưng chữ ký SAI (khóa khác khóa đã ghép: cài lại app / tạo khóa mới?) — "
+                     "bấm “Ghép điện thoại mới” trên web",
 }
+
+
+_last_warn: Dict[str, float] = {}
+
+
+def _fmt_code(c: Any) -> str:
+    c = str(c or "")
+    return f"{c[:3]} {c[3:]}" if len(c) == 6 else (c or "?")
 
 
 def _v2_event(e: str, d: Dict[str, Any]) -> None:
@@ -588,8 +602,15 @@ def _v2_event(e: str, d: Dict[str, Any]) -> None:
         if active:                                   # sau giờ học: rút sạc / mở tủ KHÔNG báo nữa
             study_sessions.note_violation("PHONE")
             _alert(_V2_TEXT[e])
-    elif e in ("key_reset", "paired"):
+    elif e == "key_reset":
         _alert(_V2_TEXT[e])
+    elif e == "paired":
+        _alert(_V2_TEXT[e].format(code=_fmt_code(d.get("key_fp"))))
+    elif e in ("pair_mismatch", "pair_refused", "verify_failed"):
+        key = f"{e}:{d.get('got', '')}"
+        if time.time() - _last_warn.get(key, 0) > 120:      # điện thoại thử lại mỗi vài giây -> báo 1 lần / 2 phút
+            _last_warn[key] = time.time()
+            _alert(_V2_TEXT[e].format(got=_fmt_code(d.get("got")), exp=_fmt_code(d.get("expect"))))
     elif e == "disconnected":
         if (study_sessions.current() or {}).get("source") == "box":
             _alert("🔌 Mất kết nối tủ điện thoại trong giờ học (rút cáp USB?)")

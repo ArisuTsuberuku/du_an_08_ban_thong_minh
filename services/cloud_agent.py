@@ -145,7 +145,8 @@ class CloudAgent:
             "phone_box": {**{k: (st.get("phone_box") or {}).get(k) for k in ("connected", "phone", "lid", "lock",
                                                                             "unlock_left", "box_id", "proto", "phase",
                                                                             "door", "ble", "verified", "paired",
-                                                                            "left_s", "session_s", "viol")},
+                                                                            "left_s", "session_s", "viol",
+                                                                            "key_fp", "pair_left", "pair_expect")},
                           "enabled": bool(cfg.get("phone_box_enabled"))},
             "open_apps": self.tracker.open_apps,
             "hostname": socket.gethostname(),
@@ -320,10 +321,13 @@ class CloudAgent:
                 else:
                     from services.phone_box import get_box
 
-                    r = get_box().reset_key()
+                    code = "".join(ch for ch in str(cmd.get("code") or "") if ch.isdigit())[:6]
+                    r = get_box().reset_key(expect=code if len(code) == 6 else "")
                     ok = bool(r.get("ok"))
-                    msg = ("🔑 Đã reset khóa điện thoại — mở app FocusDesk trên điện thoại mới để ghép lại" if ok
-                           else f"Không reset được: {r.get('err') or 'tủ chưa kết nối'}")
+                    msg = ((f"📱 Tủ đang chờ điện thoại mã {code[:3]} {code[3:]} trong 2 phút" if len(code) == 6
+                            else "📱 Tủ đang chờ điện thoại mới trong 2 phút")
+                           + " — trên app bấm “Liên kết lại tủ”" if ok
+                           else f"Không ghép được: {r.get('err') or 'tủ chưa kết nối'}")
             elif ctype == "snapshot":
                 ok, msg = self._send_snapshot(cmd.get("chat_id") or "")
             else:

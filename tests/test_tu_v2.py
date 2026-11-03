@@ -123,6 +123,19 @@ class TestCabinetV2(unittest.TestCase):
         self.assertFalse(STATE.get("session_reports"))   # không gửi web chấm điểm / tưới cây
         self.assertTrue(wait(lambda: self.link.state.get("phase") == "idle"))   # cửa đang mở -> về chờ luôn
 
+    def test_pair_from_parent_with_6_digit_code(self):
+        self.assertTrue(wait(lambda: self.link.state.get("key_fp") == "482913"))
+        self.assertTrue(self.link.reset_key(expect="135790")["ok"])
+        self.assertEqual(self.box.expect, "135790")
+        self.box.phone_offers_key("111222")                  # máy lạ -> không ghép
+        self.assertTrue(wait(lambda: any("111 222" in a and "KHÁC" in a for a in alerts)), alerts)
+        self.assertFalse(self.box.paired)
+        self.box.phone_offers_key("135790")                  # đúng máy phụ huynh nhập
+        self.assertTrue(wait(lambda: any("đã ghép điện thoại mã 135 790" in a for a in alerts)), alerts)
+        self.assertTrue(wait(lambda: self.link.state.get("key_fp") == "135790"))
+        self.assertEqual(self.link.reset_key(expect="12ab")["ok"], True)   # mã sai định dạng -> bỏ qua expect
+        self.assertEqual(self.box.expect, "")
+
     def test_set_studying_does_not_lock_v2(self):
         self.assertEqual(pb.set_studying(True), {"ok": True})
         pb.set_studying(False)

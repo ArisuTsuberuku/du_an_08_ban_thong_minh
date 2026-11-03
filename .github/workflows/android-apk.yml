@@ -1,0 +1,33 @@
+# Tự build file APK cho app điện thoại (thư mục "Code APK/FocusDesk") — không cần cài Android Studio.
+# Tải APK: GitHub -> tab Actions -> lần chạy mới nhất -> mục Artifacts -> FocusDesk-apk
+name: Build APK điện thoại
+
+on:
+  push:
+    paths:
+      - "Code APK/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "Code APK/FocusDesk"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: android-actions/setup-android@v3
+      - name: Build APK (debug)
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FocusDesk-apk
+          path: "Code APK/FocusDesk/app/build/outputs/apk/debug/*.apk"
+          if-no-files-found: error

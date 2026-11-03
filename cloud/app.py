@@ -78,7 +78,7 @@ COMMAND_TYPES = {
     "box_unlock_min": "🔓 Mở hộp điện thoại theo số phút",
     "box_lock": "🔒 Khóa hộp điện thoại",
     "water_plant": "🌱 Tưới cây (mô-đun ESP32)",
-    "box_reset_key": "🔑 Reset khóa điện thoại của tủ ESP32",
+    "box_reset_key": "📱 Ghép điện thoại mới với tủ ESP32",
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 # Web Push (thông báo trên điện thoại kể cả khi đã đóng web): tạo khóa bằng cloud/tao_khoa_vapid.py
@@ -255,9 +255,12 @@ def devices_of_parent(uid: str) -> List[Tuple[str, Dict[str, Any]]]:
     return out
 
 
-def queue_command(did: str, ctype: str, by: str, chat_id: Optional[str] = None, minutes: int = 0, ms: int = 0) -> str:
+def queue_command(did: str, ctype: str, by: str, chat_id: Optional[str] = None, minutes: int = 0, ms: int = 0,
+                  code: str = "") -> str:
     mark_watching(did, force=True)
     item = {"type": ctype, "by": by, "ts": now(), "chat_id": chat_id or ""}
+    if code:
+        item["code"] = str(code)[:6]
     if minutes:
         item["minutes"] = int(minutes)
     if ms:
@@ -469,7 +472,7 @@ h3{margin:4px 0 10px}
      <div class="sum3"><div><b id="hs-pts">0</b>điểm</div><div><b id="hs-today">0</b>ca đạt hôm nay</div><div><b id="hs-water">0</b>lần tưới cây</div></div>
      <div class="mut" id="hs-last" style="font-size:13px">Chưa có ca học nào.</div></div>
     <div class="card" id="boxcard"><h3 id="boxtitle">📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
-     <div id="box2" class="row" style="display:none;margin-top:10px;flex-wrap:wrap;gap:6px"><button class="box2btn" onclick="boxResetKey()">🔑 Reset khóa điện thoại</button><button class="box2btn" onclick="waterNow()">🌱 Tưới cây ngay</button></div>
+     <div id="box2" class="row" style="display:none;margin-top:10px;flex-wrap:wrap;gap:6px"><button class="box2btn" onclick="boxPair()">📱 Ghép điện thoại mới</button><button class="box2btn" onclick="waterNow()">🌱 Tưới cây ngay</button></div>
      <div id="box2note" class="mut" style="display:none;margin-top:6px;font-size:12px">Cất điện thoại vào tủ, cắm sạc, đóng cửa → tủ tự bắt đầu ca học. Thời gian ca & ngưỡng đèn/còi: thẻ <b>🏆 Thưởng → Tiêu chí</b>.</div>
      <div id="box1" class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="boxbtn" onclick="boxMin(15)">🔓 Mở 15′</button><button class="boxbtn" onclick="boxMin(30)">🔓 Mở 30′</button><button class="boxbtn" onclick="boxMin(60)">🔓 Mở 60′</button><button class="boxbtn" onclick="boxMinAsk()">🔓 Mở … phút</button><button class="boxbtn" onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button class="boxbtn" onclick="cmd('box_lock')">🔒 Khóa hộp</button></div>
      <div id="box1note" class="mut" style="margin-top:6px;font-size:12px">Hết giờ, hộp tự khóa lại khi nắp đã đóng. Telegram: /mohop · /khoahop</div></div>
@@ -780,12 +783,18 @@ function renderBox(v){const b=((v.status||{}).phone_box)||{};const dis=!b.enable
  if(!b.enabled){$('boxst').innerHTML='⚪ Chưa bật hộp trên máy — vào app: <b>Admin → 📦 Hộp điện thoại</b> → Bật';return;}
  if(!b.connected){$('boxst').innerHTML='🔌 <b>Mất kết nối hộp</b> — kiểm tra cáp USB';return;}
  if(v2){const ph=b.phase==='active'?`📚 <b>Đang trong ca học</b> · còn ${Math.ceil((b.left_s||0)/60)} phút${b.viol?' · ⚠️ '+b.viol+' vi phạm':''}`:b.phase==='done'?'✅ <b>Hết giờ học</b> — lấy điện thoại không còn bị báo':'⏸️ <b>Chờ bắt đầu</b> (đóng cửa tủ + cắm sạc)';
-  $('boxst').innerHTML=`${ph}<br>${b.door==='closed'?'🚪 cửa đóng':'🚪 cửa mở'} · ${b.phone?'🔌 điện thoại đang sạc':'📭 chưa cắm sạc'} · ${b.paired?(b.verified?'🔑 đã xác thực điện thoại':'🔑 đã ghép điện thoại'):'🔑 chưa ghép điện thoại'} · ca ${Math.round((b.session_s||0)/60)} phút`;return;}
+  $('boxst').innerHTML=`${ph}<br>${b.door==='closed'?'🚪 cửa đóng':'🚪 cửa mở'} · ${b.phone?'🔌 điện thoại đang sạc':'📭 chưa cắm sạc'} · ${b.paired?(b.verified?'🔑 đã xác thực điện thoại':'🔑 đã ghép điện thoại'):'🔑 chưa ghép điện thoại'} · ca ${Math.round((b.session_s||0)/60)} phút`
+   +(b.key_fp?`<br>📱 Mã ghép điện thoại: <b style="font-size:16px;letter-spacing:1px">${fmtCode(b.key_fp)}</b> <span class="mut">(so với mã trên app của con)</span>`:'')
+   +(b.pair_left>0?`<br>⏳ <b>Đang chờ điện thoại ghép</b>${b.pair_expect?' mã '+fmtCode(b.pair_expect):''} — còn ${Math.floor(b.pair_left/60)}:${String(b.pair_left%60).padStart(2,'0')}. Trên app bấm “Liên kết lại tủ”.`:'');return;}
  $('boxst').innerHTML=`${b.phone?'📱 <b>Điện thoại đang trong hộp</b>':'📭 <b>Hộp trống</b>'} · ${b.lock==='locked'?'🔒 đang khóa':'🔓 đang mở'} · nắp ${b.lid==='closed'?'đóng':'mở'}${b.unlock_left>0?' · tự khóa sau '+Math.ceil(b.unlock_left/60)+' phút':''}`;}
 async function boxCmd(t){if(confirm(t==='box_unlock_30'?'Mở hộp điện thoại 30 phút rồi tự khóa lại?':'Mở hộp điện thoại cho tới khi bạn khóa lại?'))cmd(t);}
 async function boxMin(m){const v=cur();if(!v||!confirm(`Mở hộp điện thoại ${m} phút rồi tự khóa lại?`))return;
  const r=await api(`/api/parent/devices/${v.id}/command`,{type:'box_unlock_min',minutes:m});toast(r.message||r.error||'');}
-async function boxResetKey(){if(confirm('Reset khóa điện thoại đã ghép với tủ?\\nDùng khi đổi điện thoại / cài lại app. Điện thoại kết nối tủ tiếp theo sẽ được ghép (không làm được khi đang trong ca học).'))cmd('box_reset_key');}
+async function boxPair(){const v=cur();if(!v)return;
+ const c=prompt('GHÉP ĐIỆN THOẠI MỚI VỚI TỦ\\n\\nNhập MÃ GHÉP 6 SỐ hiện trên app FocusDesk của con (để trống = nhận điện thoại đầu tiên kết nối).\\nSau đó trong 2 phút, trên điện thoại bấm “Liên kết lại tủ”.\\nKhóa điện thoại cũ sẽ bị xóa; không làm được khi đang trong ca học.','');
+ if(c===null)return;const code=c.replace(/[^0-9]/g,'');if(code&&code.length!==6){toast('Mã ghép phải đủ 6 chữ số');return;}
+ const r=await api(`/api/parent/devices/${v.id}/command`,{type:'box_reset_key',code});toast(r.message||r.error||'');}
+function fmtCode(c){return c&&c.length===6?c.slice(0,3)+' '+c.slice(3):(c||'');}
 function boxMinAsk(){const m=parseInt(prompt('Mở hộp điện thoại bao nhiêu phút? (1–240)','45')||'0',10);if(m>0&&m<=240)boxMin(m);}
 function renderAI(v){const s=v.status||{},src=s.ai_sources||[],run=s.ai_running||[];const tot=Math.round((s.ai_seconds||0)/60);
  const ent=Array.isArray(src)?src.map(x=>[x.name||'',x.seconds||0]):Object.entries(src);
@@ -1073,10 +1082,17 @@ def api_parent_command(did):
             minutes = max(1, min(240, int(body.get("minutes", 0))))
         except (TypeError, ValueError):
             return jsonify({"error": "Số phút không hợp lệ."}), 400
-    queue_command(did, ctype, by=uid, minutes=minutes)
+    code = ""
+    if ctype == "box_reset_key":
+        code = "".join(ch for ch in str(body.get("code", "")) if ch.isdigit())
+        if code and len(code) != 6:
+            return jsonify({"error": "Mã ghép phải đủ 6 chữ số (xem trên app điện thoại)."}), 400
+    queue_command(did, ctype, by=uid, minutes=minutes, code=code)
     dev = db.get(f"devices/{did}") or {}
     note = "" if is_online(dev) else " (máy đang ngoại tuyến, lệnh sẽ chạy khi máy kết nối lại)"
     label = f"🔓 Mở hộp điện thoại {minutes} phút" if minutes else COMMAND_TYPES[ctype]
+    if code:
+        label += f" (chỉ nhận điện thoại mã {code[:3]} {code[3:]}; mở app bấm “Liên kết lại tủ” trong 2 phút)"
     return jsonify({"ok": True, "message": f"Đã gửi lệnh: {label} — máy nhận trong ≤{HEARTBEAT_S}s "
                                           f"(≤{FAST_HEARTBEAT_S}s khi đang mở trang này){note}"})
 
@@ -1356,7 +1372,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.14"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.15"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -2213,6 +2229,8 @@ def api_agent_heartbeat():
                 item["minutes"] = int(c["minutes"])
             if c.get("ms"):
                 item["ms"] = int(c["ms"])
+            if c.get("code"):
+                item["code"] = str(c["code"])[:6]
             out.append(item)
         db.delete(f"commands/{did}/{cid}")
     fast = int(dev.get("watch_until", 0) or 0) > now() or bool(out)

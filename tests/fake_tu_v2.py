@@ -26,6 +26,9 @@ class FakeCabinet:
         self.test = False
         self.io_count = 0
         self.len_s = None
+        self.key_fp = "482913" if paired else ""
+        self.expect = ""
+        self.pair_open = False
         self.lock = threading.RLock()
 
     # ---------------------------------------------------------------- tiện ích
@@ -43,7 +46,7 @@ class FakeCabinet:
                 "door": "closed" if self.door_closed else "open", "lid": "closed" if self.door_closed else "open",
                 "phone": self.charging, "ble": True, "verified": self.verified, "paired": self.paired, "lock": "none",
                 "session_s": self.session_ms // 1000, "left_s": left, "viol": self.viol, "cfi": self.cfi, "pump": False,
-                "test": self.test}
+                "test": self.test, "key_fp": self.key_fp, "pair_left": 120 if self.pair_open else 0}
 
     def _event(self, e, **extra):
         self._send({"t": "event", "e": e, **extra, **self.state()})
@@ -101,6 +104,8 @@ class FakeCabinet:
                     self._ack(i, False, "busy")
                 else:
                     self.paired = self.verified = False
+                    self.key_fp, self.pair_open = "", True
+                    self.expect = str(m.get("expect", ""))
                     self._ack(i)
                     self._event("key_reset")
             elif t == "start":
@@ -152,6 +157,17 @@ class FakeCabinet:
                 self.viol += 1
             self._event("phone_in" if on else "phone_out")
         self._check()
+
+    def phone_offers_key(self, code: str):
+        """Một điện thoại (mã ghép `code`) kết nối trong cửa sổ ghép."""
+        with self.lock:
+            if not self.pair_open:
+                self._event("pair_refused")
+            elif self.expect and code != self.expect:
+                self._event("pair_mismatch", got=code, expect=self.expect)
+            else:
+                self.paired, self.key_fp, self.pair_open, self.expect = True, code, False, ""
+                self._event("paired")
 
     def fast_forward(self, seconds: float):
         self.offset += seconds
