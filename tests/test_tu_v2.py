@@ -64,6 +64,12 @@ class TestCabinetV2(unittest.TestCase):
         self.assertTrue(wait(lambda: self.box.cfg_seen))   # chờ cfg tự gửi lúc kết nối xong rồi mới đổi thời lượng
         self.box.session_ms = 60000
         self.box.plug(True)
+        self.box.close_door()
+        time.sleep(2.5)                                  # chưa ở chế độ Học sinh -> tủ CHƯA vào ca
+        self.assertIsNone(ss.current())
+        self.box.open_door()
+        STATE["current_role"] = "student"                # vào chế độ Học sinh -> ping study=true
+        self.assertTrue(wait(lambda: self.box.study, 4))
         self.assertIsNone(ss.current())                  # chưa đóng cửa -> chưa có ca
         self.box.close_door()
         self.assertTrue(wait(lambda: (ss.current() or {}).get("source") == "box"), "đóng cửa + sạc phải mở ca")
@@ -89,6 +95,7 @@ class TestCabinetV2(unittest.TestCase):
         self.assertIsNone(ss.current())
 
     def test_reset_key_busy_in_session_then_ok(self):
+        STATE["current_role"] = "student"
         self.box.plug(True)
         self.box.close_door()
         self.assertTrue(wait(lambda: self.link.state.get("phase") == "active"))
@@ -98,6 +105,7 @@ class TestCabinetV2(unittest.TestCase):
         self.assertTrue(self.link.end_session("admin")["ok"])
         self.assertTrue(wait(lambda: STATE.get("session_reports")))
         self.assertFalse(STATE["session_reports"][-1]["time_up"])
+        self.assertEqual(STATE["session_reports"][-1]["end_reason"], "Kết thúc ca sớm")
         self.assertTrue(self.link.reset_key()["ok"])
         self.assertTrue(wait(lambda: any("reset khóa" in a for a in alerts)), alerts)
 

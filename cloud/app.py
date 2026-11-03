@@ -470,6 +470,7 @@ h3{margin:4px 0 10px}
      <button style="padding:4px 10px;font-size:12px" onclick="resetData('alerts')">🧹 Xóa</button></div><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
     <div class="card" style="cursor:pointer" onclick="go('reward')"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🌱 Ca học & tưới cây thưởng</h3><span class="mut" style="font-size:13px">Xem ›</span></div>
      <div class="sum3"><div><b id="hs-pts">0</b>điểm</div><div><b id="hs-today">0</b>ca đạt hôm nay</div><div><b id="hs-water">0</b>lần tưới cây</div></div>
+     <div id="hs-live" style="margin:6px 0 8px"></div>
      <div class="mut" id="hs-last" style="font-size:13px">Chưa có ca học nào.</div></div>
     <div class="card" id="boxcard"><h3 id="boxtitle">📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
      <div id="box2" class="row" style="display:none;margin-top:10px;flex-wrap:wrap;gap:6px"><button class="box2btn" onclick="boxPair()">📱 Ghép điện thoại mới</button><button class="box2btn" onclick="waterNow()">🌱 Tưới cây ngay</button></div>
@@ -827,9 +828,28 @@ function renderPages(v){const ps=((v.rules||{}).blocked_pages)||[];const el=$('p
 let STUDY=null;const VIOL_VI={GAME:'game/giải trí',AI_GAME:'AI làm game',AI_OVERUSE:'quá giờ AI',PHONE:'điện thoại',POSTURE_PHONE:'cầm điện thoại'};
 const hm=ts=>new Date(ts*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
 const dm=ts=>new Date(ts*1000).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'});
-function renderStudyHome(v){const st=v.study||{},l=st.last;$('hs-pts').textContent=st.points||0;$('hs-today').textContent=st.today_ok||0;
+let LIVE_END=0;
+function liveTick(){const el=document.getElementById('hs-cd');if(!el||!LIVE_END)return;const s=Math.max(0,Math.round((LIVE_END-Date.now())/1000));
+ el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+setInterval(liveTick,1000);
+function renderLive(v){const el=$('hs-live'),s=v.status||{},b=s.phone_box||{},p=s.posture||{};LIVE_END=0;
+ if(!b.enabled||!b.connected||(b.proto||1)<2||!v.online){el.innerHTML='';return '';}
+ const cfi=(p.camera&&typeof p.cfi==='number')?Math.round(p.cfi):null;
+ const cfiTxt=cfi===null?'<span class="mut">camera chưa bật</span>':`<b style="color:${cfi>=75?'#16a34a':cfi>=50?'#ca8a04':'#dc2626'}">${cfi}%</b>`;
+ if(b.phase==='active'){LIVE_END=Date.now()+Math.max(0,(b.left_s||0)-(v.ago||0))*1000;
+  el.innerHTML=`<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:10px 12px">
+   <div style="font-size:13px;color:#047857">${b.test?'🧪 CA THỬ NGHIỆM':'📚 ĐANG TRONG CA HỌC'} · ${Math.round((b.session_s||0)/60)} phút</div>
+   <div style="font-size:30px;font-weight:800;color:#065f46;letter-spacing:1px">⏳ <span id="hs-cd">--:--</span></div>
+   <div style="font-size:13px">🎯 Tập trung lúc này: ${cfiTxt} · ⚠️ Vi phạm: <b>${b.viol||0}</b> · đèn đỏ khi CFI dưới ngưỡng, còi khi rất thấp</div></div>`;liveTick();return 'active';}
+ if(b.phase==='done'){el.innerHTML='<div style="background:#f0fdf4;border-radius:12px;padding:8px 12px;font-size:13px">✅ <b>Ca vừa kết thúc</b> — web đang chấm; đạt chuẩn thì tủ tự tưới cây. Mở rồi đóng lại cửa tủ để bắt đầu ca mới.</div>';return 'done';}
+ const ok=x=>x?'✅':'⬜',items=[[s.role==='student','👩‍🎓 Con đang ở <b>chế độ Học sinh</b> trên máy tính'],[b.paired&&b.verified,'🔑 Điện thoại <b>đã ghép &amp; xác thực</b>'+(b.paired&&!b.verified&&b.ble?' <span style="color:#dc2626">(khóa khác — bấm Ghép điện thoại mới)</span>':'')],
+  [b.phone,'🔌 Điện thoại <b>đang sạc</b> trong tủ'],[b.door==='closed','🚪 Cửa tủ <b>đã đóng</b>']];
+ el.innerHTML=`<div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:8px 12px;font-size:13px">
+  <div style="margin-bottom:4px"><b>⏸️ Chưa vào ca</b> — đủ 4 điều kiện thì tủ tự bắt đầu ca <b>${Math.round((b.session_s||0)/60)} phút</b>, đếm ngược và camera AI bắt đầu tính mức tập trung:</div>
+  ${items.map(([c,t])=>`<div>${ok(c)} ${t}</div>`).join('')}</div>`;return 'idle';}
+function renderStudyHome(v){const st=v.study||{},l=st.last;const live=renderLive(v);$('hs-pts').textContent=st.points||0;$('hs-today').textContent=st.today_ok||0;
  $('hs-water').textContent=st.waterings||0;
- $('hs-last').innerHTML=l?`Ca gần nhất ${dm(l.start)} ${hm(l.start)}–${hm(l.end)} · ${l.minutes}′ · `+(l.success?`<b style="color:#16a34a">✅ đạt${l.watered?' · 🌱 đã tưới cây':''} · +${l.points} điểm</b>`:`<b style="color:#dc2626">chưa đạt</b>: ${esc((l.reasons||[]).join(', '))}`):'Chưa có ca học nào. Ca học = từ lúc con vào chế độ Học sinh tới lúc rời.';}
+ $('hs-last').innerHTML=l?`Ca gần nhất ${dm(l.start)} ${hm(l.start)}–${hm(l.end)} · ${l.minutes}′ · `+(l.success?`<b style="color:#16a34a">✅ đạt${l.watered?' · 🌱 đã tưới cây':''} · +${l.points} điểm</b>`:`<b style="color:#dc2626">chưa đạt</b>: ${esc((l.reasons||[]).join(', '))}`):(live?'Chưa có ca học nào.':'Chưa có ca học nào. Ca học = từ lúc con vào chế độ Học sinh tới lúc rời.');}
 async function loadStudy(fill){const v=cur();if(!v)return;const d=await api(`/api/parent/devices/${v.id}/study?days=30`);if(d.error){toast(d.error);return;}
  STUDY=d;const st=d.stats||{},sm=d.summary||{},c=d.cfg||{};
  $('w-pts').textContent=st.points||0;$('w-water').textContent=st.waterings||0;$('w-30').textContent=(sm.d30||[0,0])[1];
@@ -1373,7 +1393,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.16"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.17"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")

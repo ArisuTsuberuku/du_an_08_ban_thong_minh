@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.4.0"
+#define FW_VERSION   "2.4.1"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -82,7 +82,10 @@ char expectFp[7] = "";                      // phụ huynh nhập mã 6 số tr�
 char gotFp[7] = "";
 bool pairMismatchNew = false;
 volatile bool verifyFailNew = false;        // chữ ký sai -> báo PC (điện thoại có khóa khác khóa đã ghép)
-bool pairRefusedNew = false;                       // bit0 notify, bit1 indicate, bit2 read của charCmd
+bool pairRefusedNew = false;
+bool studyKnown = false, pcStudy = false;   // FocusDesk báo học sinh đang ở CHẾ ĐỘ HỌC SINH (trường "study" trong ping)
+unsigned long pcStudyAt = 0;
+bool studyOk() { return !studyKnown || (pcStudy && millis() - pcStudyAt < 10000UL); }                       // bit0 notify, bit1 indicate, bit2 read của charCmd
 bool doorClosed = false, charging = false;
 bool doorRaw = false; unsigned long doorChangedAt = 0;
 
@@ -144,6 +147,7 @@ void fillState(JsonDocument& d) {
   d["cfi"] = currentCfi;
   d["pump"] = pumpOffAt != 0;
   d["test"] = testSession;
+  d["study"] = studyOk();
   d["sim_charge"] = simCharge;
   d["key_fp"] = keyFp;
   d["pair_left"] = pairOpen() ? (pairUntil - millis()) / 1000UL : 0;
@@ -324,6 +328,7 @@ void handleLine(const String& line) {
   if (t == "hello") { sendHello(); return; }
   if (t == "ping" || t == "get") {
     if (m["cfi"].is<int>()) { currentCfi = m["cfi"]; cfiAt = millis(); }   // -1 = camera tắt / không trong giờ học
+    if (m["study"].is<bool>()) { studyKnown = true; pcStudy = m["study"]; pcStudyAt = millis(); }
     sendState(); return;
   }
   if (t == "cfi") {                                 // tên cũ của nhóm: {"t":"cfi","score":72}
@@ -459,10 +464,11 @@ void loop() {
     BLEScan* sc = BLEDevice::getScan(); sc->clearResults(); sc->start(4, nullptr, false); lastScan = now;
   }
 
-  // 1. Bắt đầu ca: cửa đóng + đang sạc + (điện thoại đã ghép ký đúng)
-  if (phase == IDLE && doorClosed && charging && (signatureVerified || !REQUIRE_TEE)) startSession();
-  // 2. Hết giờ học
-  if (phase == ACTIVE && now - sessionStart >= sessionLen) endSession("time_up");
+  // 1. Bắt đầu ca: học sinh đang ở CHẾ ĐỘ HỌC SINH trên máy + cửa đóng + đang sạc + điện thoại ký đúng
+  if (phase == IDLE && doorClosed && charging && (signatureVerified || !REQUIRE_TEE) && studyOk()) startSession();
+  // 2. Hết giờ học — dùng millis() mới: sessionStart vừa đặt ở bước 1 có thể LỚN HƠN `now` (lỗi 2.4.0: tràn số
+  //    unsigned -> ca vừa bắt đầu đã báo hết giờ)
+  if (phase == ACTIVE && millis() - sessionStart >= sessionLen) endSession("time_up");
 
   // 3. Bơm tự tắt
   if (pumpOffAt && (long)(now - pumpOffAt) >= 0) { digitalWrite(RELAY_PIN, BOM_TAT); pumpOffAt = 0; sendEvent("watered"); }

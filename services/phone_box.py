@@ -239,6 +239,7 @@ class PhoneBoxLink:
                 ping = {"t": "ping", "id": self._next_id(), "ts": int(now)}
                 if self.proto >= 2:
                     ping["cfi"] = current_cfi()          # tủ v2 nháy đèn / kêu còi theo CFI của camera AI
+                    ping["study"] = studying_now()       # tủ chỉ bắt đầu ca khi học sinh đang ở chế độ Học sinh
                 self._send_raw(ping)
             msg = self._read_one()
             if msg:
@@ -533,6 +534,14 @@ def set_test_cfi(value: Optional[int], seconds: int = 60) -> None:
     log_traffic("SYS", f"CFI thử: {value if value is not None else 'tắt'}")
 
 
+def studying_now() -> bool:
+    """Học sinh đang ở chế độ Học sinh trên FocusDesk (điều kiện để tủ bắt đầu ca)."""
+    try:
+        return load_runtime_state().get("current_role") == "student"
+    except Exception:
+        return False
+
+
 def current_cfi() -> int:
     """CFI hiện tại cho tủ v2 (0–100), -1 = không có (camera tắt, không ở chế độ học sinh, đang nghỉ vệ sinh)."""
     if _test_cfi["v"] is not None and time.time() < _test_cfi["until"]:
@@ -594,10 +603,15 @@ def _v2_event(e: str, d: Dict[str, Any]) -> None:
                                      planned_min=mins)
         _alert(_V2_TEXT[e].format(m=f"{mins:g}"))
     elif e == "session_end":
-        rep = study_sessions.end_session("Hết giờ học" if d.get("reason") == "time_up" else "Kết thúc ca sớm",
+        reason = {"time_up": "Hết giờ học", "left_student": "Rời chế độ học sinh trước giờ"}.get(
+            str(d.get("reason")), "Kết thúc ca sớm")
+        rep = study_sessions.end_session(reason,
                                          dur_s=d.get("dur_s"), time_up=d.get("reason") == "time_up")
         mins = rep.get("minutes") if rep else round(float(d.get("dur_s") or 0) / 60.0, 1)
-        _alert(_V2_TEXT[e].format(m=f"{mins:g}"))
+        if d.get("reason") == "time_up":
+            _alert(_V2_TEXT[e].format(m=f"{mins:g}"))
+        else:
+            _alert(f"⏹️ Ca học kết thúc trước giờ ({reason.lower()}) sau {mins:g} phút — ca chưa đủ thời gian")
     elif e in ("door_open", "phone_out"):
         if active:                                   # sau giờ học: rút sạc / mở tủ KHÔNG báo nữa
             study_sessions.note_violation("PHONE")

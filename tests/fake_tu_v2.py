@@ -29,6 +29,8 @@ class FakeCabinet:
         self.key_fp = "482913" if paired else ""
         self.expect = ""
         self.pair_open = False
+        self.study_known = False
+        self.study = False
         self.lock = threading.RLock()
 
     # ---------------------------------------------------------------- tiện ích
@@ -62,7 +64,8 @@ class FakeCabinet:
     # ---------------------------------------------------------------- máy trạng thái
     def _check(self):
         with self.lock:
-            if self.phase == "idle" and self.door_closed and self.charging and self.verified:
+            if self.phase == "idle" and self.door_closed and self.charging and self.verified and \
+                    (self.study or not self.study_known):
                 self.phase, self.start, self.viol = "active", self.now(), 0
                 self._event("session_started")
             if self.phase == "active" and self.now() - self.start >= (self.len_s or self.session_ms / 1000):
@@ -84,6 +87,9 @@ class FakeCabinet:
             elif t in ("ping", "get"):
                 if isinstance(m.get("cfi"), int):
                     self.cfi = m["cfi"]
+                if isinstance(m.get("study"), bool):
+                    self.study_known, self.study = True, m["study"]
+                    self._check()
                 self._send({"t": "state", **self.state()})
             elif t == "cfg":
                 self.cfg_seen.append(dict(m))

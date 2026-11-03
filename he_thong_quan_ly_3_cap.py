@@ -347,7 +347,13 @@ class PhanMemQuanLyBanHocEXE:
             cur = study_sessions.current() or {}
             box = load_runtime_state().get("phone_box") or {}
             if cur.get("source") == "box" and box.get("connected"):
-                return   # ca do tủ ESP32 đếm giờ -> chỉ chốt khi tủ báo hết giờ học
+                # Ca do tủ ESP32 đếm giờ: rời chế độ học sinh trước giờ -> báo tủ kết thúc ca (tủ gửi session_end,
+                # máy chốt ca "Rời chế độ học sinh trước giờ" -> chưa đủ thời gian nên không đạt)
+                if box.get("phase") == "active" and not box.get("test"):
+                    from services.phone_box import get_box
+
+                    threading.Thread(target=lambda: get_box().end_session("left_student"), daemon=True).start()
+                return
             study_sessions.end_session(ly_do)
         except Exception as exc:
             safe_log(f"[CA HỌC] Không chốt được ca: {exc}")
@@ -774,7 +780,21 @@ class PhanMemQuanLyBanHocEXE:
 
             self._dock_clock.config(text=time.strftime("%H:%M"))
             bx = load_runtime_state().get("phone_box") or {}
-            if load_config().get("phone_box_enabled"):
+            if load_config().get("phone_box_enabled") and bx.get("connected") and int(bx.get("proto", 1) or 1) >= 2:
+                # Tủ v2: đếm ngược ca học ngay trên thanh dock
+                if bx.get("phase") == "active":
+                    left = max(0, int(bx.get("left_s") or 0) - int(time.time() - float(bx.get("t") or time.time())))
+                    self._dock_box.config(text=f"⏳ Ca học còn {left // 60:02d}:{left % 60:02d}", fg="#86efac")
+                elif bx.get("phase") == "done":
+                    self._dock_box.config(text="✅ Hết giờ học", fg="#86efac")
+                elif bx.get("ble") and bx.get("phone") and not bx.get("verified"):
+                    self._dock_box.config(text="🔑 Điện thoại chưa xác thực — nhờ phụ huynh ghép lại", fg="#fca5a5")
+                else:
+                    thieu = [t for ok, t in ((bx.get("phone"), "cắm sạc"), (bx.get("door") == "closed", "đóng cửa tủ"))
+                             if not ok]
+                    self._dock_box.config(text="📦 Cất điện thoại vào tủ" + (": " + ", ".join(thieu) if thieu else
+                                                                             " — đang xác thực…"), fg="#fcd34d")
+            elif load_config().get("phone_box_enabled"):
                 self._dock_box.config(text=("📦 mất kết nối" if not bx.get("connected") else
                                             ("📱🔒 đã cất" if bx.get("phone") and bx.get("lock") == "locked" else
                                              ("📱 trong hộp" if bx.get("phone") else "📭 hộp trống"))))
