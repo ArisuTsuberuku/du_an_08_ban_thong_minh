@@ -41,7 +41,7 @@ BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware 
 STATE_KEYS = ("phone", "lid", "lock", "nonce", "fw", "box_id", "paired", "unlock_left",
               # v2 (tủ điện thoại)
               "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active", "test",
-              "cfi")
+              "cfi", "sim_charge")
 DEFAULT_BOX_CFG = {"session_min": 25, "led_cfi": 50, "buzz_cfi": 30}
 
 BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
@@ -398,6 +398,10 @@ class PhoneBoxLink:
         """THỬ NGHIỆM: tủ vào ca ngay (bỏ qua cửa / sạc / chữ ký điện thoại). Ca thử không ghi điểm, không tưới cây."""
         return self.command("start", session_ms=int(max(10, min(240 * 60, float(session_min) * 60)) * 1000))
 
+    def sim_charge(self, on: bool) -> Dict[str, Any]:
+        """THỬ NGHIỆM: giả lập điện thoại cắm sạc (khi app Android chưa gửi được "CHARGED")."""
+        return self.command("charge", on=bool(on))
+
     def test_io(self) -> Dict[str, Any]:
         """THỬ NGHIỆM: nháy lần lượt đèn đỏ -> đèn xanh -> còi (1,5 s), không bật bơm."""
         return self.command("io")
@@ -589,6 +593,9 @@ def _v2_event(e: str, d: Dict[str, Any]) -> None:
     elif e == "disconnected":
         if (study_sessions.current() or {}).get("source") == "box":
             _alert("🔌 Mất kết nối tủ điện thoại trong giờ học (rút cáp USB?)")
+    elif e in ("ble_connected", "ble_lost", "ble_cmd"):
+        safe_log(f"[TỦ] BLE {e}: " + ", ".join(f"{k}={d.get(k)}" for k in ("v", "cmd_notify", "cmd_indicate",
+                                                                            "cmd_read", "phone", "verified") if k in d))
     elif e == "connected":
         safe_log(f"[TỦ] Đã kết nối tủ điện thoại v2 ({d.get('box_id')}) — pha {d.get('phase')}")
 

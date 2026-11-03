@@ -53,12 +53,13 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `end` | `reason` | kết thúc ca sớm → event `session_end` | `no_session` |
 | `start` | `session_ms` (10 000 – 14 400 000, bỏ trống = theo `cfg`) | **chỉ để thử nghiệm**: vào ca ngay, bỏ qua cửa / sạc / chữ ký; mọi tin trong ca có `"test":true` → FocusDesk không ghi ca, không tính vi phạm, không tưới (chỉ báo kèm “🧪 [Thử nghiệm]”) | `busy` |
 | `io` | — | thử dây: đèn đỏ 0,6 s → đèn xanh 0,6 s → còi 0,3 s (không bật bơm) | — |
+| `charge` | `on` (true/false) | **thử nghiệm**: giả lập điện thoại đang sạc (trạng thái có `sim_charge:true`) | — |
 | `cfi`, `set_time` | `score` / `ms` | tên cũ trong code của nhóm — vẫn nhận | — |
 | khác | | | `unknown` |
 
 ## 4. Tin ESP32 → máy tính
 
-`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.2.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
+`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.3.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
 (`dev` phải là `focusdesk-box`, phần mềm chờ tối đa 2,5 s sau khi mở cổng).
 
 **Trường trạng thái** (có trong `hello`, `state` và mọi `event`):
@@ -85,6 +86,9 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `phone_in` / `phone_out` | bắt đầu / ngừng sạc (BLE `CHARGED`/`UNCHARGED` hoặc chân `PIN_CHARGE`) | như trên |
 | `paired`, `key_reset` | ghép điện thoại mới / đã xóa khóa | báo phụ huynh |
 | `watering`, `watered` | bơm bật / tắt | ghi nhật ký |
+| `ble_connected` | tủ vừa nối BLE với app; kèm `has_sign`, `has_cmd`, `cmd_notify`, `cmd_indicate`, `cmd_read` | ghi nhật ký (gỡ lỗi app) |
+| `ble_cmd` | app gửi chuỗi qua `…de4`; `v` = chuỗi thô | ghi nhật ký — xem đúng chữ app gửi |
+| `ble_lost` | mất BLE | ghi nhật ký |
 
 ## 5. Luồng đầy đủ một ca học
 
@@ -146,4 +150,7 @@ Phụ huynh (web)        Cloud (Vercel)            FocusDesk (PC)               
 
 Service BLE `12345678-1234-5678-1234-567890abcdef`: `…de1` nonce (ESP32 ghi 32 byte ngẫu nhiên), `…de2` chữ ký
 (app ký SHA-256(nonce) bằng khóa TEE, notify), `…de3` khóa công khai DER (ESP32 đọc lần ghép đầu), `…de4` lệnh
-(notify `CHARGED`; nên bổ sung `UNCHARGED` khi rút sạc để tủ phát hiện ngay cả khi cửa chưa mở).
+(notify hoặc indicate). Tủ nhận `CHARGED` / `CHARGING` / `PLUGGED` / `POWER_CONNECTED` / `1` / `ON` = đang sạc và
+`UNCHARGED` / `UNPLUGGED` / `DISCHARGING` / `NOT_CHARGING` / `0` / `OFF` = rút sạc (bỏ khoảng trắng, không phân biệt hoa
+thường). **App nên**: (1) gửi trạng thái sạc HIỆN TẠI ngay khi ESP32 kết nối và đăng ký notify (không chỉ lúc vừa cắm),
+(2) cho phép đọc (READ) charCmd = trạng thái hiện tại, (3) gửi `UNCHARGED` khi rút sạc.

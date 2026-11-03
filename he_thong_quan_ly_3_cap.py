@@ -2171,6 +2171,10 @@ class PhanMemQuanLyBanHocEXE:
                         kind="ghost").pack(side="left")
         self._ui_button(f_test, "💡 Thử đèn & còi", lambda: chay(box.test_io, "Thử đèn đỏ → xanh → còi"),
                         kind="ghost").pack(side="left", padx=6)
+        self._ui_button(f_test, "🔌 Giả lập sạc BẬT", lambda: chay(lambda: box.sim_charge(True), "Giả lập cắm sạc"),
+                        kind="ghost").pack(side="left")
+        self._ui_button(f_test, "TẮT", lambda: chay(lambda: box.sim_charge(False), "Bỏ giả lập sạc"),
+                        kind="ghost").pack(side="left", padx=(4, 0))
 
         f_cmd = tk.Frame(t2, bg=UI["card"])
         f_cmd.pack(anchor="w", fill="x", pady=(8, 0))
@@ -2203,7 +2207,7 @@ class PhanMemQuanLyBanHocEXE:
                 lbl.config(fg=UI["txt"], text=(
                     f"🟢 Tủ v2 {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n{pha}\n"
                     f"🚪 cửa {'đóng' if st.get('door') == 'closed' else 'MỞ'} · "
-                    f"{'🔌 đang sạc' if st.get('phone') else '📭 chưa sạc'} · BLE {'✓' if st.get('ble') else '✗'} · "
+                    f"{('🔌 đang sạc' + (' (giả lập)' if st.get('sim_charge') else '')) if st.get('phone') else '📭 chưa sạc'} · BLE {'✓' if st.get('ble') else '✗'} · "
                     f"{'🔑 đã xác thực' if st.get('verified') else ('🔑 đã ghép' if st.get('paired') else '🔑 CHƯA GHÉP')}\n"
                     f"Ca {int(st.get('session_s') or 0) // 60} phút · CFI gửi tủ: {cfi if cfi >= 0 else '—'}"
                     f"{' · 💧 đang bơm' if st.get('pump') else ''}"))
@@ -2446,7 +2450,8 @@ class PhanMemQuanLyBanHocEXE:
                          ("ping cfi=40", lambda: gui_json("ping", cfi=40)), ("ping cfi=20", lambda: gui_json("ping", cfi=20)),
                          ("ping cfi=-1", lambda: gui_json("ping", cfi=-1)), ("water 2s", lambda: gui_json("water", ms=2000)),
                          ("beep", lambda: gui_json("beep", ms=600)), ("start 1′ (thử)", lambda: gui_json("start", session_ms=60000)),
-                         ("io", lambda: gui_json("io")), ("end", lambda: gui_json("end", reason="admin")),
+                         ("io", lambda: gui_json("io")), ("charge on", lambda: gui_json("charge", on=True)),
+                         ("charge off", lambda: gui_json("charge", on=False)), ("end", lambda: gui_json("end", reason="admin")),
                          ("reset_key", lambda: gui_json("reset_key"))):
             self._ui_button(quick2, text, fn, kind="ghost").pack(side="left", padx=(6, 0))
 

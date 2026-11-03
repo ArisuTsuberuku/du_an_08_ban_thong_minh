@@ -111,6 +111,10 @@ class FakeCabinet:
                     self.phase, self.start, self.viol, self.test = "active", self.now(), 0, True
                     self.len_s = int(m.get("session_ms") or self.session_ms) / 1000
                     self._event("session_started")
+            elif t == "charge":
+                self._ack(i)
+                self.charging = bool(m.get("on", True))
+                self._event("phone_in" if self.charging else "phone_out")
             elif t == "io":
                 self.io_count += 1
                 self._ack(i)

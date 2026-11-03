@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.2.0"
+#define FW_VERSION   "2.3.0"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -70,6 +70,10 @@ volatile bool doConnect = false;
 volatile bool bleConnected = false;
 volatile bool signatureVerified = false;
 volatile bool bleCharging = false;
+volatile bool bleCmdNew = false, bleLinkNew = false, bleLostNew = false;   // cờ từ tác vụ BLE -> loop() gửi JSON
+char bleCmdRaw[33] = "";                    // giá trị thô app gửi qua charCmd (gỡ lỗi: event ble_cmd)
+bool simCharge = false;                     // lệnh "charge" (THỬ NGHIỆM): giả lập điện thoại đang sạc
+uint8_t cmdProps = 0;                       // bit0 notify, bit1 indicate, bit2 read của charCmd
 bool doorClosed = false, charging = false;
 bool doorRaw = false; unsigned long doorChangedAt = 0;
 
@@ -114,6 +118,7 @@ void fillState(JsonDocument& d) {
   d["cfi"] = currentCfi;
   d["pump"] = pumpOffAt != 0;
   d["test"] = testSession;
+  d["sim_charge"] = simCharge;
 }
 
 void sendHello() {
@@ -187,21 +192,33 @@ void requestVerify() {                              // gửi nonce mới -> app 
   pNonceChar->writeValue(currentNonce, sizeof(currentNonce));
 }
 
+// Chuẩn hóa lệnh app: bỏ khoảng trắng / \r\n / \0, không phân biệt hoa thường; nhận nhiều cách viết
+void handleBleCmd(const uint8_t* data, size_t len) {
+  size_t n = 0;
+  for (size_t i = 0; i < len && n < sizeof(bleCmdRaw) - 1; i++)
+    if (data[i] >= 32 && data[i] < 127) bleCmdRaw[n++] = (char)data[i];
+  bleCmdRaw[n] = 0;
+  String c = String(bleCmdRaw); c.trim(); c.toUpperCase();
+  if (c == "CHARGED" || c == "CHARGING" || c == "PLUGGED" || c == "POWER_CONNECTED" || c == "AC" || c == "USB" ||
+      c == "1" || c == "ON") bleCharging = true;
+  else if (c == "UNCHARGED" || c == "UNPLUGGED" || c == "DISCHARGING" || c == "NOT_CHARGING" ||
+           c == "POWER_DISCONNECTED" || c == "0" || c == "OFF") bleCharging = false;
+  bleCmdNew = true;
+}
+
 static void notifyCallback(BLERemoteCharacteristic* ch, uint8_t* data, size_t len, bool) {
   if (ch->getUUID().equals(charSignUUID)) {
     if (hasPubKey && len > 0 && verifyECDSASignature(savedPubKey, savedPubKeyLen, currentNonce, sizeof(currentNonce), data, len))
       signatureVerified = true;
   } else if (ch->getUUID().equals(charCmdUUID)) {
-    String c; for (size_t i = 0; i < len; i++) c += (char)data[i];
-    if (c == "CHARGED") bleCharging = true;
-    else if (c == "UNCHARGED" || c == "UNPLUGGED" || c == "DISCHARGING") bleCharging = false;
+    handleBleCmd(data, len);
   }
 }
 
 class ClientCB : public BLEClientCallbacks {
   void onConnect(BLEClient*) override {}
   void onDisconnect(BLEClient*) override {
-    bleConnected = false; signatureVerified = false;
+    bleConnected = false; signatureVerified = false; bleLostNew = true;
     if (phase != ACTIVE) bleCharging = false;       // trong ca: rớt BLE không tính là rút sạc (cửa tủ mới là căn cứ chính)
   }
 };
@@ -226,8 +243,16 @@ bool connectToPhone() {
   pSignChar = svc->getCharacteristic(charSignUUID);
   pPubKeyChar = svc->getCharacteristic(charPubKeyUUID);
   pCmdChar = svc->getCharacteristic(charCmdUUID);
-  if (pSignChar && pSignChar->canNotify()) pSignChar->registerForNotify(notifyCallback);
-  if (pCmdChar && pCmdChar->canNotify()) pCmdChar->registerForNotify(notifyCallback);
+  if (pSignChar) {
+    if (pSignChar->canNotify()) pSignChar->registerForNotify(notifyCallback);
+    else if (pSignChar->canIndicate()) pSignChar->registerForNotify(notifyCallback, false);
+  }
+  cmdProps = 0;
+  if (pCmdChar) {
+    cmdProps = (pCmdChar->canNotify() ? 1 : 0) | (pCmdChar->canIndicate() ? 2 : 0) | (pCmdChar->canRead() ? 4 : 0);
+    if (pCmdChar->canNotify()) pCmdChar->registerForNotify(notifyCallback);
+    else if (pCmdChar->canIndicate()) pCmdChar->registerForNotify(notifyCallback, false);   // app dùng indicate
+  }
   if (!hasPubKey && pPubKeyChar) {                  // chưa ghép: lưu khóa công khai của điện thoại ĐẦU TIÊN kết nối
     String v = pPubKeyChar->readValue();
     if (v.length() > 50 && v.length() <= sizeof(savedPubKey)) {
@@ -238,7 +263,12 @@ bool connectToPhone() {
       sendEvent("paired");
     }
   }
-  bleConnected = true;
+  bleConnected = true; bleLinkNew = true;
+  // App chỉ gửi "CHARGED" lúc vừa cắm sạc -> nếu cắm TRƯỚC khi tủ kết nối thì lỡ mất. Đọc giá trị hiện có (nếu đọc được).
+  if (pCmdChar && pCmdChar->canRead()) {
+    String v = pCmdChar->readValue();
+    if (v.length()) handleBleCmd((const uint8_t*)v.c_str(), v.length());
+  }
   requestVerify();
   return true;
 }
@@ -290,6 +320,9 @@ void handleLine(const String& line) {
     if (ms) ms = constrain(ms, 10000UL, 240UL * 60000UL);
     phase = IDLE; sendAck(id, true); startSession(true, ms); return;
   }
+  if (t == "charge") {                              // THỬ NGHIỆM: giả lập cắm / rút sạc khi app chưa gửi được CHARGED
+    simCharge = m["on"] | true; sendAck(id, true); return;
+  }
   if (t == "io") {                                  // thử dây: đỏ 0,6 s -> xanh 0,6 s -> còi 0,3 s (không bật bơm)
     ioStart = millis(); ioUntil = ioStart + 1500; sendAck(id, true); return;
   }
@@ -320,7 +353,7 @@ void readSensors() {
     if (!doorClosed && phase == DONE) phase = IDLE;                 // lấy điện thoại sau ca -> sẵn sàng ca mới
     if (doorClosed && phase == IDLE && !signatureVerified) requestVerify();
   }
-  bool ch = bleCharging;
+  bool ch = bleCharging || simCharge;
 #if PIN_CHARGE >= 0
   ch = ch || digitalRead(PIN_CHARGE) == LOW;
 #endif
@@ -365,6 +398,17 @@ void loop() {
   unsigned long now = millis();
 
   if (doConnect) { doConnect = false; connectToPhone(); }
+  if (bleLinkNew) {
+    bleLinkNew = false;
+    JsonDocument d; d["t"] = "event"; d["e"] = "ble_connected"; d["has_sign"] = pSignChar != nullptr; d["has_cmd"] = pCmdChar != nullptr;
+    d["cmd_notify"] = (cmdProps & 1) != 0; d["cmd_indicate"] = (cmdProps & 2) != 0; d["cmd_read"] = (cmdProps & 4) != 0;
+    fillState(d); sendDoc(d);
+  }
+  if (bleLostNew) { bleLostNew = false; sendEvent("ble_lost"); }
+  if (bleCmdNew) {                                   // gỡ lỗi: hiện đúng chuỗi app gửi (Serial monitor)
+    bleCmdNew = false;
+    JsonDocument d; d["t"] = "event"; d["e"] = "ble_cmd"; d["v"] = bleCmdRaw; fillState(d); sendDoc(d);
+  }
   if (!bleConnected && !doConnect && now - lastScan > 7000) {   // quét KHÔNG chặn: serial vẫn trả lời ping
     BLEScan* sc = BLEDevice::getScan(); sc->clearResults(); sc->start(4, nullptr, false); lastScan = now;
   }
