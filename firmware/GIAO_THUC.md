@@ -116,6 +116,16 @@ Phụ huynh (web)        Cloud (Vercel)            FocusDesk (PC)               
 | GPIO7 / GPIO8 | LED đỏ (mất tập trung, vi phạm) / LED xanh (hết giờ, đang bơm) qua điện trở 220 Ω |
 | GPIO9 | còi buzzer (qua transistor nếu còi > 20 mA) |
 
+## 6b. Biên dịch & nạp (đã thử 03/11/2026 trên bo của nhóm)
+
+- Bo: **ESP32-S3 (QFN56) rev 0.2, PSRAM 8 MB**, cổng nạp qua chip **CH343** (COM7 trên máy MSI).
+- Thư viện: ArduinoJson 7.4.3; core esp32 3.3.12. Bản build: 685 KB (21 % phân vùng huge_app), RAM 28,7 KB.
+- Arduino IDE: Board *ESP32S3 Dev Module*, Partition *Huge APP (3MB No OTA)*, USB CDC On Boot = *Disabled* (dùng cổng CH343).
+- Dòng lệnh:
+  `arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app firmware/focusdesk_esp32`
+  `arduino-cli upload -p COM7 --fqbn esp32:esp32:esp32s3:PartitionScheme=huge_app firmware/focusdesk_esp32`
+- Khóa điện thoại đã ghép bằng firmware cũ của nhóm (Preferences `focusdesk/pubkey`) được giữ nguyên sau khi nạp.
+
 ## 7. Thử nhanh bằng Serial monitor (gõ từng dòng)
 
 ```
