@@ -22,6 +22,8 @@ jobs:
           distribution: temurin
           java-version: "25"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools"   # gói "tools" cũ đã bị Google gỡ -> mặc định của action bị lỗi
       - name: Build APK (debug)
         run: |
           chmod +x gradlew
