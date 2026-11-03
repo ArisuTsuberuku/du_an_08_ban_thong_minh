@@ -829,14 +829,15 @@ let STUDY=null;const VIOL_VI={GAME:'game/giải trí',AI_GAME:'AI làm game',AI_
 const hm=ts=>new Date(ts*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
 const dm=ts=>new Date(ts*1000).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'});
 let LIVE_END=0;
-function liveTick(){const el=document.getElementById('hs-cd');if(!el||!LIVE_END)return;const s=Math.max(0,Math.round((LIVE_END-Date.now())/1000));
+function liveTick(){const el=document.getElementById('hs-cd');if(!el||!LIVE_END)return;const s=Math.max(0,Math.ceil((LIVE_END-Date.now())/1000));
  el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
-setInterval(liveTick,1000);
-function renderLive(v){const el=$('hs-live'),s=v.status||{},b=s.phone_box||{},p=s.posture||{};LIVE_END=0;
+setInterval(liveTick,250);
+function renderLive(v){const el=$('hs-live'),s=v.status||{},b=s.phone_box||{},p=s.posture||{};const keep=LIVE_END;LIVE_END=0;
  if(!b.enabled||!b.connected||(b.proto||1)<2||!v.online){el.innerHTML='';return '';}
  const cfi=(p.camera&&typeof p.cfi==='number')?Math.round(p.cfi):null;
  const cfiTxt=cfi===null?'<span class="mut">camera chưa bật</span>':`<b style="color:${cfi>=75?'#16a34a':cfi>=50?'#ca8a04':'#dc2626'}">${cfi}%</b>`;
- if(b.phase==='active'){LIVE_END=Date.now()+Math.max(0,(b.left_s||0)-(v.ago||0))*1000;
+ if(b.phase==='active'){const rem=(typeof b.end_in==='number'?b.end_in:(b.left_s||0)+0.5)-(v.ago||0);
+  const cand=Date.now()+Math.max(0,rem)*1000;LIVE_END=(keep&&Math.abs(cand-keep)<2500)?keep:cand;   // giữ mốc cũ nếu lệch ít -> không nhảy cóc
   el.innerHTML=`<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:10px 12px">
    <div style="font-size:13px;color:#047857">${b.test?'🧪 CA THỬ NGHIỆM':'📚 ĐANG TRONG CA HỌC'} · ${Math.round((b.session_s||0)/60)} phút</div>
    <div style="font-size:30px;font-weight:800;color:#065f46;letter-spacing:1px">⏳ <span id="hs-cd">--:--</span></div>
@@ -1393,7 +1394,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.17"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.18"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")

@@ -149,6 +149,31 @@ class TestCabinetV2(unittest.TestCase):
         pb.set_studying(False)
 
 
+class TestCountdown(unittest.TestCase):
+    def test_end_at_stable_despite_coarse_left_s(self):
+        clock = [1000.0]
+        real = pb.time.time
+        pb.time.time = lambda: clock[0]
+        try:
+            link = pb.PhoneBoxLink(transport_factory=lambda p: None)
+            link.state = {"phase": "active"}
+            link._on_msg({"t": "event", "e": "session_started", "phase": "active", "session_s": 300, "left_s": 300})
+            end0 = link.state["end_at"]
+            self.assertEqual(end0, 1300.0)
+            # tủ báo left_s làm tròn xuống, mỗi ~2 s, đến không đều (trễ USB) -> mốc kết thúc KHÔNG đổi
+            for dt, left in ((2.1, 297), (4.3, 295), (5.9, 294), (8.2, 291)):
+                clock[0] = 1000.0 + dt
+                link._on_msg({"t": "state", "phase": "active", "left_s": left})
+                self.assertEqual(link.state["end_at"], end0)
+            clock[0] = 1010.0                                 # lệch lớn (máy mở lại giữa ca) -> chỉnh mốc
+            link._on_msg({"t": "state", "phase": "active", "left_s": 200})
+            self.assertEqual(link.state["end_at"], 1210.5)
+            link._on_msg({"t": "state", "phase": "done", "left_s": 0})
+            self.assertNotIn("end_at", link.state)
+        finally:
+            pb.time.time = real
+
+
 class TestCloudV2(unittest.TestCase):
     def test_cfg_thresholds_and_box_view(self):
         c = study.clean_cfg({"min_minutes": 40, "led_cfi": 45, "buzz_cfi": 70})

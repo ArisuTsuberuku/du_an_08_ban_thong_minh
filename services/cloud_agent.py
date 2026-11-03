@@ -147,7 +147,10 @@ class CloudAgent:
                                                                             "door", "ble", "verified", "paired",
                                                                             "left_s", "session_s", "viol",
                                                                             "key_fp", "pair_left", "pair_expect",
-                                                                            "study", "test", "phone_in_box")},
+                                                                            "study", "test")},
+                          # số giây còn lại của ca tính lúc gửi (tương đối -> web không bị lệch giờ giữa các máy)
+                          "end_in": (round(float((st.get("phone_box") or {}).get("end_at")) - time.time(), 1)
+                                     if isinstance((st.get("phone_box") or {}).get("end_at"), (int, float)) else None),
                           "enabled": bool(cfg.get("phone_box_enabled"))},
             "open_apps": self.tracker.open_apps,
             "hostname": socket.gethostname(),

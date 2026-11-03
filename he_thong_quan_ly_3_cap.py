@@ -9,6 +9,7 @@ Phần Mềm Trung Tâm Quản Lý FocusDesk 3 Cấp Quyền (he_thong_quan_ly_3
   - Tự động khởi chạy ngầm Web Dashboard (0.0.0.0:5000) & Bộ giám sát URL/Game/AI (BoGiamSatThongMinh).
 """
 
+import math
 import os
 import subprocess
 import sys
@@ -783,8 +784,7 @@ class PhanMemQuanLyBanHocEXE:
             if load_config().get("phone_box_enabled") and bx.get("connected") and int(bx.get("proto", 1) or 1) >= 2:
                 # Tủ v2: đếm ngược ca học ngay trên thanh dock
                 if bx.get("phase") == "active":
-                    left = max(0, int(bx.get("left_s") or 0) - int(time.time() - float(bx.get("t") or time.time())))
-                    self._dock_box.config(text=f"⏳ Ca học còn {left // 60:02d}:{left % 60:02d}", fg="#86efac")
+                    self._dem_nguoc_dock()            # đồng hồ riêng 0,25 s/lần cho mượt (dock chính 1,5 s/lần)
                 elif bx.get("phase") == "done":
                     self._dock_box.config(text="✅ Hết giờ học", fg="#86efac")
                 elif bx.get("ble") and bx.get("phone") and not bx.get("verified"):
@@ -866,6 +866,25 @@ class PhanMemQuanLyBanHocEXE:
             if key in a:
                 return tip
         return "⚠️ " + alert
+
+    def _dem_nguoc_dock(self) -> None:
+        """Đếm ngược ca học trên dock theo mốc end_at ổn định (không nhảy cóc 19 -> 17 s)."""
+        lbl = getattr(self, "_dock_box", None)
+        if lbl is None or self._current_mode != "student" or not lbl.winfo_exists():
+            return
+        bx = load_runtime_state().get("phone_box") or {}
+        end_at = bx.get("end_at")
+        if bx.get("phase") != "active" or not isinstance(end_at, (int, float)):
+            return
+        left = max(0, math.ceil(end_at - time.time()))
+        lbl.config(text=f"⏳ Ca học còn {left // 60:02d}:{left % 60:02d}", fg="#86efac")
+        old = getattr(self, "_dock_cd_job", None)
+        if old is not None:
+            try:
+                self.root.after_cancel(old)
+            except Exception:
+                pass
+        self._dock_cd_job = self.root.after(250, self._dem_nguoc_dock)
 
     def _dong_dock(self) -> None:
         job = getattr(self, "_dock_job", None)

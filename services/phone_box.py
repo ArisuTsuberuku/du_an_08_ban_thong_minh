@@ -299,6 +299,7 @@ class PhoneBoxLink:
         if t in ("hello", "state"):
             prev = dict(self.state)
             self.state.update(connected=True, **{k: msg[k] for k in STATE_KEYS if k in msg})
+            self._track_end(msg)
             if not prev.get("connected"):
                 self._emit("connected", self.state)
                 if self.proto >= 2:
@@ -309,6 +310,9 @@ class PhoneBoxLink:
             for k in STATE_KEYS:
                 if k in msg and k not in ("fw", "box_id"):
                     self.state[k] = msg[k]
+            if e == "session_started":       # mốc chuẩn nhất: đúng lúc tủ bắt đầu đếm
+                self.state["end_at"] = round(time.time() + float(msg.get("session_s") or 0), 2)
+            self._track_end(msg)
             self._publish()
             self._emit(e, msg)
         elif t == "ack":
@@ -317,6 +321,20 @@ class PhoneBoxLink:
                 q.put(msg)
             if "nonce" in msg:
                 self.state["nonce"] = msg["nonce"]
+
+    def _track_end(self, msg: Dict[str, Any]) -> None:
+        """Giữ 1 mốc kết thúc ca ỔN ĐỊNH (end_at, giờ máy) để đồng hồ đếm ngược chạy đều từng giây.
+        left_s của tủ là số giây làm tròn xuống và chỉ cập nhật mỗi ~2 s (ping) -> nếu hiển thị thẳng sẽ bị nhảy cóc.
+        Chỉ chỉnh lại mốc khi lệch > 2 s (máy vừa mở lại giữa ca, tủ bị trễ...)."""
+        if self.state.get("phase") != "active":
+            self.state.pop("end_at", None)
+            return
+        if "left_s" not in msg:
+            return
+        cand = time.time() + float(msg.get("left_s") or 0) + 0.5      # +0,5 s bù phần làm tròn xuống
+        cur = self.state.get("end_at")
+        if not isinstance(cur, (int, float)) or abs(cand - cur) > 2.0:
+            self.state["end_at"] = round(cand, 2)
 
     def _emit(self, e: str, data: Dict[str, Any]) -> None:
         if self.on_event:
