@@ -44,7 +44,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `t` | Trường | ESP32 làm gì | ack lỗi (`err`) |
 | --- | --- | --- | --- |
 | `hello` | — | trả tin `hello` (mục 4) | — |
-| `ping` | `ts`, `cfi` (0–100, **-1** = không có camera / không trong giờ học), `study` (true = học sinh đang ở chế độ Học sinh) | cập nhật CFI + cờ học, trả `state`. Phần mềm ping 2 s/lần. Đã từng nhận `study` thì tủ CHỈ vào ca khi `study=true` (mất ping > 10 s coi như false) | — |
+| `ping` | `ts`, `cfi` (0–100, **-1** = không có camera / không trong giờ học), `study` (true = học sinh đang ở chế độ Học sinh) | cập nhật CFI + cờ học, trả `state`. Phần mềm ping 2 s/lần. Tủ CHỈ vào ca khi `study=true` (FocusDesk phải đang chạy; mất ping > 10 s coi như false) | — |
 | `get` | — | trả `state` | — |
 | `cfg` | `session_ms` (60 000 – 14 400 000) hoặc `session_min`; `led_cfi`, `buzz_cfi` (0–100) | lưu vào bộ nhớ (Preferences), áp dụng **từ ca sau** | — |
 | `water` | `ms` (300 – 10 000, mặc định 2500) | bật rơ-le bơm, event `watering` → `watered` | — |
@@ -59,7 +59,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 
 ## 4. Tin ESP32 → máy tính
 
-`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.4.1","box_id":"A1B2","nonce":"…", …trường trạng thái}`
+`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.4.2","box_id":"A1B2","nonce":"…", …trường trạng thái}`
 (`dev` phải là `focusdesk-box`, phần mềm chờ tối đa 2,5 s sau khi mở cổng).
 
 **Trường trạng thái** (có trong `hello`, `state` và mọi `event`):

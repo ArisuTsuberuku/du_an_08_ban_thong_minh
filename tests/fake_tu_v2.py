@@ -65,7 +65,7 @@ class FakeCabinet:
     def _check(self):
         with self.lock:
             if self.phase == "idle" and self.door_closed and self.charging and self.verified and \
-                    (self.study or not self.study_known):
+                    self.study:
                 self.phase, self.start, self.viol = "active", self.now(), 0
                 self._event("session_started")
             if self.phase == "active" and self.now() - self.start >= (self.len_s or self.session_ms / 1000):

@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.4.1"
+#define FW_VERSION   "2.4.2"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -85,7 +85,8 @@ volatile bool verifyFailNew = false;        // chữ ký sai -> báo PC (điện
 bool pairRefusedNew = false;
 bool studyKnown = false, pcStudy = false;   // FocusDesk báo học sinh đang ở CHẾ ĐỘ HỌC SINH (trường "study" trong ping)
 unsigned long pcStudyAt = 0;
-bool studyOk() { return !studyKnown || (pcStudy && millis() - pcStudyAt < 10000UL); }                       // bit0 notify, bit1 indicate, bit2 read của charCmd
+// Bắt buộc FocusDesk đang chạy và báo chế độ Học sinh (ping 2 s/lần, mất > 10 s coi như không học)
+bool studyOk() { return studyKnown && pcStudy && millis() - pcStudyAt < 10000UL; }                       // bit0 notify, bit1 indicate, bit2 read của charCmd
 bool doorClosed = false, charging = false;
 bool doorRaw = false; unsigned long doorChangedAt = 0;
 
