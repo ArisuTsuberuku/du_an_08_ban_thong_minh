@@ -123,6 +123,13 @@ def nhan_canh_bao():
 
     lich_su_canh_bao = alerts
     update_runtime_state(alerts=alerts)
+    try:   # đang trong ca học -> đếm vi phạm (để chấm "ca học thành công")
+        from services import study_sessions
+
+        study_sessions.note_violation("POSTURE_PHONE" if loai.startswith("POSTURE") and "điện thoại" in noi_dung.lower()
+                                      else loai)
+    except Exception:
+        pass
 
     # Chuyển tiếp sang cổng Hook Telegram (tự hoạt động khi lắp Giai đoạn 7)
     _dispatch_telegram_hook(noi_dung, loai)

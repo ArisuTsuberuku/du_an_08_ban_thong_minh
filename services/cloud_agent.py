@@ -189,9 +189,20 @@ class CloudAgent:
         events = self.tracker.drain_events()
         acks, self._acks = self._acks, []
         try:
-            res = self._post("/api/agent/heartbeat", {"status": self._collect_status(), "alerts": alerts,
-                                                      "activity": batch, "acks": acks, "events": events})
+            from services import study_sessions
+
+            sessions = study_sessions.pop_reports()
         except Exception:
+            study_sessions, sessions = None, []
+        try:
+            body = {"status": self._collect_status(), "alerts": alerts, "activity": batch, "acks": acks,
+                    "events": events}
+            if sessions:
+                body["sessions"] = sessions        # ca học vừa kết thúc -> web chấm thành công, cộng điểm
+            res = self._post("/api/agent/heartbeat", body)
+        except Exception:
+            if sessions and study_sessions is not None:
+                study_sessions.requeue(sessions)
             if batch:
                 self.tracker.requeue(batch)  # gửi lỗi -> giữ lại số liệu cho lần sau
             if events:
@@ -431,6 +442,13 @@ class CloudAgent:
         alerts = (load_runtime_state().get("alerts") or [])[:5]
         if self.tracker.urgent:      # vừa mở ứng dụng / trang web mới -> báo ngay (phụ huynh thấy gần thời gian thực)
             return True
+        try:
+            from services.study_sessions import has_pending
+
+            if has_pending():
+                return True                     # ca học vừa xong -> báo ngay
+        except Exception:
+            pass
         return any(f"{a.get('time')}|{a.get('type')}|{a.get('message')}" not in self._sent_alert_keys for a in alerts)
 
     def run(self) -> None:

@@ -30,6 +30,7 @@ from flask import Flask, Response, jsonify, redirect, render_template_string, re
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import db, fb_key
+import study
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or "dev-only-" + hashlib.sha256(b"focusdesk").hexdigest()
@@ -387,6 +388,14 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .app-row .acts2{flex:none;display:flex;flex-direction:column;gap:3px;align-items:flex-end}
 .ev-more{margin-top:8px;font-size:13px}.reset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
 .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;color:#fff}
+.sdays{display:flex;gap:3px;flex-wrap:wrap;margin:10px 0 4px}.sdays span{width:15px;height:15px;border-radius:4px;background:var(--line)}
+.sdays span.s1{background:#86efac}.sdays span.s2{background:#22c55e}.sdays span.s3{background:#15803d}
+.sess{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.sess .why{grid-column:2/4;font-size:12.5px;color:var(--mut)}
+.frm{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 10px;margin:8px 0}
+.frm label{font-size:12.5px;color:var(--mut);display:flex;flex-direction:column;gap:3px}.frm input{width:100%}
+.rw{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}.rw .nm{flex:1;min-width:0}
+.lmsurl{display:block;font-size:12.5px;word-break:break-all;background:var(--pill);padding:6px 8px;border-radius:8px;margin:4px 0 8px}
 .open-app{border-bottom:1px solid var(--line);padding:6px 0}.open-app summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none}
 .open-app summary::-webkit-details-marker{display:none}.open-app .ic{font-size:20px;width:28px;text-align:center}
 .open-app .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
@@ -424,7 +433,7 @@ h3{margin:4px 0 10px}
  <nav class="side">
   <div class="brand" style="padding:6px 10px 16px"><img src="/static/icon-192.png" alt="">FocusDesk</div>
   <a data-go="home"><i>🏠</i>Tổng quan</a><a data-go="camera"><i>📺</i>Camera</a>
-  <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="settings"><i>⚙️</i>Cài đặt</a>
+  <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="reward"><i>🏆</i>Thưởng</a><a data-go="settings"><i>⚙️</i>Cài đặt</a>
  </nav>
  <div class="main">
   <div class="top"><div class="brand"><img src="/static/icon-192.png" alt="" class="m-only">FocusDesk</div>
@@ -452,6 +461,9 @@ h3{margin:4px 0 10px}
    </div><div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🔔 Cảnh báo gần đây</h3>
      <button style="padding:4px 10px;font-size:12px" onclick="resetData('alerts')">🧹 Xóa</button></div><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
+    <div class="card" style="cursor:pointer" onclick="go('reward')"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🏆 Ca học & phần thưởng</h3><span class="mut" style="font-size:13px">Xem ›</span></div>
+     <div class="sum3"><div><b id="hs-pts">0</b>điểm</div><div><b id="hs-today">0</b>ca đạt hôm nay</div><div><b id="hs-streak">0</b>ngày liên tiếp</div></div>
+     <div class="mut" id="hs-last" style="font-size:13px">Chưa có ca học nào.</div></div>
     <div class="card" id="boxcard"><h3>📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="boxbtn" onclick="boxMin(15)">🔓 Mở 15′</button><button class="boxbtn" onclick="boxMin(30)">🔓 Mở 30′</button><button class="boxbtn" onclick="boxMin(60)">🔓 Mở 60′</button><button class="boxbtn" onclick="boxMinAsk()">🔓 Mở … phút</button><button class="boxbtn" onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button class="boxbtn" onclick="cmd('box_lock')">🔒 Khóa hộp</button></div>
      <div class="mut" style="margin-top:6px;font-size:12px">Hết giờ, hộp tự khóa lại khi nắp đã đóng. Telegram: /mohop · /khoahop</div></div>
@@ -522,6 +534,41 @@ h3{margin:4px 0 10px}
     <p><button class="bigbtn pri" style="width:100%" onclick="saveRules()">💾 Lưu & áp dụng</button></p><p class="mut" id="rmsg"></p></div>
   </section>
 
+  <section data-view="reward">
+   <div class="cols"><div>
+    <div class="card"><h3>🏆 Ca học thành công</h3>
+     <div class="sum3"><div><b id="w-pts" style="color:#b45309">0</b>điểm hiện có</div><div><b id="w-streak">0</b>ngày liên tiếp</div><div><b id="w-30" style="color:#16a34a">0</b>ca đạt / 30 ngày</div></div>
+     <div id="w-line" class="mut"></div><div class="sdays" id="w-days"></div><div class="mut" style="font-size:12px">30 ngày gần nhất · ô càng đậm = càng nhiều ca thành công</div>
+     <p class="mut" id="w-crit" style="font-size:13px"></p></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">📋 Các ca học gần đây</h3>
+     <button style="padding:4px 10px;font-size:12px" onclick="sessCsv()">⬇️ Tải CSV</button></div><div id="w-list" class="mut">Chưa có ca học nào.</div></div>
+   </div><div>
+    <div class="card"><h3>🎁 Đổi phần thưởng</h3><p class="mut" style="font-size:13px">Con đủ điểm thì bấm “Đổi”: điểm bị trừ và ghi vào lịch sử để hai bên cùng theo dõi.</p><div id="w-rewards"></div><div id="w-redeemed" class="mut" style="margin-top:8px;font-size:13px"></div></div>
+    <div class="card"><h3>🏫 Kết nối LMS của trường · tuyên dương</h3>
+     <p class="mut" style="font-size:13px">Tạo 1 link <b>chỉ-đọc</b> gửi giáo viên chủ nhiệm: trang <b>Ghi nhận nỗ lực học tập</b> in được, file CSV cho Google Sheets / Excel / Moodle / K12Online và JSON cho phần mềm của trường. Link chỉ chứa họ tên, lớp, mã HS và số liệu ca học — không có ảnh camera, không có lịch sử web. Thu hồi bất cứ lúc nào.</p>
+     <div id="w-lms"></div></div>
+    <div class="card"><h3>⚙️ Tiêu chí ca học thành công</h3>
+     <div class="frm">
+      <label>Học tối thiểu (phút)<input id="s-min" type="number" min="5" max="240"></label>
+      <label>Vi phạm tối đa / ca<input id="s-viol" type="number" min="0" max="20"></label>
+      <label>Tập trung camera ≥ (%)<input id="s-focus" type="number" min="0" max="100"></label>
+      <label>Điểm mỗi ca đạt<input id="s-pts" type="number" min="1" max="1000"></label>
+      <label>Nhân điểm tối đa (khối)<input id="s-blocks" type="number" min="1" max="10"></label></div>
+     <p class="mut" style="font-size:12.5px">Vi phạm = mở game / web giải trí, nhờ AI làm game, quá giờ AI, cầm điện thoại. Tập trung chỉ xét khi máy có camera (0 = bỏ qua). Ca dài gấp đôi/ba thời gian tối thiểu được nhân điểm (tối đa theo “khối”). Thời gian xin đi vệ sinh không tính.</p>
+     <h3 style="margin-top:14px">👤 Thông tin cho giáo viên</h3>
+     <div class="frm">
+      <label>Họ tên học sinh<input id="s-name" maxlength="60"></label><label>Lớp<input id="s-class" maxlength="30"></label>
+      <label>Mã học sinh (LMS)<input id="s-code" maxlength="40"></label><label>Trường<input id="s-school" maxlength="80"></label></div>
+     <h3 style="margin-top:14px">🎁 Phần thưởng</h3>
+     <p class="mut" style="font-size:12.5px">Mỗi dòng: <b>tên phần thưởng | số điểm</b></p>
+     <textarea id="s-rewards" rows="4" style="width:100%"></textarea>
+     <details style="margin-top:8px"><summary class="mut">Nâng cao: webhook LMS</summary>
+      <p class="mut" style="font-size:12.5px">URL https (vd Google Apps Script Web App của trường) — mỗi ca thành công web gửi JSON {student_code, student_name, class_name, day, minutes, focus, points, streak}.</p>
+      <input id="s-hook" placeholder="https://script.google.com/macros/s/…/exec" style="width:100%"></details>
+     <button class="pri" style="margin-top:10px;background:var(--acc);color:#fff" onclick="saveStudy()">💾 Lưu</button></div>
+   </div></div>
+  </section>
+
   <section data-view="settings">
    <div class="card"><h3>♻️ Đặt lại dữ liệu máy đang chọn</h3><p class="mut">Làm lại từ đầu mà không cần ra máy học sinh. Máy áp dụng trong vài giây (phần trên máy cần bản 1.19.7).</p>
     <div class="reset-grid">
@@ -530,6 +577,7 @@ h3{margin:4px 0 10px}
      <button onclick="resetData('report_today')">🧹 Xóa báo cáo hôm nay</button>
      <button onclick="cmd('reset_ai')">♻️ Đặt lại giờ dùng AI</button>
      <button onclick="resetData('blocked_links')">🔗 Bỏ chặn tất cả link riêng</button>
+     <button onclick="resetData('study')">🏆 Xóa lịch sử ca học & điểm</button>
      <button class="danger" onclick="resetData('rules_all')">⛔ Xóa toàn bộ luật chặn</button></div></div>
    <div class="card"><h3>➕ Thêm máy học sinh</h3><p class="mut">Mã 6 số hiện trong app FocusDesk → tab “Kết nối phụ huynh”.</p>
     <div class="row"><input id="pcode" placeholder="Mã 6 số" inputmode="numeric" maxlength="6" style="width:120px">
@@ -551,7 +599,7 @@ h3{margin:4px 0 10px}
  </div>
 </div>
 <nav class="bnav"><a data-go="home"><i>🏠</i>Tổng quan</a><a data-go="camera"><i>📺</i>Camera</a>
- <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="settings"><i>⚙️</i>Cài đặt</a></nav>
+ <a data-go="report"><i>📊</i>Báo cáo</a><a data-go="rules"><i>🛡️</i>Luật chặn</a><a data-go="reward"><i>🏆</i>Thưởng</a><a data-go="settings"><i>⚙️</i>Cài đặt</a></nav>
 <div class="toast" id="toast"></div>
 <script>
 const CSRF=document.querySelector('meta[name=csrf-token]').content;
@@ -585,7 +633,7 @@ try{CUR=localStorage.getItem('sd_dev')}catch(e){}
 const cur=()=>DEV.find(d=>d.id===CUR)||DEV[0];
 function go(v){VIEW=v;document.querySelectorAll('[data-view]').forEach(s=>s.classList.toggle('show',s.dataset.view===v));
  document.querySelectorAll('[data-go]').forEach(a=>a.classList.toggle('act',a.dataset.go===v));
- if(v==='report')report();if(v==='rules')fillRules(true);if(v==='camera')showLive();window.scrollTo(0,0);}
+ if(v==='report')report();if(v==='rules')fillRules(true);if(v==='camera')showLive();if(v==='reward')loadStudy(true);window.scrollTo(0,0);}
 document.querySelectorAll('[data-go]').forEach(a=>a.onclick=()=>go(a.dataset.go));
 const fmtMin=s=>{s=Math.round((s||0)/60);return s>=60?Math.floor(s/60)+'g'+String(s%60).padStart(2,'0'):s+'′';};
 const CAT={Hoc_tap:['Học tập','#16a34a','📘'],Giai_tri:['Giải trí','#dc2626','🎮'],Khac:['Khác','#94a3b8','🗂️']};
@@ -608,7 +656,7 @@ function statusOf(v){const s=v.status||{},p=s.posture||{},n=v.now||{};
  if(n.category==='Idle') return ['off','💤 Không dùng máy',n.title||''];
  return ['ok','🟢 Đang dùng máy',n.title||(s.role==='student'?'Chế độ học sinh':'')];}
 function renderChips(){$('devchips').innerHTML=DEV.length>1?DEV.map(d=>`<span class="chip ${d.id===cur().id?'act':''}" onclick="pick('${d.id}')">${d.online?'🟢':'⚪'} ${esc(d.name)}</span>`).join(''):'';}
-function pick(id){CUR=id;try{localStorage.setItem('sd_dev',id)}catch(e){};renderAll();if(VIEW==='report')report();if(VIEW==='rules')fillRules(true);}
+function pick(id){CUR=id;try{localStorage.setItem('sd_dev',id)}catch(e){};renderAll();if(VIEW==='report')report();if(VIEW==='rules')fillRules(true);if(VIEW==='reward')loadStudy(true);}
 function renderAll(){const v=cur();renderChips();renderSettings();
  if(!v){$('h-name').textContent='Chưa có máy nào';$('h-st').textContent='➕ Ghép máy trong Cài đặt';$('hero').className='hero off';return;}
  const [cls,st,sub]=statusOf(v),s=v.status||{},p=s.posture||{},t=v.today||{};
@@ -622,7 +670,7 @@ function renderAll(){const v=cur();renderChips();renderSettings();
  $('h-legend').textContent=sum?`Hôm nay: ${fmtMin(t.Hoc_tap)} học · ${fmtMin(t.Giai_tri)} giải trí · ${fmtMin(t.Khac)} khác`:'Chưa có dữ liệu hôm nay';
  const n=v.now||{};NOW=n;$('nowbox').innerHTML=n.title?`<div class="app-row"><div class="ic">${appIcon(n.app||'',n.title)}</div><div class="nm"><div><b>${esc(n.domain||n.app||'')}</b>${n.domain?` <span class="mut">${esc(n.app||'')}</span>`:''}</div><div class="mut sub2">${esc(ct(n.title))}</div></div>
   ${CAT[n.category]?`<span class="tag" style="background:${CAT[n.category][1]}">${CAT[n.category][0]}</span>`:''}${blockBtns(n)}</div>`:(n.category==='Idle'?'<span class="mut">💤 Đang rời máy</span>':'—');
- renderOpen(n.open||[],p);renderEvents(v);renderBox(v);renderAI(v);
+ renderOpen(n.open||[],p);renderEvents(v);renderBox(v);renderAI(v);renderStudyHome(v);
  $('alerts').innerHTML=(v.alerts||[]).slice(0,6).map(a=>`<div class="alert-row"><time>${esc(a.time)}</time><div>${esc(a.message)}</div></div>`).join('')||'Không có cảnh báo. 👍';
  const acks=v.acks||[];if(acks.length){$('acks').style.display='block';$('acks').innerHTML='<h3>✅ Kết quả lệnh</h3>'+acks.slice(0,3).map(a=>`<div class="${a.ok?'':'err'}" style="font-size:14px;padding:3px 0">${a.ok?'✅':'⚠️'} ${esc(a.time)} ${esc(a.msg)}</div>`).join('');
   const k=acks[0].time+acks[0].msg;if(lastAck&&k!==lastAck)toast((acks[0].ok?'✅ ':'⚠️ ')+acks[0].msg);lastAck=k;}
@@ -749,9 +797,53 @@ function pageLink(p){const d=p.d||'mọi web',u=p.u||'';let href='';
  return href?`<a href="${esc(href)}" target="_blank" rel="noopener">${esc(d)} · ${esc(u.length>40?u.slice(0,40)+'…':u)}</a>`:esc(d)+(u?' · '+esc(u):' · theo tiêu đề');}
 function renderPages(v){const ps=((v.rules||{}).blocked_pages)||[];const el=$('pagebox');if(!el)return;
  el.innerHTML=ps.length?ps.slice(0,50).map((p,i)=>`<div class="app-row"><div class="ic">🔗</div><div class="nm"><div><b>${esc(ct(p.title||p.t||p.u||''))}</b></div><div class="mut">${pageLink(p)}${p.why?' · '+esc(p.why):''}</div></div><button style="padding:4px 10px;font-size:12px" onclick="unblockPage(${i})">Bỏ chặn</button></div>`).join(''):'<span class="mut">Chưa chặn link riêng nào. Bấm “Chặn link” ở mục Thay đổi gần đây.</span>';}
+// ---------- Ca học thành công · phần thưởng · LMS ----------
+let STUDY=null;const VIOL_VI={GAME:'game/giải trí',AI_GAME:'AI làm game',AI_OVERUSE:'quá giờ AI',PHONE:'điện thoại',POSTURE_PHONE:'cầm điện thoại'};
+const hm=ts=>new Date(ts*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+const dm=ts=>new Date(ts*1000).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'});
+function renderStudyHome(v){const st=v.study||{},l=st.last;$('hs-pts').textContent=st.points||0;$('hs-today').textContent=st.today_ok||0;
+ $('hs-streak').textContent=st.streak||0;
+ $('hs-last').innerHTML=l?`Ca gần nhất ${dm(l.start)} ${hm(l.start)}–${hm(l.end)} · ${l.minutes}′ · `+(l.success?`<b style="color:#16a34a">✅ đạt +${l.points} điểm</b>`:`<b style="color:#dc2626">chưa đạt</b>: ${esc((l.reasons||[]).join(', '))}`):'Chưa có ca học nào. Ca học = từ lúc con vào chế độ Học sinh tới lúc rời.';}
+async function loadStudy(fill){const v=cur();if(!v)return;const d=await api(`/api/parent/devices/${v.id}/study?days=30`);if(d.error){toast(d.error);return;}
+ STUDY=d;const st=d.stats||{},sm=d.summary||{},c=d.cfg||{};
+ $('w-pts').textContent=st.points||0;$('w-streak').textContent=st.streak||0;$('w-30').textContent=(sm.d30||[0,0])[1];
+ $('w-line').innerHTML=`Hôm nay <b>${(sm.today||[0,0])[1]}/${(sm.today||[0,0])[0]}</b> ca đạt · tuần này <b>${(sm.week||[0,0])[1]}/${(sm.week||[0,0])[0]}</b> · tổng <b>${st.total_success||0}</b> ca · chuỗi dài nhất ${st.best_streak||0} ngày`+(d.badge?` · <span class="pill on">${esc(d.badge)}</span>`:'');
+ let h='';for(let i=29;i>=0;i--){const day=vnDay(-i),b=(sm.by_day||{})[day]||[0,0,0];h+=`<span class="${b[1]>=3?'s3':b[1]==2?'s2':b[1]==1?'s1':''}" title="${day}: ${b[1]}/${b[0]} ca đạt · ${b[2]}′"></span>`;}
+ $('w-days').innerHTML=h;
+ $('w-crit').textContent=`Ca thành công: học ≥ ${c.min_minutes} phút · vi phạm ≤ ${c.max_violations}`+(c.min_focus?` · tập trung camera ≥ ${c.min_focus}%`:'')+` · ${c.points_per_session} điểm/ca (ca dài được nhân tối đa ×${c.max_blocks}).`;
+ const ss=d.sessions||[];$('w-list').innerHTML=ss.length?ss.slice(0,30).map(r=>{const nv=Object.values(r.violations||{}).reduce((a,b)=>a+b,0);
+  return `<div class="sess"><span>${r.success?'✅':'❌'}</span><span><b>${dm(r.start)}</b> ${hm(r.start)}–${hm(r.end)} · ${r.minutes}′${r.focus!=null?` · 🎯 ${r.focus}%`:''}${nv?` · ⚠️ ${nv}`:''}</span>
+   <span>${r.success?`<b style="color:#b45309">+${r.points}</b>`:''}</span>${r.success?'':`<span class="why">Chưa đạt: ${esc((r.reasons||[]).join(' · '))}</span>`}</div>`;}).join(''):'Chưa có ca học nào. Ca học được ghi khi con vào chế độ Học sinh rồi rời chế độ đó (về màn hình khóa, phụ huynh đăng nhập, tắt máy…).';
+ const pts=st.points||0;$('w-rewards').innerHTML=(c.rewards||[]).map((r,i)=>`<div class="rw"><span>🎁</span><span class="nm"><b>${esc(r.name)}</b><br><span class="mut">${r.points} điểm</span></span>
+  <button ${pts>=r.points?'class="pri" style="background:var(--acc);color:#fff"':'disabled'} onclick="redeem(${i})">${pts>=r.points?'Đổi':'Thiếu '+(r.points-pts)}</button></div>`).join('')||'<span class="mut">Chưa có phần thưởng — thêm ở thẻ Tiêu chí bên dưới.</span>';
+ $('w-redeemed').innerHTML=(st.redeemed||[]).length?'Đã đổi: '+st.redeemed.slice(0,5).map(x=>`${dm(x.ts)} ${esc(x.name)} (−${x.points})`).join(' · '):'';
+ renderLms(d.lms||{});
+ if(fill){$('s-min').value=c.min_minutes;$('s-viol').value=c.max_violations;$('s-focus').value=c.min_focus;$('s-pts').value=c.points_per_session;
+  $('s-blocks').value=c.max_blocks;$('s-name').value=c.student_name||'';$('s-class').value=c.class_name||'';$('s-code').value=c.student_code||'';
+  $('s-school').value=c.school||'';$('s-hook').value=c.webhook_url||'';$('s-rewards').value=(c.rewards||[]).map(r=>r.name+' | '+r.points).join(String.fromCharCode(10));}}
+function renderLms(l){const el=$('w-lms');if(!l.token){el.innerHTML='<button class="pri" style="background:var(--acc);color:#fff" onclick="lms(&quot;create&quot;)">🔗 Tạo link cho giáo viên</button>';return;}
+ const f=`=IMPORTDATA("${l.csv}?only=success")`;
+ el.innerHTML=`<div class="mut" style="font-size:12.5px">📄 Trang tuyên dương (in / lưu PDF):</div><a class="lmsurl" href="${esc(l.page)}" target="_blank">${esc(l.page)}</a>
+  <div class="mut" style="font-size:12.5px">📊 Google Sheets — dán vào 1 ô:</div><code class="lmsurl">${esc(f)}</code>
+  <div class="mut" style="font-size:12.5px">⬇️ CSV (Excel / Moodle / K12Online) · JSON (phần mềm của trường):</div><span class="lmsurl"><a href="${esc(l.csv)}" target="_blank">sessions.csv</a> · <a href="${esc(l.json)}" target="_blank">summary (JSON)</a></span>
+  <div class="row" style="gap:6px;flex-wrap:wrap"><button onclick="copyTxt('${esc(l.page)}')">📋 Chép link trang</button><button onclick="copyTxt(${esc(JSON.stringify(f))})">📋 Chép công thức Sheets</button>
+  <button onclick="lms('create')">🔄 Đổi link</button><button class="danger" onclick="lms('revoke')">Thu hồi</button></div>`;}
+async function copyTxt(t){try{await navigator.clipboard.writeText(t);toast('Đã chép');}catch(e){prompt('Chép thủ công:',t);}}
+async function lms(a){const v=cur();if(!v)return;if(a==='revoke'&&!confirm('Thu hồi link? Giáo viên sẽ không xem được nữa.'))return;
+ if(a==='create'&&STUDY&&(STUDY.lms||{}).token&&!confirm('Tạo link mới? Link cũ sẽ không dùng được nữa.'))return;
+ const r=await api(`/api/parent/devices/${v.id}/lms`,{action:a});toast(r.message||r.error);loadStudy(false);}
+async function redeem(i){const v=cur(),r0=((STUDY||{}).cfg||{}).rewards[i];if(!v||!r0||!confirm(`Đổi “${r0.name}” (−${r0.points} điểm)?`))return;
+ const r=await api(`/api/parent/devices/${v.id}/redeem`,{index:i});toast(r.message||r.error);loadStudy(false);load();}
+async function saveStudy(){const v=cur();if(!v)return;const num=id=>Number($(id).value);
+ const rewards=$('s-rewards').value.split(/\\r?\\n/).map(x=>x.split('|')).filter(x=>x[0].trim()).map(x=>({name:x[0].trim(),points:Number((x[1]||'').replace(/[^0-9]/g,''))||50}));
+ const r=await api(`/api/parent/devices/${v.id}/study_cfg`,{min_minutes:num('s-min'),max_violations:num('s-viol'),min_focus:num('s-focus'),
+  points_per_session:num('s-pts'),max_blocks:num('s-blocks'),student_name:$('s-name').value,class_name:$('s-class').value,student_code:$('s-code').value,
+  school:$('s-school').value,webhook_url:$('s-hook').value.trim(),rewards});toast(r.message||r.error);loadStudy(true);}
+function sessCsv(){const v=cur();if(v)location.href=`/api/parent/devices/${v.id}/sessions.csv?days=90`;}
 const RESET_ASK={events:'Xóa lịch sử Thay đổi gần đây?',alerts:'Xóa toàn bộ cảnh báo (trên web và trên máy)?',
  report_today:'Xóa báo cáo hoạt động hôm nay?',blocked_links:'Bỏ chặn TẤT CẢ link đã chặn riêng?',
- rules_all:'Xóa TOÀN BỘ luật chặn (trang web, link, ứng dụng, từ khóa, tự chặn theo loại)? Không hoàn tác được.'};
+ rules_all:'Xóa TOÀN BỘ luật chặn (trang web, link, ứng dụng, từ khóa, tự chặn theo loại)? Không hoàn tác được.',
+ study:'Xóa toàn bộ lịch sử ca học và đặt điểm thưởng về 0? (Giữ tiêu chí, phần thưởng, link LMS)'};
 async function resetData(w){const v=cur();if(!v||!confirm(RESET_ASK[w]))return;
  const r=await api(`/api/parent/devices/${v.id}/reset`,{what:w});toast(r.message||r.error);rulesTouched=false;load();}
 async function blockDom(d){const v=cur();if(!v||!confirm('Chặn TOÀN BỘ trang web '+d+' (mọi link của trang này)?'))return;const r=await api(`/api/parent/devices/${v.id}/block`,{domain:d});toast(r.message||r.error);load();}
@@ -790,7 +882,7 @@ let deferredPrompt=null;addEventListener('beforeinstallprompt',e=>{e.preventDefa
 async function installApp(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt=null;$('installBtn').style.display='none';}}
 $('themeBtn').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Nền sáng':'🌙 Nền tối';
 const qs=new URLSearchParams(location.search);go({camera:'camera',report:'report'}[qs.get('tab')]||'home');
-load();nstat();setInterval(()=>{if(!document.hidden)load();},4000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});setInterval(()=>{if(VIEW==='report'&&!document.hidden)report();},15000);
+load();nstat();setInterval(()=>{if(!document.hidden)load();},4000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});setInterval(()=>{if(VIEW==='report'&&!document.hidden)report();},15000);setInterval(()=>{if(VIEW==='reward'&&!document.hidden)loadStudy(false);},30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
 </script>"""
 
@@ -882,6 +974,15 @@ def dashboard():
 # =====================================================================
 # API phụ huynh
 # =====================================================================
+def _study_home(dev: Dict[str, Any]) -> Dict[str, Any]:
+    st = dev.get("study_stats") or {}
+    td = dev.get("study_today") or {}
+    return {"points": int(st.get("points", 0) or 0), "total": int(st.get("total_success", 0) or 0),
+            "streak": study.live_streak(st, vn_date(), vn_date(now() - 86400)),
+            "today_ok": int(td.get("ok", 0) or 0) if td.get("d") == vn_date() else 0,
+            "last": dev.get("study_last") or None}
+
+
 @app.route("/api/parent/devices")
 @login_required
 def api_parent_devices():
@@ -912,6 +1013,7 @@ def api_parent_devices():
             "now": live_category(dev),
             "rules": {k: v for k, v in (dev.get("rules") or {}).items() if k != "by"},
             "today": ((db.get(f"activity_sum/{did}/{vn_date()}/totals")) or {}),
+            "study": _study_home(dev),
         })
     chats = list((db.get(f"parents/{uid}/chats") or {}).keys())
     return jsonify({"devices": out, "chats": chats})
@@ -1085,6 +1187,7 @@ RESET_WHAT = {
     "report_today": "Đã xóa báo cáo hoạt động hôm nay",
     "blocked_links": "Đã bỏ chặn tất cả link riêng",
     "rules_all": "Đã xóa toàn bộ luật chặn (web, link, ứng dụng, từ khóa, tự chặn theo loại)",
+    "study": "Đã xóa lịch sử ca học và đặt điểm thưởng về 0 (giữ tiêu chí, phần thưởng, link LMS)",
 }
 
 
@@ -1105,6 +1208,9 @@ def api_parent_reset(did):
         db.delete(f"devices/{did}/recent_alerts")
         db.delete(f"devices/{did}/acks")
         queue_command(did, "reset_stats", by=uid)
+    elif what == "study":
+        db.delete(f"sessions/{did}")
+        db.delete(f"devices/{did}/study_stats")
     elif what == "report_today":
         db.delete(f"activity_sum/{did}/{vn_date()}")
         db.delete(f"activity/{did}/{vn_date()}")
@@ -1232,7 +1338,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.11"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.12"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1768,6 +1874,239 @@ def api_agent_pair_code():
     return jsonify({"pair_code": code, "pair_expires": exp})
 
 
+# ---------------- Ca học thành công · điểm thưởng · LMS (logic thuần nằm ở study.py) ----------------
+def study_cfg_of(dev: Dict[str, Any]) -> Dict[str, Any]:
+    return study.clean_cfg(dev.get("study_cfg") or {})
+
+
+def _handle_sessions(did: str, dev: Dict[str, Any], reps: List[Dict[str, Any]]) -> None:
+    """Máy gửi bản tổng kết ca học -> chấm thành công, lưu, cộng điểm, báo phụ huynh, gửi webhook LMS (nếu có)."""
+    cfg = study_cfg_of(dev)
+    stats = dict(dev.get("study_stats") or {})
+    changed = False
+    for rep in sorted(reps, key=lambda r: int(r.get("start") or 0)):
+        try:
+            minutes = round(float(rep.get("minutes") or 0), 1)
+        except (TypeError, ValueError):
+            continue
+        if minutes < study.MIN_RECORD_MIN or not rep.get("start"):
+            continue
+        key = study.session_key(rep)
+        if db.get(f"sessions/{did}/{key}", shallow=True):
+            continue                                     # đã nhận (máy gửi lại sau khi mất mạng)
+        ok, reasons, pts = study.evaluate(rep, cfg)
+        viol = {fb_key(str(k))[:20]: int(v) for k, v in (rep.get("violations") or {}).items()
+                if isinstance(v, (int, float))}
+        focus = rep.get("focus") if isinstance(rep.get("focus"), (int, float)) else None
+        rec = {"start": int(rep["start"]), "end": int(rep.get("end") or rep["start"]), "minutes": minutes,
+               "break_min": round(float(rep.get("break_min") or 0), 1), "violations": viol, "focus": focus,
+               "ai_min": round(float(rep.get("ai_min") or 0), 1), "end_reason": str(rep.get("end_reason", ""))[:80],
+               "success": ok, "points": pts, "reasons": reasons,
+               "criteria": {k: cfg[k] for k in ("min_minutes", "max_violations", "min_focus")}}
+        last = {k: rec.get(k) for k in ("start", "end", "minutes", "success", "points", "reasons", "focus")}
+        db.set(f"sessions/{did}/{key}", dict(rec))       # bản sao: kho cục bộ/Firebase bỏ trường None
+        d_end = vn_date(rec["end"])
+        td = dev.get("study_today") or {}
+        td = {"d": d_end, "n": (int(td.get("n", 0) or 0) if td.get("d") == d_end else 0) + 1,
+              "ok": (int(td.get("ok", 0) or 0) if td.get("d") == d_end else 0) + (1 if ok else 0)}
+        dev["study_today"] = td
+        db.update(f"devices/{did}", {"study_last": last, "study_today": td})
+        if not ok:
+            continue
+        day = vn_date(rec["end"])
+        stats = study.update_stats(stats, day, vn_date(rec["end"] - 86400), pts, minutes)
+        changed = True
+        name = dev.get("name") or did
+        msg = (f"🏆 {cfg['student_name'] or name} hoàn thành ca học {minutes:g} phút"
+               + (f", tập trung {focus:g}%" if focus is not None else "") + f" · +{pts} điểm"
+               + f" (đang có {stats['points']} điểm, chuỗi {stats.get('streak', 1)} ngày)")
+        for chat in chats_of_device(did):
+            tg_send(chat, html.escape(msg))
+        web_push_owners(list((dev.get("owners") or {}).keys()), f"🏆 {name}", msg[:180], tag=f"{did}-study")
+        if cfg.get("webhook_url"):
+            try:   # LMS / Google Apps Script của trường nhận từng ca thành công
+                requests.post(cfg["webhook_url"], timeout=3, json={
+                    "event": "study_session_success", "student_code": cfg["student_code"],
+                    "student_name": cfg["student_name"], "class_name": cfg["class_name"], "day": day,
+                    "minutes": minutes, "focus": focus, "points": pts, "total_success": stats["total_success"],
+                    "streak": stats.get("streak", 1)})
+            except Exception:
+                pass
+    if changed:
+        db.set(f"devices/{did}/study_stats", stats)
+
+
+def _study_records(did: str, days: int) -> Dict[str, Any]:
+    since = now() - max(1, min(366, days)) * 86400
+    return db.get_after(f"sessions/{did}", f"{since:010d}", limit=600)
+
+
+def _study_payload(did: str, dev: Dict[str, Any], days: int = 30) -> Dict[str, Any]:
+    cfg = study_cfg_of(dev)
+    stats = dict(dev.get("study_stats") or {})
+    today, yday = vn_date(), vn_date(now() - 86400)
+    recs = _study_records(did, max(days, 30))
+    wd = int(time.strftime("%w", time.gmtime(now() + TZ_OFFSET_S)))           # 0 = Chủ nhật
+    week_start = vn_date(now() - ((wd - 1) % 7) * 86400)                      # thứ Hai tuần này
+    summ = study.summarize(recs, lambda ts: vn_date(ts), today, week_start, vn_date(now() - 29 * 86400))
+    stats["streak"] = study.live_streak(stats, today, yday)
+    stats.setdefault("points", 0)
+    stats.setdefault("total_success", 0)
+    sessions = [dict(r, key=k) for k, r in sorted(recs.items(), reverse=True) if isinstance(r, dict)][:80]
+    return {"cfg": cfg, "stats": stats, "summary": summ, "sessions": sessions,
+            "badge": study.badge(summ["d30"][1])}
+
+
+def _lms_urls(token: str) -> Dict[str, str]:
+    base = request.host_url.rstrip("/")
+    return {"json": f"{base}/api/lms/{token}/summary", "csv": f"{base}/api/lms/{token}/sessions.csv",
+            "page": f"{base}/lms/{token}"}
+
+
+@app.route("/api/parent/devices/<did>/study")
+@login_required
+def api_parent_study(did):
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    dev = db.get(f"devices/{did}") or {}
+    out = _study_payload(did, dev, _int_arg("days", 30))
+    tok = str(dev.get("lms_token") or "")
+    out["lms"] = {"token": tok, **(_lms_urls(tok) if tok else {})}
+    return jsonify(out)
+
+
+def _int_arg(name: str, default: int) -> int:
+    try:
+        return int(request.args.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+@app.route("/api/parent/devices/<did>/study_cfg", methods=["POST"])
+@login_required
+def api_parent_study_cfg(did):
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    cfg = study.clean_cfg(request.get_json(silent=True) or {})
+    db.set(f"devices/{did}/study_cfg", cfg)
+    return jsonify({"ok": True, "cfg": cfg, "message": "Đã lưu. Áp dụng cho các ca học từ giờ trở đi."})
+
+
+@app.route("/api/parent/devices/<did>/redeem", methods=["POST"])
+@login_required
+def api_parent_redeem(did):
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    body = request.get_json(silent=True) or {}
+    dev_cfg = study.clean_cfg(db.get(f"devices/{did}/study_cfg") or {})
+    stats = db.get(f"devices/{did}/study_stats") or {}
+    try:
+        idx = int(body.get("index", -1))
+    except (TypeError, ValueError):
+        idx = -1
+    new, msg = study.redeem(stats, dev_cfg, idx, now())
+    if new is None:
+        return jsonify({"error": msg}), 400
+    db.set(f"devices/{did}/study_stats", new)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/api/parent/devices/<did>/sessions.csv")
+@login_required
+def api_parent_sessions_csv(did):
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    cfg = study.clean_cfg(db.get(f"devices/{did}/study_cfg") or {})
+    body = study.to_csv(_study_records(did, _int_arg("days", 30)), cfg, TZ_OFFSET_S)
+    return Response(body, mimetype="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename=ca_hoc_{vn_date()}.csv"})
+
+
+@app.route("/api/parent/devices/<did>/lms", methods=["POST"])
+@login_required
+def api_parent_lms(did):
+    """Tạo / thu hồi link công khai cho giáo viên (chỉ đọc: điểm, số ca thành công, CSV, bảng tuyên dương)."""
+    uid, did = current_uid(), fb_key(did)
+    if not parent_owns(uid, did):
+        return jsonify({"error": "Không có quyền với máy này."}), 403
+    action = str((request.get_json(silent=True) or {}).get("action", "create"))
+    old = str(db.get(f"devices/{did}/lms_token") or "")
+    if old:
+        db.delete(f"lms_tokens/{old}")
+        db.delete(f"devices/{did}/lms_token")
+    if action == "revoke":
+        return jsonify({"ok": True, "message": "Đã thu hồi link. Link cũ không còn xem được."})
+    tok = secrets.token_hex(16)
+    db.set(f"lms_tokens/{tok}", {"did": did, "uid": uid, "created": now()})
+    db.set(f"devices/{did}/lms_token", tok)
+    return jsonify({"ok": True, "token": tok, **_lms_urls(tok),
+                    "message": "Đã tạo link mới" + (" (link cũ đã bị thu hồi)." if old else ".")})
+
+
+def _lms_device(token: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    if not re.fullmatch(r"[0-9a-f]{32}", token or ""):
+        return None, None
+    t = db.get(f"lms_tokens/{token}") or {}
+    did = str(t.get("did") or "")
+    if not did:
+        return None, None
+    return did, db.get(f"devices/{did}") or {}
+
+
+def _lms_public(did: str, dev: Dict[str, Any]) -> Dict[str, Any]:
+    p = _study_payload(did, dev, 30)
+    cfg, st, sm = p["cfg"], p["stats"], p["summary"]
+    return {"student_code": cfg["student_code"], "student_name": cfg["student_name"] or (dev.get("name") or ""),
+            "class_name": cfg["class_name"], "school": cfg["school"], "generated_at": now(), "day": vn_date(),
+            "criteria": {k: cfg[k] for k in ("min_minutes", "max_violations", "min_focus")},
+            "points": int(st.get("points", 0) or 0), "earned_total": int(st.get("earned_total", 0) or 0),
+            "total_success": int(st.get("total_success", 0) or 0), "streak": st["streak"],
+            "best_streak": int(st.get("best_streak", 0) or 0),
+            "success_today": sm["today"][1], "success_week": sm["week"][1], "success_30d": sm["d30"][1],
+            "sessions_30d": sm["d30"][0], "minutes_30d": sm["minutes_30d"], "focus_30d": sm["focus_30d"],
+            "badge": p["badge"], "by_day": sm["by_day"],
+            "days30": [[d, *(sm["by_day"].get(d) or [0, 0, 0])[:2]] for d in (vn_date(now() - i * 86400)
+                                                                             for i in range(29, -1, -1))],
+            "day_vi": time.strftime("%d/%m/%Y", time.gmtime(now() + TZ_OFFSET_S))}
+
+
+def _cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"      # LMS / Google Sheets đọc từ trang khác
+    resp.headers["Cache-Control"] = "public, max-age=120"
+    return resp
+
+
+@app.route("/api/lms/<token>/summary")
+def api_lms_summary(token):
+    did, dev = _lms_device(token)
+    if not did:
+        return jsonify({"error": "Link không hợp lệ hoặc đã bị thu hồi."}), 404
+    return _cors(jsonify(_lms_public(did, dev)))
+
+
+@app.route("/api/lms/<token>/sessions.csv")
+def api_lms_csv(token):
+    did, dev = _lms_device(token)
+    if not did:
+        return Response("Link khong hop le hoac da bi thu hoi", status=404, mimetype="text/plain")
+    recs = _study_records(did, _int_arg("days", 30))
+    if request.args.get("only") == "success":
+        recs = {k: r for k, r in recs.items() if isinstance(r, dict) and r.get("success")}
+    return _cors(Response(study.to_csv(recs, study_cfg_of(dev), TZ_OFFSET_S), mimetype="text/csv; charset=utf-8"))
+
+
+@app.route("/lms/<token>")
+def lms_page(token):
+    did, dev = _lms_device(token)
+    if not did:
+        return Response("<h3>Link không hợp lệ hoặc đã bị phụ huynh thu hồi.</h3>", status=404, mimetype="text/html")
+    return render_template_string(LMS_HTML, d=_lms_public(did, dev))
+
+
 @app.route("/api/agent/heartbeat", methods=["POST"])
 def api_agent_heartbeat():
     did, dev = device_auth(light=True)
@@ -1776,12 +2115,19 @@ def api_agent_heartbeat():
     data = request.get_json(silent=True) or {}
     # Heartbeat "nhẹ" (đa số): chỉ đọc vài trường nhỏ. Chỉ khi có cảnh báo / sự kiện / xác nhận lệnh / tắt máy mới đọc
     # cả hồ sơ máy — giữ băng thông Firebase Spark (10 GB tải xuống/tháng) đủ cho heartbeat dày hơn.
-    heavy = bool(data.get("shutdown") or data.get("alerts") or data.get("events") or data.get("acks"))
+    heavy = bool(data.get("shutdown") or data.get("alerts") or data.get("events") or data.get("acks")
+                 or data.get("sessions"))
     if heavy:
         dev = db.get(f"devices/{did}") or dev
     else:
         dev["watch_until"] = db.get(f"devices/{did}/watch_until") or 0
         dev["owners"] = db.get(f"devices/{did}/owners", shallow=True) or {}
+    reps = [r for r in (data.get("sessions") or []) if isinstance(r, dict)][:30]
+    if reps:
+        try:
+            _handle_sessions(did, dev, reps)
+        except Exception as exc:
+            app.logger.warning("Lỗi xử lý ca học: %s", exc)
     if data.get("shutdown"):
         # FocusDesk trên máy học sinh đang thoát: giữ trạng thái cũ, đánh dấu đã tắt + báo phụ huynh ngay
         reason = str(data.get("reason", ""))[:120]
@@ -2092,6 +2438,59 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const url=(
   e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{for(const c of cs){if(c.url.includes('/dashboard'))return c.focus();}
    return clients.openWindow(url);}));});
 """
+
+LMS_HTML = """<!doctype html><html lang="vi"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Ghi nhận học tập · {{ d.student_name }}</title>
+<style>
+:root{--ink:#0f172a;--mut:#64748b;--line:#e2e8f0;--acc:#b45309;--ok:#16a34a;--bg:#f8fafc;--card:#fff}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+.wrap{max-width:820px;margin:0 auto;padding:16px}
+.cert{background:var(--card);border:3px double #d6a54a;border-radius:14px;padding:28px 22px;text-align:center}
+.cert h1{margin:4px 0 2px;font-size:26px;letter-spacing:.5px;color:var(--acc)}.cert .sch{color:var(--mut);font-size:14px}
+.name{font-size:30px;font-weight:800;margin:18px 0 4px}.cls{color:var(--mut)}
+.big{font-size:56px;font-weight:800;color:var(--ok);line-height:1;margin:18px 0 4px}
+.badge{display:inline-block;margin-top:10px;padding:6px 14px;border-radius:999px;background:#fef3c7;font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:20px 0 6px}
+.grid div{border:1px solid var(--line);border-radius:10px;padding:10px}.grid b{display:block;font-size:22px}
+.days{display:flex;gap:3px;justify-content:center;margin:16px 0 4px;flex-wrap:wrap}
+.days span{width:16px;height:16px;border-radius:4px;background:#e2e8f0}.days span.s1{background:#86efac}.days span.s2{background:#22c55e}.days span.s3{background:#15803d}
+.mut{color:var(--mut);font-size:13px}.tech{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:14px}
+code{background:#f1f5f9;padding:2px 6px;border-radius:6px;word-break:break-all}
+button{font:inherit;padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer}
+@media print{.noprint{display:none}body{background:#fff}.cert{border-width:4px}}
+</style>
+<div class="wrap">
+ <div class="cert">
+  <div class="sch">{{ d.school or "FocusDesk · Bàn học thông minh" }}</div>
+  <h1>GHI NHẬN NỖ LỰC HỌC TẬP</h1>
+  <div class="mut">30 ngày gần nhất · tính đến {{ d.day_vi }}</div>
+  <div class="name">{{ d.student_name or "Học sinh" }}</div>
+  <div class="cls">{% if d.class_name %}Lớp {{ d.class_name }}{% endif %}{% if d.student_code %} · Mã HS {{ d.student_code }}{% endif %}</div>
+  <div class="big">{{ d.success_30d }}</div><div>ca học thành công</div>
+  {% if d.badge %}<div class="badge">{{ d.badge }}</div>{% endif %}
+  <div class="grid">
+   <div><b>{{ d.streak }}</b>ngày liên tiếp</div><div><b>{{ d.best_streak }}</b>chuỗi dài nhất</div>
+   <div><b>{{ (d.minutes_30d / 60) | round(1) }}</b>giờ học / 30 ngày</div>
+   <div><b>{{ d.focus_30d if d.focus_30d is not none else "—" }}{% if d.focus_30d is not none %}%{% endif %}</b>tập trung TB (camera)</div>
+   <div><b>{{ d.total_success }}</b>tổng ca thành công</div><div><b>{{ d.earned_total }}</b>điểm đã đạt</div>
+  </div>
+  <div class="days" title="Mỗi ô = 1 ngày, màu đậm = nhiều ca thành công">
+   {% for day, n, ok in d.days30 %}<span class="{{ 's3' if ok >= 3 else ('s2' if ok == 2 else ('s1' if ok == 1 else '')) }}" title="{{ day }}: {{ ok }}/{{ n }} ca thành công"></span>{% endfor %}
+  </div>
+  <div class="mut" style="font-size:12px">30 ngày gần nhất · ô càng đậm = càng nhiều ca thành công</div>
+  <p class="mut">Ca học thành công = học liên tục ≥ {{ d.criteria.min_minutes }} phút, ≤ {{ d.criteria.max_violations }} lần vi phạm
+   (mở game / web giải trí, nhờ AI làm game, dùng điện thoại…){% if d.criteria.min_focus %}, mức tập trung camera ≥ {{ d.criteria.min_focus }}%{% endif %}.
+   Số liệu ghi tự động bởi phần mềm FocusDesk trên máy học sinh.</p>
+ </div>
+ <div class="tech noprint">
+  <b>Dành cho giáo viên / hệ thống LMS</b>
+  <p>Google Sheets: dán vào 1 ô <code>=IMPORTDATA("{{ request.url_root }}api/lms/{{ request.view_args.token }}/sessions.csv?only=success")</code></p>
+  <p>CSV (Excel, Moodle, K12Online…): <a href="/api/lms/{{ request.view_args.token }}/sessions.csv?days=30">tải CSV 30 ngày</a> ·
+   JSON (tích hợp phần mềm): <a href="/api/lms/{{ request.view_args.token }}/summary">/summary</a></p>
+  <button onclick="print()">🖨️ In / lưu PDF</button>
+ </div>
+</div></html>"""
+
 
 OFFLINE_HTML = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Mất kết nối</title><body style="font-family:system-ui;background:#f4f6fb;color:#0f172a;display:grid;place-items:center;min-height:90vh;margin:0">

@@ -80,6 +80,12 @@ class _FirebaseStore:
         """shallow=True: chỉ lấy tên khóa con ({khóa: true}) — rất nhẹ, dùng để biết 'có hay không'."""
         return self._req("GET", path, params={"shallow": "true"} if shallow else None)
 
+    def get_after(self, path: str, start_key: str, limit: int = 300) -> Dict[str, Any]:
+        """Các con có khóa >= start_key (khóa sắp xếp được, vd '1730000000-abc'), tối đa `limit` con cuối."""
+        out = self._req("GET", path, params={"orderBy": '"$key"', "startAt": json.dumps(start_key),
+                                             "limitToLast": str(int(limit))})
+        return out if isinstance(out, dict) else {}
+
     # print=silent: Firebase không gửi lại dữ liệu vừa ghi (mặc định có gửi lại -> tốn hạn mức TẢI XUỐNG 10 GB/tháng)
     def set(self, path: str, value: Any) -> None:
         self._req("PUT", path, value, params={"print": "silent"})
@@ -128,6 +134,13 @@ class _LocalStore:
             if shallow and isinstance(node, dict):
                 return {k: True for k in node}
             return node
+
+    def get_after(self, path: str, start_key: str, limit: int = 300) -> Dict[str, Any]:
+        node = self.get(path)
+        if not isinstance(node, dict):
+            return {}
+        keys = sorted(k for k in node if k >= start_key)[-int(limit):]
+        return {k: node[k] for k in keys}
 
     def _write(self, path: str, fn) -> Any:
         with self._lock:

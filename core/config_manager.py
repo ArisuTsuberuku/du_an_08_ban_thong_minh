@@ -91,6 +91,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "parent": "phuhuynh123",
         "student": "hocsinh123",
     },
+    # Học sinh vào học không cần mật khẩu (chế độ học sinh là chế độ bị giới hạn nhất); Admin bật lại được
+    "student_needs_password": False,
     "kiosk_hide_explorer": False,
     # Khi khóa máy vẫn cho dùng công cụ có sẵn của Windows: chụp màn hình, clipboard, emoji, đổi bàn phím
     "kiosk_allow_win_tools": True,

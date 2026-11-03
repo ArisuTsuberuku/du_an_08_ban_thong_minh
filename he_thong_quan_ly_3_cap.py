@@ -183,6 +183,7 @@ class PhanMemQuanLyBanHocEXE:
         if getattr(self, "_dang_thoat", False):
             return
         self._dang_thoat = True
+        self._ket_thuc_ca_hoc("Thoát phần mềm")
         self._huy_bo_dem_ui()
         self._dong_dock()
         self._tat_kiosk()
@@ -336,7 +337,19 @@ class PhanMemQuanLyBanHocEXE:
             except Exception:
                 pass
 
+    def _ket_thuc_ca_hoc(self, ly_do: str) -> None:
+        """Rời chế độ học sinh -> chốt ca học (gửi web phụ huynh để chấm ca thành công / cộng điểm thưởng)."""
+        if getattr(self, "_current_mode", "") != "student":
+            return
+        try:
+            from services import study_sessions
+
+            study_sessions.end_session(ly_do)
+        except Exception as exc:
+            safe_log(f"[CA HỌC] Không chốt được ca: {exc}")
+
     def hien_man_hinh_dang_nhap(self) -> None:
+        self._ket_thuc_ca_hoc("Về màn hình khóa")
         self._current_mode = "locked"
         self._dong_serial_monitor()
         self._hop_dt(False)
@@ -397,12 +410,18 @@ class PhanMemQuanLyBanHocEXE:
         roles.pack(fill="x")
         role_desc = {"student": "Vào góc học tập", "parent": "Cài đặt & báo cáo", "admin": "Quản trị hệ thống"}
 
+        hs_khong_mk = not cfg.get("student_needs_password", False)
+
         def chon_role() -> None:
             r = self.role_var.get()
             self.user_var.set(cfg["usernames"].get(r, r))
             self.pwd_entry.delete(0, "end")
-            self.pwd_entry.focus_set()
-            lbl_role_desc.config(text=role_desc.get(r, ""))
+            # Học sinh không cần mật khẩu (chế độ học sinh là chế độ bị giới hạn nhất) -> chỉ cần bấm "Vào học"
+            no_pwd = r == "student" and hs_khong_mk
+            self.pwd_entry.config(state="disabled" if no_pwd else "normal")
+            btn_login.config(text="Vào học  →" if no_pwd else "Đăng nhập  →")
+            lbl_role_desc.config(text=role_desc.get(r, "") + (" · không cần mật khẩu" if no_pwd else ""))
+            (btn_login if no_pwd else self.pwd_entry).focus_set()
 
         for val, txt in (("student", "👨‍🎓\nHọc sinh"), ("parent", "👪\nPhụ huynh"), ("admin", "🛠️\nAdmin")):
             tk.Radiobutton(roles, text=txt, value=val, variable=self.role_var, command=chon_role, indicatoron=0,
@@ -436,16 +455,19 @@ class PhanMemQuanLyBanHocEXE:
         tk.Button(w2, text="👁", command=toggle_pwd, bg=UI["card"], fg=UI["mut"], relief="flat", bd=0,
                   highlightthickness=0, cursor="hand2", font=("Segoe UI Emoji", 11)).pack(side="right", padx=6)
 
-        tk.Button(form, text="Đăng nhập  →", command=self.xu_ly_dang_nhap, bg=UI["acc"], fg="white",
-                  activebackground="#1d4ed8", activeforeground="white", font=("Segoe UI", 12, "bold"),
-                  relief="flat", bd=0, pady=10, cursor="hand2").pack(fill="x", pady=(20, 10))
+        btn_login = tk.Button(form, text="Đăng nhập  →", command=self.xu_ly_dang_nhap, bg=UI["acc"], fg="white",
+                              activebackground="#1d4ed8", activeforeground="white", font=("Segoe UI", 12, "bold"),
+                              relief="flat", bd=0, pady=10, cursor="hand2")
+        btn_login.pack(fill="x", pady=(20, 10))
+        btn_login.bind("<Return>", lambda _e: self.xu_ly_dang_nhap())
 
-        defaults = {"student": "hocsinh123", "parent": "phuhuynh123", "admin": "admin123"}
+        # Chỉ nhắc đổi mật khẩu PHỤ HUYNH / ADMIN (không in mật khẩu ra màn hình học sinh nhìn thấy)
+        defaults = {"parent": "phuhuynh123", "admin": "admin123"}
         if any(cfg.get("passwords", {}).get(k) == v for k, v in defaults.items()):
-            tk.Label(form, bg=UI["card"], fg=UI["mut"], font=("Segoe UI", 9), justify="left", wraplength=470, text=(
-                "Tài khoản thử: hocsinh / hocsinh123 · phuhuynh / phuhuynh123 · admin / admin123\n"
-                "⚠️ Hãy đổi mật khẩu trong mục Admin → Mật khẩu trước khi giao máy cho học sinh.")).pack(anchor="w")
-        self.pwd_entry.focus_set()
+            tk.Label(form, bg=UI["card"], fg=UI["warn"], font=("Segoe UI", 9), justify="left", wraplength=470, text=(
+                "⚠️ Mật khẩu Phụ huynh / Admin vẫn là mặc định — hãy đổi trong Admin → Mật khẩu trước khi giao máy."
+            )).pack(anchor="w")
+        chon_role()
         self._cap_nhat_dong_ho_khoa()
 
     def _cap_nhat_dong_ho_khoa(self) -> None:
@@ -510,7 +532,8 @@ class PhanMemQuanLyBanHocEXE:
             self.role_var.set(role)
 
         expected_pwd = cfg.get("passwords", {}).get(role, "")
-        if pwd == expected_pwd:
+        no_pwd_student = role == "student" and not cfg.get("student_needs_password", False)
+        if no_pwd_student or pwd == expected_pwd:
             self.so_lan_sai_mat_khau = 0
             if role == "student":
                 if load_config().get("phone_box_enabled") and load_config().get("phone_box_required"):
@@ -542,6 +565,16 @@ class PhanMemQuanLyBanHocEXE:
     # CẤP 3: CHẾ ĐỘ HỌC SINH (CUSTOM STUDENT SHELL + STUDENT TASK MANAGER)
     # =====================================================================
     def vao_che_do_hoc_sinh(self) -> None:
+        try:
+            from services import study_sessions
+
+            _st = load_runtime_state()
+            _box = _st.get("phone_box") or {}
+            study_sessions.start_session(ai_seconds=float(_st.get("ai_seconds", 0) or 0),
+                                         phone_in_box=bool(_box.get("phone")) if load_config().get("phone_box_enabled")
+                                         else None)
+        except Exception as exc:
+            safe_log(f"[CA HỌC] Không mở được ca: {exc}")
         self._current_mode = "student"
         self._dong_serial_monitor()
         self._hop_dt(True)
@@ -1499,6 +1532,7 @@ class PhanMemQuanLyBanHocEXE:
     # CẤP 2: CHẾ ĐỘ PHỤ HUYNH
     # =====================================================================
     def vao_che_do_phu_huynh(self, start: str = "") -> None:
+        self._ket_thuc_ca_hoc("Phụ huynh đăng nhập")
         self._current_mode = "parent"
         self._hop_dt(False)
         self.bo_giam_sat.dung_lai()
@@ -1993,6 +2027,7 @@ class PhanMemQuanLyBanHocEXE:
     # CẤP 1: CHẾ ĐỘ ADMIN
     # =====================================================================
     def vao_che_do_admin(self, start: str = "") -> None:
+        self._ket_thuc_ca_hoc("Admin đăng nhập")
         self._current_mode = "admin"
         self._hop_dt(False)
         self.bo_giam_sat.dung_lai()
@@ -2506,15 +2541,19 @@ class PhanMemQuanLyBanHocEXE:
         c = self._card(page, "🔑  Mật khẩu")
         ents = {}
         for role, label in (("admin", "Admin"), ("parent", "Phụ huynh"), ("student", "Học sinh")):
-            self._label(c, f"Mật khẩu {label}")
+            self._label(c, f"Mật khẩu {label}" + (" (chỉ dùng khi bật ô bên dưới)" if role == "student" else ""))
             ents[role] = self._entry(c, cfg["passwords"].get(role, ""), show="•")
+        v_hs = self._check(c, "Học sinh cần mật khẩu để vào học (mặc định TẮT: học sinh chỉ bấm “Vào học”, "
+                              "vì chế độ học sinh là chế độ bị khóa chặt nhất)", cfg.get("student_needs_password", False))
         v_show = tk.BooleanVar(value=False)
         tk.Checkbutton(c, text="Hiện mật khẩu", variable=v_show, bg=UI["card"], selectcolor=UI["card"],
                        command=lambda: [e.config(show="" if v_show.get() else "•") for e in ents.values()]).pack(anchor="w")
 
         def luu() -> None:
             vals = {k: e.get().strip() for k, e in ents.items()}
-            if any(len(v) < 4 for v in vals.values()):
+            cfg["student_needs_password"] = bool(v_hs.get())
+            need = [k for k in vals if k != "student" or cfg["student_needs_password"]]
+            if any(len(vals[k]) < 4 for k in need):
                 messagebox.showwarning("Mật khẩu quá ngắn", "Mỗi mật khẩu cần tối thiểu 4 ký tự.", parent=self.root)
                 return
             cfg["passwords"].update(vals)
@@ -2627,6 +2666,9 @@ def main() -> None:
         from services.app_shutdown import kill_orphan_helpers
 
         threading.Thread(target=kill_orphan_helpers, name="OrphanCleanup", daemon=True).start()
+        from services.study_sessions import close_stale
+
+        close_stale(force=True)   # ca còn mở từ lần chạy trước (mất điện / tắt ngang) -> chốt và gửi web
 
     except Exception as exc:
         safe_log(f"[THOÁT] Không dọn được tiến trình mồ côi: {exc}")

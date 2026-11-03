@@ -727,6 +727,21 @@ class BoGiamSatThongMinh:
                 except Exception as exc:
                     safe_log(f"[WARN] Lỗi quét cửa sổ Web: {exc}")
 
+                # --- CA HỌC: mỗi 5 giây ghi mốc sống, mức tập trung camera, thời gian nghỉ vệ sinh ---
+                if time.monotonic() - getattr(self, "_last_sess_tick", 0.0) >= 5:
+                    dt_s = min(30.0, time.monotonic() - getattr(self, "_last_sess_tick", time.monotonic()))
+                    self._last_sess_tick = time.monotonic()
+                    try:
+                        from services import study_sessions
+
+                        pt = state.get("posture_telemetry") or {}
+                        cfi = pt.get("cfi_score") if pt.get("camera_connected") else None
+                        brk = bool((state.get("toilet_break") or {}).get("active"))
+                        study_sessions.tick(cfi=float(cfi) if isinstance(cfi, (int, float)) else None,
+                                            ai_seconds=self.ai_seconds, on_break=brk, dt=dt_s)
+                    except Exception:
+                        pass
+
                 # --- AI ĐANG CHẠY (app AI mở trên máy, kể cả không ở trên cùng) — 15 giây/lần, chỉ để báo cáo ---
                 if time.monotonic() - self._last_ai_scan >= 15:
                     self._last_ai_scan = time.monotonic()
