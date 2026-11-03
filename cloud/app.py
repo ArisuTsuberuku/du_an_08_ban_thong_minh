@@ -78,6 +78,7 @@ COMMAND_TYPES = {
     "box_unlock_min": "🔓 Mở hộp điện thoại theo số phút",
     "box_lock": "🔒 Khóa hộp điện thoại",
     "water_plant": "🌱 Tưới cây (mô-đun ESP32)",
+    "box_reset_key": "🔑 Reset khóa điện thoại của tủ ESP32",
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 # Web Push (thông báo trên điện thoại kể cả khi đã đóng web): tạo khóa bằng cloud/tao_khoa_vapid.py
@@ -467,9 +468,11 @@ h3{margin:4px 0 10px}
     <div class="card" style="cursor:pointer" onclick="go('reward')"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🌱 Ca học & tưới cây thưởng</h3><span class="mut" style="font-size:13px">Xem ›</span></div>
      <div class="sum3"><div><b id="hs-pts">0</b>điểm</div><div><b id="hs-today">0</b>ca đạt hôm nay</div><div><b id="hs-water">0</b>lần tưới cây</div></div>
      <div class="mut" id="hs-last" style="font-size:13px">Chưa có ca học nào.</div></div>
-    <div class="card" id="boxcard"><h3>📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
-     <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="boxbtn" onclick="boxMin(15)">🔓 Mở 15′</button><button class="boxbtn" onclick="boxMin(30)">🔓 Mở 30′</button><button class="boxbtn" onclick="boxMin(60)">🔓 Mở 60′</button><button class="boxbtn" onclick="boxMinAsk()">🔓 Mở … phút</button><button class="boxbtn" onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button class="boxbtn" onclick="cmd('box_lock')">🔒 Khóa hộp</button></div>
-     <div class="mut" style="margin-top:6px;font-size:12px">Hết giờ, hộp tự khóa lại khi nắp đã đóng. Telegram: /mohop · /khoahop</div></div>
+    <div class="card" id="boxcard"><h3 id="boxtitle">📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
+     <div id="box2" class="row" style="display:none;margin-top:10px;flex-wrap:wrap;gap:6px"><button class="box2btn" onclick="boxResetKey()">🔑 Reset khóa điện thoại</button><button class="box2btn" onclick="waterNow()">🌱 Tưới cây ngay</button></div>
+     <div id="box2note" class="mut" style="display:none;margin-top:6px;font-size:12px">Cất điện thoại vào tủ, cắm sạc, đóng cửa → tủ tự bắt đầu ca học. Thời gian ca & ngưỡng đèn/còi: thẻ <b>🏆 Thưởng → Tiêu chí</b>.</div>
+     <div id="box1" class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="boxbtn" onclick="boxMin(15)">🔓 Mở 15′</button><button class="boxbtn" onclick="boxMin(30)">🔓 Mở 30′</button><button class="boxbtn" onclick="boxMin(60)">🔓 Mở 60′</button><button class="boxbtn" onclick="boxMinAsk()">🔓 Mở … phút</button><button class="boxbtn" onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button class="boxbtn" onclick="cmd('box_lock')">🔒 Khóa hộp</button></div>
+     <div id="box1note" class="mut" style="margin-top:6px;font-size:12px">Hết giờ, hộp tự khóa lại khi nắp đã đóng. Telegram: /mohop · /khoahop</div></div>
     <div class="card" id="aicard"><h3>🤖 AI hôm nay (ứng dụng + web)</h3><div id="aibox" class="mut">—</div></div>
    </div></div>
   </section>
@@ -553,14 +556,16 @@ h3{margin:4px 0 10px}
      <div id="w-lms"></div></div>
     <div class="card"><h3>⚙️ Tiêu chí ca học thành công</h3>
      <div class="frm">
-      <label>Học tối thiểu (phút)<input id="s-min" type="number" min="5" max="240"></label>
+      <label>Thời gian 1 ca học (phút)<input id="s-min" type="number" min="5" max="240"></label>
       <label>Vi phạm tối đa / ca<input id="s-viol" type="number" min="0" max="20"></label>
       <label>Tập trung ≥ (% thời gian học)<input id="s-focus" type="number" min="0" max="100"></label>
       <label>Tưới cây mỗi ca đạt (giây bơm)<input id="s-wsec" type="number" min="0.5" max="10" step="0.5"></label>
       <label>Điểm mỗi ca đạt<input id="s-pts" type="number" min="1" max="1000"></label>
-      <label>Nhân điểm tối đa (khối)<input id="s-blocks" type="number" min="1" max="10"></label></div>
+      <label>Nhân điểm tối đa (khối)<input id="s-blocks" type="number" min="1" max="10"></label>
+      <label>Tủ ESP32: nháy đèn khi CFI &lt;<input id="s-led" type="number" min="0" max="100"></label>
+      <label>Tủ ESP32: kêu còi khi CFI &lt;<input id="s-buzz" type="number" min="0" max="100"></label></div>
      <label class="row" style="gap:8px;margin:4px 0 6px;align-items:center"><input type="checkbox" id="s-water"> <span><b>🌱 Tưới cây khi ca học đạt chuẩn</b> <span class="mut" style="font-size:12.5px">(mô-đun ESP32 + bơm mini trên bàn học)</span></span></label>
-     <p class="mut" style="font-size:12.5px">Mặc định: ca học ≥ 25 phút, không vi phạm và <b>tập trung trên 2/3 (67%) thời gian học</b> → máy tự bật bơm tưới chậu cây. Tập trung = khoảng thời gian camera AI thấy học sinh nhìn bài, ngồi đúng (điểm CFI ≥ 60%); chỉ xét khi máy có camera (đặt 0 = bỏ qua). Vi phạm = mở game / web giải trí, nhờ AI làm game, quá giờ AI, cầm điện thoại. Thời gian xin đi vệ sinh không tính. Điểm thưởng: ca dài gấp đôi/ba thời gian tối thiểu được nhân điểm.</p>
+     <p class="mut" style="font-size:12.5px">Mặc định: ca học ≥ 25 phút, không vi phạm và <b>tập trung trên 2/3 (67%) thời gian học</b> → máy tự bật bơm tưới chậu cây. Tập trung = khoảng thời gian camera AI thấy học sinh nhìn bài, ngồi đúng (điểm CFI ≥ 60%); chỉ xét khi máy có camera (đặt 0 = bỏ qua). Vi phạm = mở game / web giải trí, nhờ AI làm game, quá giờ AI, cầm điện thoại. Thời gian xin đi vệ sinh không tính. Điểm thưởng: ca dài gấp đôi/ba thời gian tối thiểu được nhân điểm. <b>Có tủ điện thoại ESP32:</b> đóng cửa tủ + cắm sạc là bắt đầu ca, tủ đếm ngược đúng “Thời gian 1 ca học”; trong ca mở cửa / rút sạc = vi phạm, hết giờ rút ra không báo nữa; đèn đỏ nháy / còi kêu khi mức tập trung (CFI) dưới ngưỡng.</p>
      <h3 style="margin-top:14px">👤 Thông tin cho giáo viên</h3>
      <div class="frm">
       <label>Họ tên học sinh<input id="s-name" maxlength="60"></label><label>Lớp<input id="s-class" maxlength="30"></label>
@@ -767,15 +772,20 @@ let rulesTouched=false;
 const YT_DEFAULT=['free fire','liên quân','minecraft','roblox','pubg','genshin','gameplay','game','mukbang','prank','asmr','tiktok','review phim','phim','anime','nhạc remix','livestream game'];
 function nvMode(b){document.querySelectorAll('#nv-mode button').forEach(x=>x.classList.toggle('act',x===b));rulesTouched=true;}
 const KCOL={ai_game:'#dc2626',game:'#dc2626',social:'#db2777',video:'#ea580c',shopping:'#ca8a04',comics:'#9333ea',study:'#16a34a',ai:'#2563eb',app:'#64748b',other:'#94a3b8'};
-function renderBox(v){const b=((v.status||{}).phone_box)||{};const dis=!b.enabled||!b.connected||!v.online;
- document.querySelectorAll('.boxbtn').forEach(x=>{x.disabled=dis;x.style.opacity=dis?.5:1;});
+function renderBox(v){const b=((v.status||{}).phone_box)||{};const dis=!b.enabled||!b.connected||!v.online;const v2=(b.proto||1)>=2;
+ document.querySelectorAll('.boxbtn,.box2btn').forEach(x=>{x.disabled=dis;x.style.opacity=dis?.5:1;});
+ $('box1').style.display=$('box1note').style.display=v2?'none':'';$('box2').style.display=$('box2note').style.display=v2?'':'none';
+ $('boxtitle').textContent=v2?'📦 Tủ điện thoại & tưới cây (ESP32)':'📦 Hộp điện thoại';
  if(!v.online){$('boxst').innerHTML='⚪ Máy học sinh đang ngoại tuyến';return;}
  if(!b.enabled){$('boxst').innerHTML='⚪ Chưa bật hộp trên máy — vào app: <b>Admin → 📦 Hộp điện thoại</b> → Bật';return;}
  if(!b.connected){$('boxst').innerHTML='🔌 <b>Mất kết nối hộp</b> — kiểm tra cáp USB';return;}
+ if(v2){const ph=b.phase==='active'?`📚 <b>Đang trong ca học</b> · còn ${Math.ceil((b.left_s||0)/60)} phút${b.viol?' · ⚠️ '+b.viol+' vi phạm':''}`:b.phase==='done'?'✅ <b>Hết giờ học</b> — lấy điện thoại không còn bị báo':'⏸️ <b>Chờ bắt đầu</b> (đóng cửa tủ + cắm sạc)';
+  $('boxst').innerHTML=`${ph}<br>${b.door==='closed'?'🚪 cửa đóng':'🚪 cửa mở'} · ${b.phone?'🔌 điện thoại đang sạc':'📭 chưa cắm sạc'} · ${b.paired?(b.verified?'🔑 đã xác thực điện thoại':'🔑 đã ghép điện thoại'):'🔑 chưa ghép điện thoại'} · ca ${Math.round((b.session_s||0)/60)} phút`;return;}
  $('boxst').innerHTML=`${b.phone?'📱 <b>Điện thoại đang trong hộp</b>':'📭 <b>Hộp trống</b>'} · ${b.lock==='locked'?'🔒 đang khóa':'🔓 đang mở'} · nắp ${b.lid==='closed'?'đóng':'mở'}${b.unlock_left>0?' · tự khóa sau '+Math.ceil(b.unlock_left/60)+' phút':''}`;}
 async function boxCmd(t){if(confirm(t==='box_unlock_30'?'Mở hộp điện thoại 30 phút rồi tự khóa lại?':'Mở hộp điện thoại cho tới khi bạn khóa lại?'))cmd(t);}
 async function boxMin(m){const v=cur();if(!v||!confirm(`Mở hộp điện thoại ${m} phút rồi tự khóa lại?`))return;
  const r=await api(`/api/parent/devices/${v.id}/command`,{type:'box_unlock_min',minutes:m});toast(r.message||r.error||'');}
+async function boxResetKey(){if(confirm('Reset khóa điện thoại đã ghép với tủ?\\nDùng khi đổi điện thoại / cài lại app. Điện thoại kết nối tủ tiếp theo sẽ được ghép (không làm được khi đang trong ca học).'))cmd('box_reset_key');}
 function boxMinAsk(){const m=parseInt(prompt('Mở hộp điện thoại bao nhiêu phút? (1–240)','45')||'0',10);if(m>0&&m<=240)boxMin(m);}
 function renderAI(v){const s=v.status||{},src=s.ai_sources||[],run=s.ai_running||[];const tot=Math.round((s.ai_seconds||0)/60);
  const ent=Array.isArray(src)?src.map(x=>[x.name||'',x.seconds||0]):Object.entries(src);
@@ -825,7 +835,7 @@ async function loadStudy(fill){const v=cur();if(!v)return;const d=await api(`/ap
  $('w-redeemed').innerHTML=(st.redeemed||[]).length?'Đã đổi: '+st.redeemed.slice(0,5).map(x=>`${dm(x.ts)} ${esc(x.name)} (−${x.points})`).join(' · '):'';
  renderLms(d.lms||{});
  if(fill){$('s-min').value=c.min_minutes;$('s-viol').value=c.max_violations;$('s-focus').value=c.min_focus;$('s-pts').value=c.points_per_session;
-  $('s-blocks').value=c.max_blocks;$('s-wsec').value=c.water_seconds;$('s-water').checked=!!c.water_on_success;$('s-name').value=c.student_name||'';$('s-class').value=c.class_name||'';$('s-code').value=c.student_code||'';
+  $('s-blocks').value=c.max_blocks;$('s-led').value=c.led_cfi;$('s-buzz').value=c.buzz_cfi;$('s-wsec').value=c.water_seconds;$('s-water').checked=!!c.water_on_success;$('s-name').value=c.student_name||'';$('s-class').value=c.class_name||'';$('s-code').value=c.student_code||'';
   $('s-school').value=c.school||'';$('s-hook').value=c.webhook_url||'';$('s-rewards').value=(c.rewards||[]).map(r=>r.name+' | '+r.points).join(String.fromCharCode(10));}}
 function renderLms(l){const el=$('w-lms');if(!l.token){el.innerHTML='<button class="pri" style="background:var(--acc);color:#fff" onclick="lms(&quot;create&quot;)">🔗 Tạo link cho giáo viên</button>';return;}
  const f=`=IMPORTDATA("${l.csv}?only=success")`;
@@ -843,7 +853,7 @@ async function redeem(i){const v=cur(),r0=((STUDY||{}).cfg||{}).rewards[i];if(!v
 async function saveStudy(){const v=cur();if(!v)return;const num=id=>Number($(id).value);
  const rewards=$('s-rewards').value.split(/\\r?\\n/).map(x=>x.split('|')).filter(x=>x[0].trim()).map(x=>({name:x[0].trim(),points:Number((x[1]||'').replace(/[^0-9]/g,''))||50}));
  const r=await api(`/api/parent/devices/${v.id}/study_cfg`,{min_minutes:num('s-min'),max_violations:num('s-viol'),min_focus:num('s-focus'),
-  points_per_session:num('s-pts'),max_blocks:num('s-blocks'),water_on_success:$('s-water').checked,water_seconds:num('s-wsec'),student_name:$('s-name').value,class_name:$('s-class').value,student_code:$('s-code').value,
+  points_per_session:num('s-pts'),max_blocks:num('s-blocks'),water_on_success:$('s-water').checked,water_seconds:num('s-wsec'),led_cfi:num('s-led'),buzz_cfi:num('s-buzz'),student_name:$('s-name').value,class_name:$('s-class').value,student_code:$('s-code').value,
   school:$('s-school').value,webhook_url:$('s-hook').value.trim(),rewards});toast(r.message||r.error);loadStudy(true);}
 async function waterNow(){if(confirm('Bật bơm tưới cây ngay trên máy học sinh?'))cmd('water_plant');}
 function sessCsv(){const v=cur();if(v)location.href=`/api/parent/devices/${v.id}/sessions.csv?days=90`;}
@@ -1346,7 +1356,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.13"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.14"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1916,6 +1926,7 @@ def _handle_sessions(did: str, dev: Dict[str, Any], reps: List[Dict[str, Any]]) 
                "break_min": round(float(rep.get("break_min") or 0), 1), "violations": viol, "focus": focus,
                "ai_min": round(float(rep.get("ai_min") or 0), 1), "end_reason": str(rep.get("end_reason", ""))[:80],
                "success": ok, "points": pts, "reasons": reasons,
+               "source": "box" if rep.get("source") == "box" else "pc", "time_up": bool(rep.get("time_up")),
                "criteria": {k: cfg[k] for k in ("min_minutes", "max_violations", "min_focus")}}
         last = {k: rec.get(k) for k in ("start", "end", "minutes", "success", "points", "reasons", "focus",
                                         "focus_ratio", "watered")}
@@ -2013,6 +2024,7 @@ def api_parent_study_cfg(did):
         return jsonify({"error": "Không có quyền với máy này."}), 403
     cfg = study.clean_cfg(request.get_json(silent=True) or {})
     db.set(f"devices/{did}/study_cfg", cfg)
+    db.set(f"devices/{did}/study_box_ver", now())      # heartbeat so phiên bản -> gửi thời gian ca / ngưỡng CFI xuống tủ
     return jsonify({"ok": True, "cfg": cfg, "message": "Đã lưu. Áp dụng cho các ca học từ giờ trở đi."})
 
 
@@ -2210,6 +2222,10 @@ def api_agent_heartbeat():
     rv = int(db.get(f"devices/{did}/rules/ver") or 0)
     if rv and rv != int(status.get("rules_ver", 0) or 0):
         resp["rules"] = db.get(f"devices/{did}/rules") or {}
+    # Thời gian ca học + ngưỡng CFI cho tủ ESP32: cũng chỉ so phiên bản, khác mới đọc study_cfg
+    sv = int(db.get(f"devices/{did}/study_box_ver") or 0)
+    if sv and sv != int(status.get("study_box_ver", 0) or 0):
+        resp["study_box"] = study.box_cfg(study.clean_cfg(db.get(f"devices/{did}/study_cfg") or {}), sv)
     return jsonify(resp)
 
 

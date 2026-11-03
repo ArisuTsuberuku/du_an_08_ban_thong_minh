@@ -344,6 +344,10 @@ class PhanMemQuanLyBanHocEXE:
         try:
             from services import study_sessions
 
+            cur = study_sessions.current() or {}
+            box = load_runtime_state().get("phone_box") or {}
+            if cur.get("source") == "box" and box.get("connected"):
+                return   # ca do tủ ESP32 đếm giờ -> chỉ chốt khi tủ báo hết giờ học
             study_sessions.end_session(ly_do)
         except Exception as exc:
             safe_log(f"[CA HỌC] Không chốt được ca: {exc}")
@@ -539,8 +543,13 @@ class PhanMemQuanLyBanHocEXE:
                 if load_config().get("phone_box_enabled") and load_config().get("phone_box_required"):
                     st = load_runtime_state().get("phone_box") or {}
                     if st.get("connected") and not st.get("phone"):
-                        messagebox.showwarning("Cất điện thoại", "📱 Hãy bỏ điện thoại vào hộp trước khi vào học nhé!\n"
-                                               "Hộp sẽ tự khóa khi bạn bắt đầu học.", parent=self.root)
+                        if int(st.get("proto", 1) or 1) >= 2:
+                            messagebox.showwarning("Cất điện thoại", "📱 Hãy cất điện thoại vào tủ, cắm sạc và đóng cửa "
+                                                   "tủ trước khi vào học nhé!\nCa học bắt đầu tính giờ khi tủ đóng.",
+                                                   parent=self.root)
+                        else:
+                            messagebox.showwarning("Cất điện thoại", "📱 Hãy bỏ điện thoại vào hộp trước khi vào học nhé!\n"
+                                                   "Hộp sẽ tự khóa khi bạn bắt đầu học.", parent=self.root)
                         return
                 self.vao_che_do_hoc_sinh()
             elif role == "parent":
@@ -570,9 +579,14 @@ class PhanMemQuanLyBanHocEXE:
 
             _st = load_runtime_state()
             _box = _st.get("phone_box") or {}
-            study_sessions.start_session(ai_seconds=float(_st.get("ai_seconds", 0) or 0),
-                                         phone_in_box=bool(_box.get("phone")) if load_config().get("phone_box_enabled")
-                                         else None)
+            _tu_v2 = bool(load_config().get("phone_box_enabled") and _box.get("connected")
+                          and int(_box.get("proto", 1) or 1) >= 2)
+            if _tu_v2:
+                pass   # tủ điện thoại v2: ca học bắt đầu khi đóng cửa tủ + cắm sạc (tủ tự đếm giờ), không mở ca ở đây
+            else:
+                study_sessions.start_session(ai_seconds=float(_st.get("ai_seconds", 0) or 0),
+                                             phone_in_box=bool(_box.get("phone")) if load_config().get("phone_box_enabled")
+                                             else None)
         except Exception as exc:
             safe_log(f"[CA HỌC] Không mở được ca: {exc}")
         self._current_mode = "student"
@@ -2053,13 +2067,13 @@ class PhanMemQuanLyBanHocEXE:
         from services import phone_box
 
         cfg = load_config()
-        self._page_header(page, "Hộp khóa điện thoại (ESP32-S3)",
-                          "Hộp cắm vào máy bằng cáp USB. Khi học sinh vào học và bỏ điện thoại vào hộp, hộp tự khóa; "
-                          "phụ huynh mở hộp từ web hoặc Telegram (/mohop).")
+        self._page_header(page, "Mô-đun ESP32: tủ điện thoại & tưới cây",
+                          "Cắm vào máy bằng cáp USB. Tủ v2: cất điện thoại, cắm sạc, đóng cửa (công tắc hành trình) → bắt "
+                          "đầu ca học; hết giờ & đạt chuẩn → tưới cây. Hộp khóa v1 (giai đoạn 1) vẫn dùng được.")
         row = tk.Frame(page, bg=UI["bg"])
         row.pack(fill="x")
         c1 = self._card(row, "⚙️  Cài đặt", side="left", padx=(0, 8))
-        v_en = self._check(c1, "Bật hộp khóa điện thoại", cfg.get("phone_box_enabled", False))
+        v_en = self._check(c1, "Bật mô-đun ESP32 (tủ / hộp điện thoại)", cfg.get("phone_box_enabled", False))
         v_req = self._check(c1, "Bắt buộc cất điện thoại vào hộp mới được vào học", cfg.get("phone_box_required", False))
         v_auto = self._check(c1, "Tự khóa hộp khi học sinh đang học và đã cất điện thoại", cfg.get("phone_box_auto_lock", True))
         self._label(c1, "Cổng kết nối", size=9)
@@ -2094,10 +2108,75 @@ class PhanMemQuanLyBanHocEXE:
         btns.pack(anchor="w", pady=(10, 0))
         box = phone_box.get_box()
         self._ui_button(btns, "🔔 Kêu thử", lambda: chay(box.beep, "Kêu thử"), kind="ghost").pack(side="left")
-        self._ui_button(btns, "🔒 Khóa", lambda: chay(box.lock, "Khóa"), kind="ghost").pack(side="left", padx=6)
-        self._ui_button(btns, "🔓 Mở", lambda: chay(lambda: box.unlock(0), "Mở khóa"), kind="ghost").pack(side="left")
-        self._ui_button(c2, "🔗  Ghép hộp (giữ nút trên hộp 5 giây trước)", lambda: chay(box.pair, "Ghép hộp"),
+        self._ui_button(btns, "🔒 Khóa (v1)", lambda: chay(box.lock, "Khóa"), kind="ghost").pack(side="left", padx=6)
+        self._ui_button(btns, "🔓 Mở (v1)", lambda: chay(lambda: box.unlock(0), "Mở khóa"), kind="ghost").pack(side="left")
+        self._ui_button(c2, "🔗  Ghép hộp v1 (giữ nút trên hộp 5 giây trước)", lambda: chay(box.pair, "Ghép hộp"),
                         kind="ghost").pack(anchor="w", pady=(8, 0))
+
+        # ---- Tủ v2: đủ mọi lệnh của giao thức để thử nghiệm (firmware/GIAO_THUC.md) ----
+        t2 = self._card(page, "🧪  Tủ điện thoại v2 — bảng lệnh thử nghiệm", pady=(12, 0))
+        self._label(t2, "Mỗi nút gửi 1 lệnh đúng giao thức v2 và hiện kết quả ack. Mở Serial monitor để xem từng dòng "
+                        "TX/RX. Thời gian ca & ngưỡng CFI bình thường do phụ huynh đặt trên web (thẻ 🏆 Thưởng).",
+                    bold=False, size=9)
+        bc = phone_box.box_cfg()
+        f_cfg = tk.Frame(t2, bg=UI["card"])
+        f_cfg.pack(anchor="w", fill="x", pady=(6, 0))
+
+        def o_so(parent, nhan, gia_tri, rong=6):
+            tk.Label(parent, text=nhan, bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 9)).pack(side="left")
+            v = tk.StringVar(value=str(gia_tri))
+            tk.Entry(parent, textvariable=v, width=rong, font=("Segoe UI", 10), relief="flat", highlightthickness=1,
+                     highlightbackground=UI["line"]).pack(side="left", padx=(4, 12), ipady=3)
+            return v
+
+        def so(v, mac_dinh: float) -> float:
+            try:
+                return float(str(v.get()).replace(",", ".").strip())
+            except ValueError:
+                return mac_dinh
+
+        v_min = o_so(f_cfg, "Thời gian ca (phút)", f"{bc['session_min']:g}")
+        v_led = o_so(f_cfg, "Đèn đỏ khi CFI <", bc["led_cfi"])
+        v_buzz = o_so(f_cfg, "Còi khi CFI <", bc["buzz_cfi"])
+
+        def gui_cfg() -> Dict[str, Any]:
+            c = load_config()
+            c["study_box_cfg"] = {"session_min": max(1.0, min(240.0, so(v_min, 25))),
+                                  "led_cfi": int(max(0, min(100, so(v_led, 50)))),
+                                  "buzz_cfi": int(max(0, min(100, so(v_buzz, 30))))}
+            save_config(c)   # web đổi tiêu chí lần sau sẽ ghi đè giá trị thử này
+            return box.push_cfg()
+
+        self._ui_button(f_cfg, "⏱️ Gửi cfg", lambda: chay(gui_cfg, "cfg"), kind="ghost").pack(side="left")
+
+        f_cfi = tk.Frame(t2, bg=UI["card"])
+        f_cfi.pack(anchor="w", fill="x", pady=(8, 0))
+        v_cfi = o_so(f_cfi, "CFI thử (0–100)", 40)
+        v_giay = o_so(f_cfi, "giữ trong (giây)", 60)
+
+        def gui_cfi() -> Dict[str, Any]:
+            phone_box.set_test_cfi(int(so(v_cfi, 40)), int(so(v_giay, 60)))
+            return {"ok": True}
+
+        self._ui_button(f_cfi, "🎯 Giả lập CFI", lambda: chay(gui_cfi, "CFI thử (gửi kèm ping 2 giây/lần)"),
+                        kind="ghost").pack(side="left")
+        self._ui_button(f_cfi, "↩️ Dùng CFI camera", lambda: chay(lambda: (phone_box.set_test_cfi(None), {"ok": True})[1],
+                                                                  "Bỏ CFI thử"), kind="ghost").pack(side="left", padx=6)
+
+        f_cmd = tk.Frame(t2, bg=UI["card"])
+        f_cmd.pack(anchor="w", fill="x", pady=(8, 0))
+        v_ms = o_so(f_cmd, "Bơm (ms)", 2500)
+        self._ui_button(f_cmd, "🌱 water", lambda: chay(lambda: box.water(int(so(v_ms, 2500))), "Tưới cây"),
+                        kind="ghost").pack(side="left")
+        self._ui_button(f_cmd, "🔔 beep", lambda: chay(lambda: box.command("beep", ms=600), "beep"),
+                        kind="ghost").pack(side="left", padx=6)
+        self._ui_button(f_cmd, "⏹️ end (kết thúc ca)", lambda: chay(lambda: box.end_session("admin"), "Kết thúc ca"),
+                        kind="ghost").pack(side="left")
+        self._ui_button(f_cmd, "🔑 reset_key", lambda: messagebox.askyesno(
+            "Reset khóa điện thoại", "Xóa khóa điện thoại đã ghép? Điện thoại kết nối tủ kế tiếp sẽ được ghép mới.",
+            parent=self.root) and chay(box.reset_key, "Reset khóa điện thoại"), kind="ghost").pack(side="left", padx=6)
+        self._ui_button(f_cmd, "📡 get", lambda: chay(lambda: (box.send_text('{"t":"get"}'), {"ok": True})[1],
+                                                     "get (xem RX ở Serial monitor)"), kind="ghost").pack(side="left")
 
         def refresh() -> None:
             if not lbl.winfo_exists():
@@ -2107,6 +2186,18 @@ class PhanMemQuanLyBanHocEXE:
                 lbl.config(text="⚪ Chưa bật", fg=UI["mut"])
             elif not st.get("connected"):
                 lbl.config(text="🔌 Chưa thấy hộp — kiểm tra cáp USB / cổng", fg=UI["warn"])
+            elif int(st.get("proto", 1) or 1) >= 2:
+                pha = {"active": f"📚 ĐANG TRONG CA — còn {int(st.get('left_s') or 0) // 60}:{int(st.get('left_s') or 0) % 60:02d}"
+                                 f" · vi phạm {st.get('viol', 0)}",
+                       "done": "✅ Hết giờ học (mở tủ / rút sạc không báo)"}.get(st.get("phase"), "⏸️ Chờ: đóng cửa + cắm sạc")
+                cfi = phone_box.current_cfi()
+                lbl.config(fg=UI["txt"], text=(
+                    f"🟢 Tủ v2 {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n{pha}\n"
+                    f"🚪 cửa {'đóng' if st.get('door') == 'closed' else 'MỞ'} · "
+                    f"{'🔌 đang sạc' if st.get('phone') else '📭 chưa sạc'} · BLE {'✓' if st.get('ble') else '✗'} · "
+                    f"{'🔑 đã xác thực' if st.get('verified') else ('🔑 đã ghép' if st.get('paired') else '🔑 CHƯA GHÉP')}\n"
+                    f"Ca {int(st.get('session_s') or 0) // 60} phút · CFI gửi tủ: {cfi if cfi >= 0 else '—'}"
+                    f"{' · 💧 đang bơm' if st.get('pump') else ''}"))
             else:
                 lbl.config(fg=UI["txt"], text=(
                     f"🟢 Đã kết nối {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n"
@@ -2140,7 +2231,11 @@ class PhanMemQuanLyBanHocEXE:
         self._ui_button(dbg, "🛠️  Mở Serial monitor", self._serial_monitor, kind="ghost").pack(anchor="w", pady=(6, 0))
 
         tip = self._card(page, "🧰  Cách lắp & ghép", pady=(12, 0))
-        self._label(tip, "1. Nạp firmware firmware/hop_dien_thoai_esp32s3 cho ESP32-S3 (Arduino IDE, USB CDC On Boot = "
+        self._label(tip, "TỦ v2: nạp firmware/focusdesk_esp32 (Arduino IDE, ArduinoJson 7). Công tắc hành trình cửa: COM→GND, "
+                         "NO→GPIO5; rơ-le bơm GPIO4; LED đỏ GPIO7, LED xanh GPIO8, còi GPIO9. Bật mô-đun, Lưu; mở app "
+                         "FocusDesk trên điện thoại để ghép (điện thoại đầu tiên kết nối được ghép; đổi máy: 🔑 reset_key).",
+                    bold=False, size=9)
+        self._label(tip, "HỘP v1: 1. Nạp firmware firmware/hop_dien_thoai_esp32s3 cho ESP32-S3 (Arduino IDE, USB CDC On Boot = "
                          "Enabled). 2. Cắm hộp vào máy bằng cáp USB. 3. Bật “Bật hộp khóa điện thoại”, Lưu. "
                          "4. Mở nắp hộp, giữ nút trên hộp 5 giây (kêu 1 tiếng dài), bấm “Ghép hộp”. "
                          "5. Nên có chìa khóa cơ dự phòng phòng khi mất điện. Chuẩn giao tiếp cho người làm mạch: "
@@ -2335,6 +2430,15 @@ class PhanMemQuanLyBanHocEXE:
                          ("ping", lambda: gui_json("ping", ts=int(time.time()))), ("beep 2", lambda: gui_json("beep", n=2)),
                          ("🔒 lock (ký)", lambda: gui_ky("lock")), ("🔓 unlock 60s (ký)", lambda: gui_ky("unlock", 60))):
             self._ui_button(quick, text, fn, kind="ghost").pack(side="left", padx=(6, 0))
+        quick2 = tk.Frame(win, bg=UI["bg"])
+        quick2.pack(fill="x", padx=12, pady=(0, 10))
+        tk.Label(quick2, text="Tủ v2:", bg=UI["bg"], fg=UI["mut"], font=("Segoe UI", 9)).pack(side="left")
+        for text, fn in (("cfg 1′", lambda: gui_json("cfg", session_ms=60000, led_cfi=50, buzz_cfi=30)),
+                         ("ping cfi=40", lambda: gui_json("ping", cfi=40)), ("ping cfi=20", lambda: gui_json("ping", cfi=20)),
+                         ("ping cfi=-1", lambda: gui_json("ping", cfi=-1)), ("water 2s", lambda: gui_json("water", ms=2000)),
+                         ("beep", lambda: gui_json("beep", ms=600)), ("end", lambda: gui_json("end", reason="admin")),
+                         ("reset_key", lambda: gui_json("reset_key"))):
+            self._ui_button(quick2, text, fn, kind="ghost").pack(side="left", padx=(6, 0))
 
         def xoa() -> None:
             txt.configure(state="normal")

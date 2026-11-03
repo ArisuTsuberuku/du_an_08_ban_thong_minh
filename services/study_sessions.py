@@ -46,12 +46,16 @@ def current() -> Optional[Dict[str, Any]]:
     return s if isinstance(s, dict) and s.get("id") else None
 
 
-def start_session(ai_seconds: float = 0.0, phone_in_box: Optional[bool] = None) -> Dict[str, Any]:
-    """Bắt đầu ca mới (ca cũ còn mở do máy tắt ngang thì chốt trước)."""
+def start_session(ai_seconds: float = 0.0, phone_in_box: Optional[bool] = None, source: str = "pc",
+                  planned_min: Optional[float] = None) -> Dict[str, Any]:
+    """Bắt đầu ca mới (ca cũ còn mở do máy tắt ngang thì chốt trước).
+    source="box": ca do tủ điện thoại ESP32 v2 bắt đầu (đóng cửa + cắm sạc) và tủ tự đếm giờ tới khi hết giờ học."""
     close_stale(force=True)
     now = time.time()
     sess = {"id": uuid.uuid4().hex[:12], "start": now, "last": now, "violations": {}, "cfi_sum": 0.0, "cfi_n": 0,
-            "ai_start": float(ai_seconds or 0), "break_s": 0.0, "phone_in_box": phone_in_box}
+            "ai_start": float(ai_seconds or 0), "break_s": 0.0, "phone_in_box": phone_in_box, "source": source}
+    if planned_min:
+        sess["planned_min"] = float(planned_min)
     _mutate(lambda st: st.__setitem__("study_session", sess))
     safe_log(f"[CA HỌC] Bắt đầu ca {sess['id']}")
     return sess
@@ -93,8 +97,12 @@ def tick(cfi: Optional[float] = None, ai_seconds: Optional[float] = None, on_bre
     _mutate(fn)
 
 
-def _report(s: Dict[str, Any], end: float, reason: str) -> Dict[str, Any]:
-    dur = max(0.0, end - float(s.get("start", end)) - float(s.get("break_s", 0)))
+def _report(s: Dict[str, Any], end: float, reason: str, dur_s: Optional[float] = None,
+            time_up: bool = False) -> Dict[str, Any]:
+    if dur_s is not None and s.get("source") == "box":
+        dur = max(0.0, float(dur_s))                 # tủ đếm giờ chính xác (không phụ thuộc độ trễ USB / app)
+    else:
+        dur = max(0.0, end - float(s.get("start", end)) - float(s.get("break_s", 0)))
     n = int(s.get("cfi_n", 0))
     ai_used = max(0.0, float(s.get("ai_now", s.get("ai_start", 0))) - float(s.get("ai_start", 0)))
     return {"id": s.get("id"), "start": int(s.get("start", end)), "end": int(end), "minutes": round(dur / 60.0, 1),
@@ -104,19 +112,23 @@ def _report(s: Dict[str, Any], end: float, reason: str) -> Dict[str, Any]:
             # % thời gian học có tập trung (chỉ tính khi camera quan sát được >= 1 phút)
             "focus_ratio": (round(100.0 * float(s.get("focus_s", 0)) / float(s["cam_s"]), 1)
                             if float(s.get("cam_s", 0)) >= 60 else None),
-            "ai_min": round(ai_used / 60.0, 1), "phone_in_box": s.get("phone_in_box"), "end_reason": reason}
+            "ai_min": round(ai_used / 60.0, 1), "phone_in_box": s.get("phone_in_box"), "end_reason": reason,
+            "source": s.get("source", "pc"), "time_up": bool(time_up),
+            "planned_min": s.get("planned_min")}
 
 
-def end_session(reason: str = "Rời chế độ học sinh") -> Optional[Dict[str, Any]]:
-    """Chốt ca đang mở -> xếp bản tổng kết vào hàng đợi gửi web. Không có ca -> None."""
+def end_session(reason: str = "Rời chế độ học sinh", dur_s: Optional[float] = None,
+                time_up: bool = False) -> Optional[Dict[str, Any]]:
+    """Chốt ca đang mở -> xếp bản tổng kết vào hàng đợi gửi web. Không có ca -> None.
+    dur_s / time_up: do tủ ESP32 v2 báo (event session_end)."""
     def fn(st: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         s = st.get("study_session")
         if not (isinstance(s, dict) and s.get("id")):
             return None
         end = time.time()
-        if end - float(s.get("last", end)) > STALE_S:
+        if dur_s is None and end - float(s.get("last", end)) > STALE_S:
             end = float(s.get("last", end))              # máy tắt ngang: chốt ở lần cập nhật cuối
-        rep = _report(s, end, reason)
+        rep = _report(s, end, reason, dur_s=dur_s, time_up=time_up)
         q = [r for r in (st.get("session_reports") or []) if isinstance(r, dict)]
         q.append(rep)
         st["session_reports"] = q[-MAX_QUEUE:]

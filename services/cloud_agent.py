@@ -136,13 +136,16 @@ class CloudAgent:
                       "youtube_keywords": cfg.get("youtube_keywords") or [],
                       "youtube_shorts": bool(cfg.get("youtube_block_shorts", True))},
             "rules_ver": int(cfg.get("rules_ver", 0) or 0),
+            "study_box_ver": int(cfg.get("study_box_ver", 0) or 0),
             "monitor_always": bool(cfg.get("monitor_always", False)),
             "monitoring": bool(st.get("monitoring_active")),
             "dns_block": cfg.get("dns_block_status", ""),
             "now": dict(self.tracker.current),
             "break": {k: (st.get("toilet_break") or {}).get(k) for k in ("active", "start", "left_t", "duration_s")},
             "phone_box": {**{k: (st.get("phone_box") or {}).get(k) for k in ("connected", "phone", "lid", "lock",
-                                                                            "unlock_left", "box_id")},
+                                                                            "unlock_left", "box_id", "proto", "phase",
+                                                                            "door", "ble", "verified", "paired",
+                                                                            "left_s", "session_s", "viol")},
                           "enabled": bool(cfg.get("phone_box_enabled"))},
             "open_apps": self.tracker.open_apps,
             "hostname": socket.gethostname(),
@@ -211,6 +214,8 @@ class CloudAgent:
             raise
         if res.get("rules"):
             self._apply_rules(res["rules"])
+        if isinstance(res.get("study_box"), dict):
+            self._apply_study_box(res["study_box"])
         self.heartbeat_s = int(res.get("heartbeat_s", self.heartbeat_s) or 30)
         # Phụ huynh đang xem -> gom báo cáo hoạt động 10s/lô cho gần thời gian thực; bình thường 30s
         self.tracker.batch_s = 10.0 if self.heartbeat_s <= 10 else 30.0
@@ -308,6 +313,17 @@ class CloudAgent:
                     ok = bool(r.get("ok"))
                     msg = (f"🌱 Đã tưới cây {ms / 1000:g} giây" if ok
                            else f"Không tưới được cây: {r.get('err') or 'mô-đun ESP32 chưa kết nối'}")
+            elif ctype == "box_reset_key":
+                # Reset khóa điện thoại đã ghép với tủ v2 (đổi điện thoại / app Android cài lại)
+                if not load_config().get("phone_box_enabled"):
+                    ok, msg = False, "Chưa bật mô-đun ESP32 trên máy"
+                else:
+                    from services.phone_box import get_box
+
+                    r = get_box().reset_key()
+                    ok = bool(r.get("ok"))
+                    msg = ("🔑 Đã reset khóa điện thoại — mở app FocusDesk trên điện thoại mới để ghép lại" if ok
+                           else f"Không reset được: {r.get('err') or 'tủ chưa kết nối'}")
             elif ctype == "snapshot":
                 ok, msg = self._send_snapshot(cmd.get("chat_id") or "")
             else:
@@ -348,6 +364,29 @@ class CloudAgent:
                 self._monitor = None
         except Exception as exc:
             safe_log(f"[CLOUD] Lỗi bộ giám sát luôn-bật: {exc}")
+
+    def _apply_study_box(self, sb: Dict[str, Any]) -> None:
+        """Phụ huynh đổi thời gian ca học / ngưỡng CFI trên web -> lưu máy + gửi xuống tủ ESP32 (nếu đang nối)."""
+        cfg = load_config()
+        def num(k, d, lo, hi):
+            try:
+                return max(lo, min(hi, float(sb.get(k, d))))
+            except (TypeError, ValueError):
+                return d
+        cfg["study_box_cfg"] = {"session_min": num("session_min", 25, 1, 240), "led_cfi": int(num("led_cfi", 50, 0, 100)),
+                                "buzz_cfi": int(num("buzz_cfi", 30, 0, 100))}
+        cfg["study_box_ver"] = int(sb.get("ver", 0) or 0)
+        save_config(cfg)
+        safe_log(f"[CLOUD] Cấu hình ca học cho tủ: {cfg['study_box_cfg']}")
+        if cfg.get("phone_box_enabled"):
+            try:
+                from services.phone_box import get_box
+
+                box = get_box()
+                if box.state.get("connected") and box.proto >= 2:
+                    threading.Thread(target=box.push_cfg, daemon=True).start()
+            except Exception:
+                pass
 
     def _apply_rules(self, rules: Dict[str, Any]) -> None:
         """Cấu hình chặn từ xa -> shared_config (giam_sat_worker đọc lại mỗi vòng quét)."""

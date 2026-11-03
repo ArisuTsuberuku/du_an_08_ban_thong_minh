@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Hộp khóa điện thoại ESP32-S3 (services/phone_box.py) — phía máy tính.
+Mô-đun ESP32 của FocusDesk (services/phone_box.py) — phía máy tính.
+  v2 (hiện hành, firmware/focusdesk_esp32): TỦ điện thoại có công tắc hành trình + cắm sạc + chữ ký TEE, tưới cây thưởng,
+      đèn / còi theo mức tập trung. Đặc tả: firmware/GIAO_THUC.md.
+  v1 (giai đoạn 1, firmware/hop_dien_thoai_esp32s3): hộp KHÓA điện thoại có HMAC — vẫn hỗ trợ để tương thích.
 
 KẾT NỐI: cáp USB (cổng USB native của ESP32-S3 = cổng COM ảo, hoặc chip CH340/CP210x), 115200 baud.
 Tự dò cổng: ưu tiên VID Espressif 0x303A, rồi CH340 / CP210x / FTDI; BỎ QUA cổng COM Bluetooth.
@@ -31,9 +34,14 @@ import time
 from collections import deque
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from core.config_manager import load_config, safe_log, save_config, update_runtime_state
+from core.config_manager import load_config, load_runtime_state, safe_log, save_config, update_runtime_state
 
 BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware đời đầu, vẫn chấp nhận
+
+STATE_KEYS = ("phone", "lid", "lock", "nonce", "fw", "box_id", "paired", "unlock_left",
+              # v2 (tủ điện thoại)
+              "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active")
+DEFAULT_BOX_CFG = {"session_min": 25, "led_cfi": 50, "buzz_cfi": 30}
 
 BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
 PING_S = 2.0
@@ -202,7 +210,7 @@ class PhoneBoxLink:
                     if self._suspended.is_set():          # Serial monitor vừa xin cổng -> nhả ra
                         break
                     self._on_msg(msg)
-                    safe_log(f"[HỘP] Đã kết nối hộp điện thoại {msg.get('box_id')} ở {port} (fw {msg.get('fw')})")
+                    safe_log(f"[HỘP] Đã kết nối mô-đun ESP32 {msg.get('box_id')} ở {port} (fw {msg.get('fw')}, giao thức v{msg.get('proto', 1)})")
                     return True
             log_traffic("SYS", f"{port}: không thấy hello hợp lệ (dev phải là {BOX_DEV_IDS[0]}) trong 2,5 giây", port)
             tr.close()
@@ -227,7 +235,10 @@ class PhoneBoxLink:
             now = time.time()
             if now - last_ping >= PING_S:
                 last_ping = now
-                self._send_raw({"t": "ping", "id": self._next_id(), "ts": int(now)})
+                ping = {"t": "ping", "id": self._next_id(), "ts": int(now)}
+                if self.proto >= 2:
+                    ping["cfi"] = current_cfi()          # tủ v2 nháy đèn / kêu còi theo CFI của camera AI
+                self._send_raw(ping)
             msg = self._read_one()
             if msg:
                 self._last_rx = time.time()
@@ -285,15 +296,16 @@ class PhoneBoxLink:
         t = msg.get("t")
         if t in ("hello", "state"):
             prev = dict(self.state)
-            self.state.update(connected=True, **{k: msg[k] for k in ("phone", "lid", "lock", "nonce", "fw", "box_id",
-                                                                    "paired", "unlock_left") if k in msg})
+            self.state.update(connected=True, **{k: msg[k] for k in STATE_KEYS if k in msg})
             if not prev.get("connected"):
                 self._emit("connected", self.state)
+                if self.proto >= 2:
+                    threading.Thread(target=self.push_cfg, daemon=True).start()   # gửi thời gian học + ngưỡng CFI
             self._publish()
         elif t == "event":
             e = str(msg.get("e", ""))
-            for k in ("phone", "lid", "lock", "nonce"):
-                if k in msg:
+            for k in STATE_KEYS:
+                if k in msg and k not in ("fw", "box_id"):
                     self.state[k] = msg[k]
             self._publish()
             self._emit(e, msg)
@@ -319,7 +331,7 @@ class PhoneBoxLink:
         key = str(load_config().get("phone_box_key", "") or "")
         msg_id = self._next_id()
         msg = {"t": t, "id": msg_id, **extra}
-        if t in ("lock", "unlock", "cfg"):
+        if t in ("lock", "unlock", "cfg") and self.proto < 2:      # v1: lệnh khóa ký HMAC; v2 không có khóa cơ khí
             if not key:
                 return {"ok": False, "err": "Hộp chưa được ghép (Admin → Hộp điện thoại → Ghép hộp)"}
             msg["mac"] = make_mac(key, t, msg_id, str(self.state.get("nonce", "")), int(extra.get("sec", 0) or 0))
@@ -348,6 +360,41 @@ class PhoneBoxLink:
     def water(self, ms: int = 2500) -> Dict[str, Any]:
         """Thưởng xanh: bật bơm tưới cây ms mili-giây (firmware tự khóa cứng tối đa 10 giây)."""
         return self.command("water", ms=max(500, min(10000, int(ms))))
+
+    # ---------------------------------------------------------------- v2: tủ điện thoại
+    @property
+    def proto(self) -> int:
+        try:
+            return int(self.state.get("proto", 1) or 1)
+        except (TypeError, ValueError):
+            return 1
+
+    def set_cfg(self, session_min: Optional[float] = None, led_cfi: Optional[int] = None,
+                buzz_cfi: Optional[int] = None) -> Dict[str, Any]:
+        """Gửi thời lượng ca học (phút) + ngưỡng CFI nháy đèn / kêu còi. Tủ lưu vào bộ nhớ, áp dụng từ ca sau."""
+        extra: Dict[str, Any] = {}
+        if session_min:
+            extra["session_ms"] = int(max(1, min(240, float(session_min))) * 60000)
+        if led_cfi is not None:
+            extra["led_cfi"] = max(0, min(100, int(led_cfi)))
+        if buzz_cfi is not None:
+            extra["buzz_cfi"] = max(0, min(100, int(buzz_cfi)))
+        return self.command("cfg", **extra)
+
+    def push_cfg(self) -> Dict[str, Any]:
+        """Gửi cấu hình phụ huynh đặt trên web (đã lưu ở máy: study_box_cfg) xuống tủ."""
+        c = box_cfg()
+        return self.set_cfg(c["session_min"], c["led_cfi"], c["buzz_cfi"])
+
+    def reset_key(self) -> Dict[str, Any]:
+        """Xóa khóa công khai điện thoại đã ghép -> điện thoại kết nối kế tiếp được ghép mới. Đang trong ca: bị từ chối."""
+        r = self.command("reset_key", timeout=4.0)
+        if not r.get("ok") and r.get("err") == "busy":
+            r["err"] = "Đang trong ca học — chờ hết giờ học rồi reset"
+        return r
+
+    def end_session(self, reason: str = "pc") -> Dict[str, Any]:
+        return self.command("end", reason=reason)
 
     def pair(self) -> Dict[str, Any]:
         """Tạo khóa chung mới và gửi cho hộp (hộp phải đang ở chế độ ghép: giữ nút 5 giây)."""
@@ -445,8 +492,93 @@ def _alert(msg: str) -> None:
         safe_log(f"[HỘP] {msg}")
 
 
+def box_cfg() -> Dict[str, Any]:
+    """Thời lượng ca + ngưỡng CFI phụ huynh đặt trên web (cloud agent lưu vào shared_config["study_box_cfg"])."""
+    c = dict(DEFAULT_BOX_CFG)
+    raw = load_config().get("study_box_cfg") or {}
+    if isinstance(raw, dict):
+        for k in c:
+            try:
+                if raw.get(k) is not None:
+                    c[k] = type(c[k])(raw[k])
+            except (TypeError, ValueError):
+                pass
+    return c
+
+
+_test_cfi: Dict[str, Any] = {"v": None, "until": 0.0}
+
+
+def set_test_cfi(value: Optional[int], seconds: int = 60) -> None:
+    """Admin thử nghiệm: ép CFI gửi xuống tủ trong `seconds` giây (None = trả về CFI thật của camera)."""
+    if value is None:
+        _test_cfi.update(v=None, until=0.0)
+    else:
+        _test_cfi.update(v=max(-1, min(100, int(value))), until=time.time() + max(5, min(3600, int(seconds))))
+    log_traffic("SYS", f"CFI thử: {value if value is not None else 'tắt'}")
+
+
+def current_cfi() -> int:
+    """CFI hiện tại cho tủ v2 (0–100), -1 = không có (camera tắt, không ở chế độ học sinh, đang nghỉ vệ sinh)."""
+    if _test_cfi["v"] is not None and time.time() < _test_cfi["until"]:
+        return int(_test_cfi["v"])
+    try:
+        st = load_runtime_state()
+        pt = st.get("posture_telemetry") or {}
+        if st.get("current_role") != "student" or not pt.get("camera_connected"):
+            return -1
+        if (st.get("toilet_break") or {}).get("active"):
+            return -1
+        v = pt.get("cfi_score")
+        return -1 if v is None else max(0, min(100, int(round(float(v)))))
+    except Exception:
+        return -1
+
+
+_V2_TEXT = {
+    "session_started": "📦 Đã cất điện thoại vào tủ, cắm sạc, đóng cửa → bắt đầu ca học {m} phút",
+    "session_end": "⏰ Hết giờ học — ca {m} phút đã xong (tưới cây nếu ca đạt chuẩn)",
+    "door_open": "⚠️ Cửa tủ điện thoại bị mở trong giờ học",
+    "phone_out": "⚠️ Điện thoại bị rút sạc / lấy ra khỏi tủ trong giờ học",
+    "key_reset": "🔑 Đã reset khóa điện thoại — điện thoại kết nối tiếp theo sẽ được ghép",
+    "paired": "🔑 Tủ đã ghép điện thoại mới",
+}
+
+
+def _v2_event(e: str, d: Dict[str, Any]) -> None:
+    """Tủ v2: tủ tự đếm giờ học. Sự kiện trong ca -> vi phạm + báo; sau giờ học (active=false) -> im lặng."""
+    from services import study_sessions
+
+    active = bool(d.get("active"))
+    if e == "session_started":
+        mins = round(float(d.get("session_s") or 0) / 60.0, 1)
+        st = load_runtime_state()
+        study_sessions.start_session(ai_seconds=float(st.get("ai_seconds", 0) or 0), phone_in_box=True, source="box",
+                                     planned_min=mins)
+        _alert(_V2_TEXT[e].format(m=f"{mins:g}"))
+    elif e == "session_end":
+        rep = study_sessions.end_session("Hết giờ học" if d.get("reason") == "time_up" else "Kết thúc ca sớm",
+                                         dur_s=d.get("dur_s"), time_up=d.get("reason") == "time_up")
+        mins = rep.get("minutes") if rep else round(float(d.get("dur_s") or 0) / 60.0, 1)
+        _alert(_V2_TEXT[e].format(m=f"{mins:g}"))
+    elif e in ("door_open", "phone_out"):
+        if active:                                   # sau giờ học: rút sạc / mở tủ KHÔNG báo nữa
+            study_sessions.note_violation("PHONE")
+            _alert(_V2_TEXT[e])
+    elif e in ("key_reset", "paired"):
+        _alert(_V2_TEXT[e])
+    elif e == "disconnected":
+        if (study_sessions.current() or {}).get("source") == "box":
+            _alert("🔌 Mất kết nối tủ điện thoại trong giờ học (rút cáp USB?)")
+    elif e == "connected":
+        safe_log(f"[TỦ] Đã kết nối tủ điện thoại v2 ({d.get('box_id')}) — pha {d.get('phase')}")
+
+
 def _default_event_handler(e: str, d: Dict[str, Any]) -> None:
     """Biến sự kiện phần cứng thành cảnh báo cho phụ huynh (theo ngữ cảnh: đang học hay không)."""
+    if int(d.get("proto", 0) or 0) >= 2 or (_link is not None and _link.proto >= 2):
+        _v2_event(e, d)
+        return
     studying = _session["studying"]
     texts = {
         "phone_in": "📦 Học sinh đã cất điện thoại vào hộp",
@@ -489,6 +621,8 @@ def set_studying(on: bool) -> Dict[str, Any]:
     """App gọi khi vào / rời chế độ học sinh: vào học -> khóa hộp (nếu điện thoại đã ở trong)."""
     _session["studying"] = on
     box = get_box()
+    if box.proto >= 2:          # tủ v2: không có khóa — ca học do tủ bắt đầu (đóng cửa + cắm sạc)
+        return {"ok": True}
     if on and box.state.get("connected") and box.state.get("phone") and load_config().get("phone_box_auto_lock", True):
         return box.lock()
     return {"ok": True}

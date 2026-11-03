@@ -25,6 +25,8 @@ from typing import Any, Dict, List, Optional, Tuple
 DEFAULT_CFG: Dict[str, Any] = {
     "min_minutes": 25, "max_violations": 0, "min_focus": 67, "points_per_session": 10, "max_blocks": 3,
     "water_on_success": True, "water_seconds": 2.5,
+    # Tủ điện thoại ESP32 v2: thời gian 1 ca = min_minutes (tủ đếm ngược); CFI dưới ngưỡng -> nháy đèn đỏ / kêu còi
+    "led_cfi": 50, "buzz_cfi": 30,
     "student_name": "", "class_name": "", "student_code": "", "school": "", "webhook_url": "",
     "rewards": [{"name": "30 phút chơi game cuối tuần", "points": 50},
                 {"name": "Chọn phim tối thứ Bảy", "points": 80},
@@ -56,6 +58,10 @@ def clean_cfg(raw: Any) -> Dict[str, Any]:
         cfg["water_seconds"] = round(max(0.5, min(10.0, float(raw.get("water_seconds", cfg["water_seconds"])))), 1)
     except (TypeError, ValueError):
         cfg["water_seconds"] = 2.5
+    cfg["led_cfi"] = _int(raw.get("led_cfi", cfg["led_cfi"]), 50, 0, 100)
+    cfg["buzz_cfi"] = _int(raw.get("buzz_cfi", cfg["buzz_cfi"]), 30, 0, 100)
+    if cfg["buzz_cfi"] > cfg["led_cfi"]:          # còi là mức nặng hơn đèn -> ngưỡng còi không cao hơn ngưỡng đèn
+        cfg["buzz_cfi"] = cfg["led_cfi"]
     cfg["points_per_session"] = _int(raw.get("points_per_session", cfg["points_per_session"]), 10, 1, 1000)
     cfg["max_blocks"] = _int(raw.get("max_blocks", cfg["max_blocks"]), 3, 1, 10)
     for k, n in (("student_name", 60), ("class_name", 30), ("student_code", 40), ("school", 80)):
@@ -75,7 +81,9 @@ def evaluate(rep: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[bool, List[str],
     """(thành công?, lý do chưa đạt, điểm). Điểm = điểm/ca × số khối `min_minutes` học được (tối đa max_blocks)."""
     reasons: List[str] = []
     minutes = float(rep.get("minutes") or 0)
-    if minutes < cfg["min_minutes"]:
+    # Tủ ESP32 báo "hết giờ học": ca đã chạy đủ thời lượng tủ đặt -> chấp nhận sai lệch làm tròn / trễ USB (≤ 6 giây)
+    tol = 0.1 if rep.get("time_up") else 0.0
+    if minutes + tol < cfg["min_minutes"]:
         reasons.append(f"học {minutes:g}/{cfg['min_minutes']} phút")
     viol = {k: int(v) for k, v in (rep.get("violations") or {}).items() if isinstance(v, (int, float))}
     nv = sum(viol.values())
@@ -91,6 +99,12 @@ def evaluate(rep: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[bool, List[str],
     ok = not reasons
     blocks = min(cfg["max_blocks"], int(minutes // cfg["min_minutes"])) if ok else 0
     return ok, reasons, cfg["points_per_session"] * max(1, blocks) if ok else 0
+
+
+def box_cfg(cfg: Dict[str, Any], ver: int = 0) -> Dict[str, Any]:
+    """Phần cấu hình gửi xuống máy -> tủ ESP32 v2 (heartbeat: chỉ gửi khi phiên bản đổi)."""
+    return {"ver": int(ver or 0), "session_min": cfg["min_minutes"], "led_cfi": cfg["led_cfi"],
+            "buzz_cfi": cfg["buzz_cfi"]}
 
 
 def session_key(rep: Dict[str, Any]) -> str:
