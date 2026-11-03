@@ -41,7 +41,7 @@ BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware 
 STATE_KEYS = ("phone", "lid", "lock", "nonce", "fw", "box_id", "paired", "unlock_left",
               # v2 (tủ điện thoại)
               "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active", "test",
-              "cfi", "sim_charge", "key_fp", "pair_left", "pair_expect")
+              "cfi", "sim_charge", "key_fp", "pair_left", "pair_expect", "study", "break_left")
 DEFAULT_BOX_CFG = {"session_min": 25, "led_cfi": 50, "buzz_cfi": 30}
 
 BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
@@ -312,6 +312,7 @@ class PhoneBoxLink:
                     self.state[k] = msg[k]
             if e == "session_started":       # mốc chuẩn nhất: đúng lúc tủ bắt đầu đếm
                 self.state["end_at"] = round(time.time() + float(msg.get("session_s") or 0), 2)
+                self.state["end_phase"] = "active"
             self._track_end(msg)
             self._publish()
             self._emit(e, msg)
@@ -326,12 +327,19 @@ class PhoneBoxLink:
         """Giữ 1 mốc kết thúc ca ỔN ĐỊNH (end_at, giờ máy) để đồng hồ đếm ngược chạy đều từng giây.
         left_s của tủ là số giây làm tròn xuống và chỉ cập nhật mỗi ~2 s (ping) -> nếu hiển thị thẳng sẽ bị nhảy cóc.
         Chỉ chỉnh lại mốc khi lệch > 2 s (máy vừa mở lại giữa ca, tủ bị trễ...)."""
-        if self.state.get("phase") != "active":
+        ph = self.state.get("phase")
+        if ph not in ("active", "break"):
             self.state.pop("end_at", None)
+            self.state.pop("end_phase", None)
             return
-        if "left_s" not in msg:
+        if self.state.get("end_phase") != ph:          # đổi từ nghỉ sang học (hoặc ngược lại) -> mốc mới
+            self.state.pop("end_at", None)
+            self.state["end_phase"] = ph
+        key = "left_s" if ph == "active" else "break_left"
+        if key not in msg:
             return
-        cand = time.time() + float(msg.get("left_s") or 0) + 0.5      # +0,5 s bù phần làm tròn xuống
+        # left_s làm tròn XUỐNG (+0,5 s), break_left làm tròn LÊN (-0,5 s)
+        cand = time.time() + float(msg.get(key) or 0) + (0.5 if ph == "active" else -0.5)
         cur = self.state.get("end_at")
         if not isinstance(cur, (int, float)) or abs(cand - cur) > 2.0:
             self.state["end_at"] = round(cand, 2)
@@ -426,6 +434,15 @@ class PhoneBoxLink:
     def test_io(self) -> Dict[str, Any]:
         """THỬ NGHIỆM: nháy lần lượt đèn đỏ -> đèn xanh -> còi (1,5 s), không bật bơm."""
         return self.command("io")
+
+    def next_session(self, break_min: float = 0) -> Dict[str, Any]:
+        """Sau ca: nghỉ break_min phút rồi tủ tự về chờ ca mới (không cần mở/đóng cửa). 0 = bắt đầu ngay."""
+        r = self.command("next", break_ms=int(max(0, min(60, float(break_min))) * 60000))
+        if not r.get("ok") and r.get("err") == "busy":
+            r["err"] = "Đang trong ca học"
+        elif not r.get("ok") and r.get("err") == "unknown":
+            r["err"] = "Firmware tủ cũ (cần bản 2.5.0 trở lên)"
+        return r
 
     def end_session(self, reason: str = "pc") -> Dict[str, Any]:
         return self.command("end", reason=reason)
@@ -634,6 +651,11 @@ def _v2_event(e: str, d: Dict[str, Any]) -> None:
         if active:                                   # sau giờ học: rút sạc / mở tủ KHÔNG báo nữa
             study_sessions.note_violation("PHONE")
             _alert(_V2_TEXT[e])
+    elif e == "break_started":
+        _alert(f"☕ Nghỉ giữa ca {round(float(d.get('break_left') or 0) / 60):g} phút — lấy điện thoại không bị tính vi phạm; "
+               "hết giờ nghỉ tủ kêu nhắc vào ca mới")
+    elif e == "break_end":
+        _alert("⏰ Hết giờ nghỉ — cất điện thoại vào tủ, cắm sạc, đóng cửa (ở chế độ Học sinh) để vào ca mới")
     elif e == "key_reset":
         _alert(_V2_TEXT[e])
     elif e == "paired":

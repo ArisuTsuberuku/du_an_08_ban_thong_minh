@@ -51,6 +51,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `beep` | `ms` (50 – 3000) | còi + đèn đỏ | — |
 | `reset_key` | `expect` (tùy chọn): mã ghép 6 số trên app | xóa khóa điện thoại đã ghép, ngắt BLE, **mở cửa sổ ghép 2 phút**; có `expect` thì chỉ nhận đúng điện thoại có mã đó (khác mã → event `pair_mismatch`, không ghép); event `key_reset` | `busy` (đang trong ca) |
 | `end` | `reason` | kết thúc ca sớm → event `session_end` | `no_session` |
+| `next` | `break_ms` (0 – 3 600 000) | sau ca: pha `break` (nghỉ giữa ca, mở tủ / rút sạc không báo) → hết giờ kêu ngắn, event `break_end`, về `idle` (đủ điều kiện là vào ca luôn, không cần mở/đóng lại cửa). `break_ms`=0 → về `idle` ngay. Web: nút “▶️ Bắt đầu ca mới sau N phút nghỉ” (N = “Nghỉ giữa 2 ca” trong Tiêu chí) | `busy` |
 | `start` | `session_ms` (10 000 – 14 400 000, bỏ trống = theo `cfg`) | **chỉ để thử nghiệm**: vào ca ngay, bỏ qua cửa / sạc / chữ ký; mọi tin trong ca có `"test":true` → FocusDesk không ghi ca, không tính vi phạm, không tưới (chỉ báo kèm “🧪 [Thử nghiệm]”) | `busy` |
 | `io` | — | thử dây: đèn đỏ 0,6 s → đèn xanh 0,6 s → còi 0,3 s (không bật bơm) | — |
 | `charge` | `on` (true/false) | **thử nghiệm**: giả lập điện thoại đang sạc (trạng thái có `sim_charge:true`) | — |
@@ -59,7 +60,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 
 ## 4. Tin ESP32 → máy tính
 
-`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.4.2","box_id":"A1B2","nonce":"…", …trường trạng thái}`
+`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.5.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
 (`dev` phải là `focusdesk-box`, phần mềm chờ tối đa 2,5 s sau khi mở cổng).
 
 **Trường trạng thái** (có trong `hello`, `state` và mọi `event`):
@@ -74,6 +75,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `session_s`, `left_s` | thời lượng ca đang đặt · số giây còn lại của ca |
 | `viol`, `cfi`, `pump` | số vi phạm trong ca · CFI tủ đang dùng · bơm đang chạy |
 | `test` | `true` khi đang trong ca thử nghiệm (lệnh `start`) |
+| `break_left` | số giây nghỉ giữa ca còn lại (pha `break`) |
 | `key_fp` | **mã ghép 6 số** của điện thoại đã ghép = (4 byte đầu SHA-256 của khóa công khai DER, số không dấu) mod 1 000 000 — app tính giống hệt; rỗng = chưa ghép |
 | `pair_left`, `pair_expect` | số giây còn lại của cửa sổ ghép · mã phụ huynh đã nhập (nếu có) |
 | `lock` | luôn `"none"` ở v2 |

@@ -144,6 +144,28 @@ class TestCabinetV2(unittest.TestCase):
         self.assertEqual(self.link.reset_key(expect="12ab")["ok"], True)   # mã sai định dạng -> bỏ qua expect
         self.assertEqual(self.box.expect, "")
 
+    def test_break_then_next_session_without_reopening_door(self):
+        STATE["current_role"] = "student"
+        self.assertTrue(wait(lambda: self.box.cfg_seen))
+        self.box.session_ms = 60000
+        self.box.plug(True)
+        self.box.close_door()
+        self.assertTrue(wait(lambda: self.link.state.get("phase") == "active"))
+        self.box.fast_forward(61)
+        self.assertTrue(wait(lambda: self.link.state.get("phase") == "done"))
+        self.assertFalse(self.link.end_session("x")["ok"])               # không có ca để kết thúc
+        r = self.link.next_session(2)                                     # nghỉ 2 phút
+        self.assertTrue(r["ok"])
+        self.assertTrue(wait(lambda: self.link.state.get("phase") == "break"))
+        self.assertTrue(any("Nghỉ giữa ca" in a for a in alerts), alerts)
+        self.box.open_door()                                              # lấy điện thoại trong giờ nghỉ: KHÔNG báo vi phạm
+        time.sleep(0.4)
+        self.assertFalse(any("Cửa tủ" in a for a in alerts), alerts)
+        self.box.close_door()
+        self.box.fast_forward(121)                                        # hết giờ nghỉ -> tự vào ca mới (cửa đóng, sạc, HS)
+        self.assertTrue(wait(lambda: any("Hết giờ nghỉ" in a for a in alerts)), alerts)
+        self.assertTrue(wait(lambda: self.link.state.get("phase") == "active"), self.link.state)
+
     def test_set_studying_does_not_lock_v2(self):
         self.assertEqual(pb.set_studying(True), {"ok": True})
         pb.set_studying(False)

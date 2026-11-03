@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.4.2"
+#define FW_VERSION   "2.5.0"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -64,9 +64,10 @@ uint8_t currentNonce[32];
 char boxId[9] = "0000";
 
 // ---------------------------------------------------------------- trạng thái
-enum Phase { IDLE, ACTIVE, DONE };
+enum Phase { IDLE, ACTIVE, DONE, BREAK };   // BREAK = nghỉ giữa ca (phụ huynh bấm "Bắt đầu ca mới sau N phút nghỉ")
 Phase phase = IDLE;
-const char* phaseName() { return phase == ACTIVE ? "active" : phase == DONE ? "done" : "idle"; }
+const char* phaseName() { return phase == ACTIVE ? "active" : phase == DONE ? "done" : phase == BREAK ? "break" : "idle"; }
+unsigned long breakUntil = 0;
 
 volatile bool doConnect = false;
 volatile bool bleConnected = false;
@@ -147,6 +148,7 @@ void fillState(JsonDocument& d) {
   d["viol"] = sessionViol;
   d["cfi"] = currentCfi;
   d["pump"] = pumpOffAt != 0;
+  d["break_left"] = phase == BREAK ? (long)(breakUntil - millis()) > 0 ? (breakUntil - millis() + 999) / 1000UL : 0 : 0;
   d["test"] = testSession;
   d["study"] = studyOk();
   d["sim_charge"] = simCharge;
@@ -368,6 +370,15 @@ void handleLine(const String& line) {
   if (t == "io") {                                  // thử dây: đỏ 0,6 s -> xanh 0,6 s -> còi 0,3 s (không bật bơm)
     ioStart = millis(); ioUntil = ioStart + 1500; sendAck(id, true); return;
   }
+  if (t == "next") {                                // sau ca: nghỉ break_ms rồi về chờ ca mới (không cần mở/đóng cửa)
+    if (phase == ACTIVE) { sendAck(id, false, "busy"); return; }
+    unsigned long ms = m["break_ms"] | 0UL;
+    ms = constrain(ms, 0UL, 60UL * 60000UL);
+    sendAck(id, true);
+    if (ms == 0) { phase = IDLE; sendEvent("break_end"); requestVerify(); }
+    else { phase = BREAK; breakUntil = millis() + ms; sendEvent("break_started"); }
+    return;
+  }
   if (t == "end") {
     if (phase != ACTIVE) { sendAck(id, false, "no_session"); return; }
     sendAck(id, true); endSession(m["reason"] | "pc"); return;
@@ -465,6 +476,10 @@ void loop() {
     BLEScan* sc = BLEDevice::getScan(); sc->clearResults(); sc->start(4, nullptr, false); lastScan = now;
   }
 
+  // 0. Hết giờ nghỉ giữa ca -> kêu ngắn báo học sinh, về chờ ca mới (đủ điều kiện là vào ca luôn)
+  if (phase == BREAK && (long)(millis() - breakUntil) >= 0) {
+    phase = IDLE; alarmUntil = millis() + 400; sendEvent("break_end"); requestVerify();
+  }
   // 1. Bắt đầu ca: học sinh đang ở CHẾ ĐỘ HỌC SINH trên máy + cửa đóng + đang sạc + điện thoại ký đúng
   if (phase == IDLE && doorClosed && charging && (signatureVerified || !REQUIRE_TEE) && studyOk()) startSession();
   // 2. Hết giờ học — dùng millis() mới: sessionStart vừa đặt ở bước 1 có thể LỚN HƠN `now` (lỗi 2.4.0: tràn số

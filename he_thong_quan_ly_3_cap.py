@@ -783,7 +783,7 @@ class PhanMemQuanLyBanHocEXE:
             bx = load_runtime_state().get("phone_box") or {}
             if load_config().get("phone_box_enabled") and bx.get("connected") and int(bx.get("proto", 1) or 1) >= 2:
                 # Tủ v2: đếm ngược ca học ngay trên thanh dock
-                if bx.get("phase") == "active":
+                if bx.get("phase") in ("active", "break"):
                     self._dem_nguoc_dock()            # đồng hồ riêng 0,25 s/lần cho mượt (dock chính 1,5 s/lần)
                 elif bx.get("phase") == "done":
                     self._dock_box.config(text="✅ Hết giờ học", fg="#86efac")
@@ -874,10 +874,13 @@ class PhanMemQuanLyBanHocEXE:
             return
         bx = load_runtime_state().get("phone_box") or {}
         end_at = bx.get("end_at")
-        if bx.get("phase") != "active" or not isinstance(end_at, (int, float)):
+        if bx.get("phase") not in ("active", "break") or not isinstance(end_at, (int, float)):
             return
         left = max(0, math.ceil(end_at - time.time()))
-        lbl.config(text=f"⏳ Ca học còn {left // 60:02d}:{left % 60:02d}", fg="#86efac")
+        if bx.get("phase") == "break":
+            lbl.config(text=f"☕ Nghỉ giữa ca còn {left // 60:02d}:{left % 60:02d}", fg="#fcd34d")
+        else:
+            lbl.config(text=f"⏳ Ca học còn {left // 60:02d}:{left % 60:02d}", fg="#86efac")
         old = getattr(self, "_dock_cd_job", None)
         if old is not None:
             try:
@@ -2158,6 +2161,9 @@ class PhanMemQuanLyBanHocEXE:
                         "TX/RX. Thời gian ca & ngưỡng CFI bình thường do phụ huynh đặt trên web (thẻ 🏆 Thưởng).",
                     bold=False, size=9)
         bc = phone_box.box_cfg()
+        self._label(t2, f"🌐 Đang dùng cài đặt của WEB PHỤ HUYNH: ca {bc['session_min']:g} phút · đèn đỏ khi CFI < "
+                        f"{bc['led_cfi']} · còi khi CFI < {bc['buzz_cfi']} (đổi trên web → thẻ 🏆 Thưởng → Tiêu chí).",
+                    bold=True, size=9)
         f_cfg = tk.Frame(t2, bg=UI["card"])
         f_cfg.pack(anchor="w", fill="x", pady=(6, 0))
 
@@ -2179,14 +2185,14 @@ class PhanMemQuanLyBanHocEXE:
         v_buzz = o_so(f_cfg, "Còi khi CFI <", bc["buzz_cfi"])
 
         def gui_cfg() -> Dict[str, Any]:
-            c = load_config()
-            c["study_box_cfg"] = {"session_min": max(1.0, min(240.0, so(v_min, 25))),
-                                  "led_cfi": int(max(0, min(100, so(v_led, 50)))),
-                                  "buzz_cfi": int(max(0, min(100, so(v_buzz, 30))))}
-            save_config(c)   # web đổi tiêu chí lần sau sẽ ghi đè giá trị thử này
-            return box.push_cfg()
+            # CHỈ GỬI THỬ xuống tủ, KHÔNG lưu: cài đặt thật là của web phụ huynh (tủ nối lại / web đổi -> về giá trị web)
+            return box.set_cfg(max(1.0, min(240.0, so(v_min, 25))), int(max(0, min(100, so(v_led, 50)))),
+                               int(max(0, min(100, so(v_buzz, 30)))))
 
-        self._ui_button(f_cfg, "⏱️ Gửi cfg", lambda: chay(gui_cfg, "cfg"), kind="ghost").pack(side="left")
+        self._ui_button(f_cfg, "⏱️ Gửi thử (tạm thời)", lambda: chay(gui_cfg, "cfg thử — lần kết nối sau tủ về cài đặt web"),
+                        kind="ghost").pack(side="left")
+        self._ui_button(f_cfg, "🌐 Về cài đặt web", lambda: chay(box.push_cfg, "Áp lại cài đặt web"),
+                        kind="ghost").pack(side="left", padx=6)
 
         f_cfi = tk.Frame(t2, bg=UI["card"])
         f_cfi.pack(anchor="w", fill="x", pady=(8, 0))

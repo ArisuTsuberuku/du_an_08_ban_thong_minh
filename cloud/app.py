@@ -79,6 +79,7 @@ COMMAND_TYPES = {
     "box_lock": "🔒 Khóa hộp điện thoại",
     "water_plant": "🌱 Tưới cây (mô-đun ESP32)",
     "box_reset_key": "📱 Ghép điện thoại mới với tủ ESP32",
+    "box_next_session": "▶️ Bắt đầu ca mới sau giờ nghỉ",
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 # Web Push (thông báo trên điện thoại kể cả khi đã đóng web): tạo khóa bằng cloud/tao_khoa_vapid.py
@@ -567,7 +568,8 @@ h3{margin:4px 0 10px}
       <label>Điểm mỗi ca đạt<input id="s-pts" type="number" min="1" max="1000"></label>
       <label>Nhân điểm tối đa (khối)<input id="s-blocks" type="number" min="1" max="10"></label>
       <label>Tủ ESP32: nháy đèn khi CFI &lt;<input id="s-led" type="number" min="0" max="100"></label>
-      <label>Tủ ESP32: kêu còi khi CFI &lt;<input id="s-buzz" type="number" min="0" max="100"></label></div>
+      <label>Tủ ESP32: kêu còi khi CFI &lt;<input id="s-buzz" type="number" min="0" max="100"></label>
+      <label>Nghỉ giữa 2 ca (phút)<input id="s-break" type="number" min="0" max="60"></label></div>
      <label class="row" style="gap:8px;margin:4px 0 6px;align-items:center"><input type="checkbox" id="s-water"> <span><b>🌱 Tưới cây khi ca học đạt chuẩn</b> <span class="mut" style="font-size:12.5px">(mô-đun ESP32 + bơm mini trên bàn học)</span></span></label>
      <p class="mut" style="font-size:12.5px">Mặc định: ca học ≥ 25 phút, không vi phạm và <b>tập trung trên 2/3 (67%) thời gian học</b> → máy tự bật bơm tưới chậu cây. Tập trung = khoảng thời gian camera AI thấy học sinh nhìn bài, ngồi đúng (điểm CFI ≥ 60%); chỉ xét khi máy có camera (đặt 0 = bỏ qua). Vi phạm = mở game / web giải trí, nhờ AI làm game, quá giờ AI, cầm điện thoại. Thời gian xin đi vệ sinh không tính. Điểm thưởng: ca dài gấp đôi/ba thời gian tối thiểu được nhân điểm. <b>Có tủ điện thoại ESP32:</b> đóng cửa tủ + cắm sạc là bắt đầu ca, tủ đếm ngược đúng “Thời gian 1 ca học”; trong ca mở cửa / rút sạc = vi phạm, hết giờ rút ra không báo nữa; đèn đỏ nháy / còi kêu khi mức tập trung (CFI) dưới ngưỡng.</p>
      <h3 style="margin-top:14px">👤 Thông tin cho giáo viên</h3>
@@ -832,7 +834,10 @@ let LIVE_END=0;
 function liveTick(){const el=document.getElementById('hs-cd');if(!el||!LIVE_END)return;const s=Math.max(0,Math.ceil((LIVE_END-Date.now())/1000));
  el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
 setInterval(liveTick,250);
-function renderLive(v){const el=$('hs-live'),s=v.status||{},b=s.phone_box||{},p=s.posture||{};const keep=LIVE_END;LIVE_END=0;
+async function nextSession(m,ev){if(ev)ev.stopPropagation();const v=cur();if(!v)return;
+ if(!confirm(m?`Cho con nghỉ ${m} phút rồi bắt đầu ca mới?\\n(Trong giờ nghỉ lấy điện thoại không bị tính vi phạm; hết giờ nghỉ tủ kêu nhắc, con cất điện thoại + đóng cửa là vào ca.)`:'Bắt đầu ca mới ngay?'))return;
+ const r=await api(`/api/parent/devices/${v.id}/command`,{type:'box_next_session',minutes:m});toast(r.message||r.error||'');}
+function renderLive(v){const el=$('hs-live'),s=v.status||{},b=s.phone_box||{},p=s.posture||{};const keep=LIVE_END;LIVE_END=0;const brk=(v.study||{}).break_minutes??5;
  if(!b.enabled||!b.connected||(b.proto||1)<2||!v.online){el.innerHTML='';return '';}
  const cfi=(p.camera&&typeof p.cfi==='number')?Math.round(p.cfi):null;
  const cfiTxt=cfi===null?'<span class="mut">camera chưa bật</span>':`<b style="color:${cfi>=75?'#16a34a':cfi>=50?'#ca8a04':'#dc2626'}">${cfi}%</b>`;
@@ -842,7 +847,16 @@ function renderLive(v){const el=$('hs-live'),s=v.status||{},b=s.phone_box||{},p=
    <div style="font-size:13px;color:#047857">${b.test?'🧪 CA THỬ NGHIỆM':'📚 ĐANG TRONG CA HỌC'} · ${Math.round((b.session_s||0)/60)} phút</div>
    <div style="font-size:30px;font-weight:800;color:#065f46;letter-spacing:1px">⏳ <span id="hs-cd">--:--</span></div>
    <div style="font-size:13px">🎯 Tập trung lúc này: ${cfiTxt} · ⚠️ Vi phạm: <b>${b.viol||0}</b> · đèn đỏ khi CFI dưới ngưỡng, còi khi rất thấp</div></div>`;liveTick();return 'active';}
- if(b.phase==='done'){el.innerHTML='<div style="background:#f0fdf4;border-radius:12px;padding:8px 12px;font-size:13px">✅ <b>Ca vừa kết thúc</b> — web đang chấm; đạt chuẩn thì tủ tự tưới cây. Mở rồi đóng lại cửa tủ để bắt đầu ca mới.</div>';return 'done';}
+ if(b.phase==='done'){el.innerHTML=`<div style="background:#f0fdf4;border-radius:12px;padding:8px 12px;font-size:13px">✅ <b>Ca vừa kết thúc</b> — web đang chấm; đạt chuẩn thì tủ tự tưới cây.
+   <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button class="pri" style="background:var(--acc);color:#fff;padding:6px 12px" onclick="nextSession(${brk},event)">▶️ Bắt đầu ca mới sau ${brk} phút nghỉ</button>
+   <button style="padding:6px 12px" onclick="nextSession(0,event)">Bắt đầu ngay</button></div></div>`;return 'done';}
+ if(b.phase==='break'){const rem=(typeof b.end_in==='number'?b.end_in:(b.break_left||0))-(v.ago||0);const cand=Date.now()+Math.max(0,rem)*1000;
+  LIVE_END=(keep&&Math.abs(cand-keep)<2500)?keep:cand;
+  el.innerHTML=`<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:10px 12px">
+   <div style="font-size:13px;color:#92400e">☕ ĐANG NGHỈ GIỮA CA — lấy điện thoại không bị tính vi phạm</div>
+   <div style="font-size:30px;font-weight:800;color:#92400e">⏳ <span id="hs-cd">--:--</span></div>
+   <div style="font-size:13px">Hết giờ nghỉ tủ kêu nhắc; con ở chế độ Học sinh, cất điện thoại, cắm sạc, đóng cửa là vào ca mới ${Math.round((b.session_s||0)/60)} phút.
+   <button style="padding:4px 10px;margin-left:6px" onclick="nextSession(0,event)">Bắt đầu ngay</button></div></div>`;liveTick();return 'break';}
  const ok=x=>x?'✅':'⬜',items=[[s.role==='student','👩‍🎓 Con đang ở <b>chế độ Học sinh</b> trên máy tính'],[b.paired&&b.verified,'🔑 Điện thoại <b>đã ghép &amp; xác thực</b>'+(b.paired&&!b.verified&&b.ble?' <span style="color:#dc2626">(khóa khác — bấm Ghép điện thoại mới)</span>':'')],
   [b.phone,'🔌 Điện thoại <b>đang sạc</b> trong tủ'],[b.door==='closed','🚪 Cửa tủ <b>đã đóng</b>']];
  el.innerHTML=`<div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:8px 12px;font-size:13px">
@@ -866,7 +880,7 @@ async function loadStudy(fill){const v=cur();if(!v)return;const d=await api(`/ap
  $('w-redeemed').innerHTML=(st.redeemed||[]).length?'Đã đổi: '+st.redeemed.slice(0,5).map(x=>`${dm(x.ts)} ${esc(x.name)} (−${x.points})`).join(' · '):'';
  renderLms(d.lms||{});
  if(fill){$('s-min').value=c.min_minutes;$('s-viol').value=c.max_violations;$('s-focus').value=c.min_focus;$('s-pts').value=c.points_per_session;
-  $('s-blocks').value=c.max_blocks;$('s-led').value=c.led_cfi;$('s-buzz').value=c.buzz_cfi;$('s-wsec').value=c.water_seconds;$('s-water').checked=!!c.water_on_success;$('s-name').value=c.student_name||'';$('s-class').value=c.class_name||'';$('s-code').value=c.student_code||'';
+  $('s-blocks').value=c.max_blocks;$('s-led').value=c.led_cfi;$('s-buzz').value=c.buzz_cfi;$('s-break').value=c.break_minutes;$('s-wsec').value=c.water_seconds;$('s-water').checked=!!c.water_on_success;$('s-name').value=c.student_name||'';$('s-class').value=c.class_name||'';$('s-code').value=c.student_code||'';
   $('s-school').value=c.school||'';$('s-hook').value=c.webhook_url||'';$('s-rewards').value=(c.rewards||[]).map(r=>r.name+' | '+r.points).join(String.fromCharCode(10));}}
 function renderLms(l){const el=$('w-lms');if(!l.token){el.innerHTML='<button class="pri" style="background:var(--acc);color:#fff" onclick="lms(&quot;create&quot;)">🔗 Tạo link cho giáo viên</button>';return;}
  const f=`=IMPORTDATA("${l.csv}?only=success")`;
@@ -884,7 +898,7 @@ async function redeem(i){const v=cur(),r0=((STUDY||{}).cfg||{}).rewards[i];if(!v
 async function saveStudy(){const v=cur();if(!v)return;const num=id=>Number($(id).value);
  const rewards=$('s-rewards').value.split(/\\r?\\n/).map(x=>x.split('|')).filter(x=>x[0].trim()).map(x=>({name:x[0].trim(),points:Number((x[1]||'').replace(/[^0-9]/g,''))||50}));
  const r=await api(`/api/parent/devices/${v.id}/study_cfg`,{min_minutes:num('s-min'),max_violations:num('s-viol'),min_focus:num('s-focus'),
-  points_per_session:num('s-pts'),max_blocks:num('s-blocks'),water_on_success:$('s-water').checked,water_seconds:num('s-wsec'),led_cfi:num('s-led'),buzz_cfi:num('s-buzz'),student_name:$('s-name').value,class_name:$('s-class').value,student_code:$('s-code').value,
+  points_per_session:num('s-pts'),max_blocks:num('s-blocks'),water_on_success:$('s-water').checked,water_seconds:num('s-wsec'),led_cfi:num('s-led'),buzz_cfi:num('s-buzz'),break_minutes:num('s-break'),student_name:$('s-name').value,class_name:$('s-class').value,student_code:$('s-code').value,
   school:$('s-school').value,webhook_url:$('s-hook').value.trim(),rewards});toast(r.message||r.error);loadStudy(true);}
 async function waterNow(){if(confirm('Bật bơm tưới cây ngay trên máy học sinh?'))cmd('water_plant');}
 function sessCsv(){const v=cur();if(v)location.href=`/api/parent/devices/${v.id}/sessions.csv?days=90`;}
@@ -1029,6 +1043,7 @@ def _study_home(dev: Dict[str, Any]) -> Dict[str, Any]:
             "streak": study.live_streak(st, vn_date(), vn_date(now() - 86400)),
             "today_ok": int(td.get("ok", 0) or 0) if td.get("d") == vn_date() else 0,
             "waterings": int(st.get("waterings", 0) or 0),
+            "break_minutes": study_cfg_of(dev)["break_minutes"],
             "last": dev.get("study_last") or None}
 
 
@@ -1104,6 +1119,11 @@ def api_parent_command(did):
             minutes = max(1, min(240, int(body.get("minutes", 0))))
         except (TypeError, ValueError):
             return jsonify({"error": "Số phút không hợp lệ."}), 400
+    if ctype == "box_next_session":
+        try:
+            minutes = max(0, min(60, int(body.get("minutes", study_cfg_of(db.get(f"devices/{did}") or {})["break_minutes"]))))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Số phút nghỉ không hợp lệ."}), 400
     code = ""
     if ctype == "box_reset_key":
         code = "".join(ch for ch in str(body.get("code", "")) if ch.isdigit())
@@ -1113,6 +1133,8 @@ def api_parent_command(did):
     dev = db.get(f"devices/{did}") or {}
     note = "" if is_online(dev) else " (máy đang ngoại tuyến, lệnh sẽ chạy khi máy kết nối lại)"
     label = f"🔓 Mở hộp điện thoại {minutes} phút" if minutes else COMMAND_TYPES[ctype]
+    if ctype == "box_next_session":
+        label = f"▶️ Nghỉ {minutes} phút rồi bắt đầu ca mới" if minutes else "▶️ Bắt đầu ca mới ngay"
     if code:
         label += f" (chỉ nhận điện thoại mã {code[:3]} {code[3:]}; mở app bấm “Liên kết lại tủ” trong 2 phút)"
     return jsonify({"ok": True, "message": f"Đã gửi lệnh: {label} — máy nhận trong ≤{HEARTBEAT_S}s "
@@ -1394,7 +1416,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.18"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-04.1"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -2063,6 +2085,7 @@ def api_parent_study_cfg(did):
     cfg = study.clean_cfg(request.get_json(silent=True) or {})
     db.set(f"devices/{did}/study_cfg", cfg)
     db.set(f"devices/{did}/study_box_ver", now())      # heartbeat so phiên bản -> gửi thời gian ca / ngưỡng CFI xuống tủ
+    db.set(f"devices/{did}/study_box_min", cfg["min_minutes"])   # số nhỏ để heartbeat tự kiểm tra tủ có đúng giờ web
     return jsonify({"ok": True, "cfg": cfg, "message": "Đã lưu. Áp dụng cho các ca học từ giờ trở đi."})
 
 
@@ -2266,6 +2289,16 @@ def api_agent_heartbeat():
     sv = int(db.get(f"devices/{did}/study_box_ver") or 0)
     if sv and sv != int(status.get("study_box_ver", 0) or 0):
         resp["study_box"] = study.box_cfg(study.clean_cfg(db.get(f"devices/{did}/study_cfg") or {}), sv)
+    else:
+        # TỰ SỬA: tủ đang dùng thời lượng khác web (vd Admin trên máy gửi thử) -> gửi lại cài đặt web khi tủ không trong ca
+        pb = status.get("phone_box") or {}
+        if sv and pb.get("connected") and int(pb.get("proto") or 1) >= 2 and pb.get("phase") in ("idle", "done", "break"):
+            want = db.get(f"devices/{did}/study_box_min")
+            if want is None:
+                want = study.clean_cfg(db.get(f"devices/{did}/study_cfg") or {})["min_minutes"]
+                db.set(f"devices/{did}/study_box_min", want)
+            if pb.get("session_s") is not None and int(pb.get("session_s") or 0) != int(want) * 60:
+                resp["study_box"] = study.box_cfg(study.clean_cfg(db.get(f"devices/{did}/study_cfg") or {}), sv)
     return jsonify(resp)
 
 

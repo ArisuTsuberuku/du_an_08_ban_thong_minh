@@ -30,6 +30,7 @@ class FakeCabinet:
         self.expect = ""
         self.pair_open = False
         self.study_known = False
+        self.break_until = 0.0
         self.study = False
         self.lock = threading.RLock()
 
@@ -48,7 +49,8 @@ class FakeCabinet:
                 "door": "closed" if self.door_closed else "open", "lid": "closed" if self.door_closed else "open",
                 "phone": self.charging, "ble": True, "verified": self.verified, "paired": self.paired, "lock": "none",
                 "session_s": self.session_ms // 1000, "left_s": left, "viol": self.viol, "cfi": self.cfi, "pump": False,
-                "test": self.test, "key_fp": self.key_fp, "pair_left": 120 if self.pair_open else 0}
+                "test": self.test, "key_fp": self.key_fp, "pair_left": 120 if self.pair_open else 0,
+                "break_left": max(0, int(self.break_until - self.now() + 0.999)) if self.phase == "break" else 0}
 
     def _event(self, e, **extra):
         self._send({"t": "event", "e": e, **extra, **self.state()})
@@ -122,6 +124,21 @@ class FakeCabinet:
                     self.phase, self.start, self.viol, self.test = "active", self.now(), 0, True
                     self.len_s = int(m.get("session_ms") or self.session_ms) / 1000
                     self._event("session_started")
+            elif t == "next":
+                if self.phase == "active":
+                    self._ack(i, False, "busy")
+                else:
+                    self._ack(i)
+                    ms = int(m.get("break_ms") or 0)
+                    if ms:
+                        self.phase, self.break_until = "break", self.now() + ms / 1000
+                        self._event("break_started")
+                    else:
+                        self.phase = "idle"
+                        self._event("break_end")
+                        if self.paired:
+                            self.verified = True
+                        self._check()
             elif t == "charge":
                 self._ack(i)
                 self.charging = bool(m.get("on", True))
@@ -177,6 +194,12 @@ class FakeCabinet:
 
     def fast_forward(self, seconds: float):
         self.offset += seconds
+        with self.lock:
+            if self.phase == "break" and self.now() >= self.break_until:
+                self.phase = "idle"
+                self._event("break_end")
+                if self.paired:
+                    self.verified = True
         self._check()
 
 

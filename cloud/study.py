@@ -27,6 +27,8 @@ DEFAULT_CFG: Dict[str, Any] = {
     "water_on_success": True, "water_seconds": 2.5,
     # Tủ điện thoại ESP32 v2: thời gian 1 ca = min_minutes (tủ đếm ngược); CFI dưới ngưỡng -> nháy đèn đỏ / kêu còi
     "led_cfi": 50, "buzz_cfi": 30,
+    # Nghỉ giữa ca: phụ huynh bấm "Bắt đầu ca mới sau N phút nghỉ" -> tủ nghỉ N phút rồi tự chờ vào ca mới
+    "break_minutes": 5,
     "student_name": "", "class_name": "", "student_code": "", "school": "", "webhook_url": "",
     "rewards": [{"name": "30 phút chơi game cuối tuần", "points": 50},
                 {"name": "Chọn phim tối thứ Bảy", "points": 80},
@@ -60,6 +62,7 @@ def clean_cfg(raw: Any) -> Dict[str, Any]:
         cfg["water_seconds"] = 2.5
     cfg["led_cfi"] = _int(raw.get("led_cfi", cfg["led_cfi"]), 50, 0, 100)
     cfg["buzz_cfi"] = _int(raw.get("buzz_cfi", cfg["buzz_cfi"]), 30, 0, 100)
+    cfg["break_minutes"] = _int(raw.get("break_minutes", cfg["break_minutes"]), 5, 0, 60)
     if cfg["buzz_cfi"] > cfg["led_cfi"]:          # còi là mức nặng hơn đèn -> ngưỡng còi không cao hơn ngưỡng đèn
         cfg["buzz_cfi"] = cfg["led_cfi"]
     cfg["points_per_session"] = _int(raw.get("points_per_session", cfg["points_per_session"]), 10, 1, 1000)

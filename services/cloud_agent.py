@@ -147,7 +147,7 @@ class CloudAgent:
                                                                             "door", "ble", "verified", "paired",
                                                                             "left_s", "session_s", "viol",
                                                                             "key_fp", "pair_left", "pair_expect",
-                                                                            "study", "test")},
+                                                                            "study", "test", "break_left")},
                           # số giây còn lại của ca tính lúc gửi (tương đối -> web không bị lệch giờ giữa các máy)
                           "end_in": (round(float((st.get("phone_box") or {}).get("end_at")) - time.time(), 1)
                                      if isinstance((st.get("phone_box") or {}).get("end_at"), (int, float)) else None),
@@ -318,6 +318,18 @@ class CloudAgent:
                     ok = bool(r.get("ok"))
                     msg = (f"🌱 Đã tưới cây {ms / 1000:g} giây" if ok
                            else f"Không tưới được cây: {r.get('err') or 'mô-đun ESP32 chưa kết nối'}")
+            elif ctype == "box_next_session":
+                # Phụ huynh bấm "Bắt đầu ca mới sau N phút nghỉ" trên web
+                if not load_config().get("phone_box_enabled"):
+                    ok, msg = False, "Chưa bật mô-đun ESP32 trên máy"
+                else:
+                    from services.phone_box import get_box
+
+                    m = max(0, min(60, int(cmd.get("minutes") or 0)))
+                    r = get_box().next_session(m)
+                    ok = bool(r.get("ok"))
+                    msg = ((f"☕ Tủ cho nghỉ {m} phút rồi chờ ca mới" if m else "▶️ Tủ sẵn sàng vào ca mới ngay") if ok
+                           else f"Không bắt đầu ca mới được: {r.get('err') or 'tủ chưa kết nối'}")
             elif ctype == "box_reset_key":
                 # Reset khóa điện thoại đã ghép với tủ v2 (đổi điện thoại / app Android cài lại)
                 if not load_config().get("phone_box_enabled"):
