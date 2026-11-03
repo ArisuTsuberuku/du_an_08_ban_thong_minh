@@ -2225,6 +2225,9 @@ class PhanMemQuanLyBanHocEXE:
                 pl = int(st.get("pair_left") or 0)
                 cho_ghep = (f" · ⏳ chờ điện thoại ghép{(' mã ' + st['pair_expect']) if st.get('pair_expect') else ''}"
                             f" còn {pl} s") if pl else ""
+                if st.get("ble") and st.get("phone") and st.get("paired") and not st.get("verified") \
+                        and st.get("phase") == "idle":
+                    cho_ghep += "\n⚠️ Điện thoại kết nối nhưng CHƯA xác thực (khóa khác khóa tủ đã lưu) → bấm 📱 Ghép điện thoại"
                 lbl.config(fg=UI["txt"], text=(
                     f"🟢 Tủ v2 {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n{pha}\n"
                     f"🚪 cửa {'đóng' if st.get('door') == 'closed' else 'MỞ'} · "

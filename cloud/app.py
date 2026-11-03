@@ -785,6 +785,7 @@ function renderBox(v){const b=((v.status||{}).phone_box)||{};const dis=!b.enable
  if(v2){const ph=b.phase==='active'?`📚 <b>Đang trong ca học</b> · còn ${Math.ceil((b.left_s||0)/60)} phút${b.viol?' · ⚠️ '+b.viol+' vi phạm':''}`:b.phase==='done'?'✅ <b>Hết giờ học</b> — lấy điện thoại không còn bị báo':'⏸️ <b>Chờ bắt đầu</b> (đóng cửa tủ + cắm sạc)';
   $('boxst').innerHTML=`${ph}<br>${b.door==='closed'?'🚪 cửa đóng':'🚪 cửa mở'} · ${b.phone?'🔌 điện thoại đang sạc':'📭 chưa cắm sạc'} · ${b.paired?(b.verified?'🔑 đã xác thực điện thoại':'🔑 đã ghép điện thoại'):'🔑 chưa ghép điện thoại'} · ca ${Math.round((b.session_s||0)/60)} phút`
    +(b.key_fp?`<br>📱 Mã ghép điện thoại: <b style="font-size:16px;letter-spacing:1px">${fmtCode(b.key_fp)}</b> <span class="mut">(so với mã trên app của con)</span>`:'')
+   +(b.ble&&b.phone&&b.paired&&!b.verified&&b.phase==='idle'?`<br>⚠️ <b>Điện thoại đang kết nối nhưng CHƯA xác thực</b> nên tủ chưa vào ca — thường do app mới / cài lại app nên khóa khác khóa tủ đã lưu${b.key_fp?' (mã '+fmtCode(b.key_fp)+')':''}. Bấm <b>📱 Ghép điện thoại mới</b>.`:'')
    +(b.pair_left>0?`<br>⏳ <b>Đang chờ điện thoại ghép</b>${b.pair_expect?' mã '+fmtCode(b.pair_expect):''} — còn ${Math.floor(b.pair_left/60)}:${String(b.pair_left%60).padStart(2,'0')}. Trên app bấm “Liên kết lại tủ”.`:'');return;}
  $('boxst').innerHTML=`${b.phone?'📱 <b>Điện thoại đang trong hộp</b>':'📭 <b>Hộp trống</b>'} · ${b.lock==='locked'?'🔒 đang khóa':'🔓 đang mở'} · nắp ${b.lid==='closed'?'đóng':'mở'}${b.unlock_left>0?' · tự khóa sau '+Math.ceil(b.unlock_left/60)+' phút':''}`;}
 async function boxCmd(t){if(confirm(t==='box_unlock_30'?'Mở hộp điện thoại 30 phút rồi tự khóa lại?':'Mở hộp điện thoại cho tới khi bạn khóa lại?'))cmd(t);}
@@ -1372,7 +1373,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.15"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.16"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
