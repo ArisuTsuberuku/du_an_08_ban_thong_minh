@@ -77,6 +77,7 @@ COMMAND_TYPES = {
     "box_unlock": "🔓 Mở hộp điện thoại (tới khi khóa lại)",
     "box_unlock_min": "🔓 Mở hộp điện thoại theo số phút",
     "box_lock": "🔒 Khóa hộp điện thoại",
+    "water_plant": "🌱 Tưới cây (mô-đun ESP32)",
 }
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 # Web Push (thông báo trên điện thoại kể cả khi đã đóng web): tạo khóa bằng cloud/tao_khoa_vapid.py
@@ -253,11 +254,13 @@ def devices_of_parent(uid: str) -> List[Tuple[str, Dict[str, Any]]]:
     return out
 
 
-def queue_command(did: str, ctype: str, by: str, chat_id: Optional[str] = None, minutes: int = 0) -> str:
+def queue_command(did: str, ctype: str, by: str, chat_id: Optional[str] = None, minutes: int = 0, ms: int = 0) -> str:
     mark_watching(did, force=True)
     item = {"type": ctype, "by": by, "ts": now(), "chat_id": chat_id or ""}
     if minutes:
         item["minutes"] = int(minutes)
+    if ms:
+        item["ms"] = int(ms)
     return db.push(f"commands/{did}", item)
 
 
@@ -461,8 +464,8 @@ h3{margin:4px 0 10px}
    </div><div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🔔 Cảnh báo gần đây</h3>
      <button style="padding:4px 10px;font-size:12px" onclick="resetData('alerts')">🧹 Xóa</button></div><div id="alerts" class="mut">Chưa có cảnh báo.</div></div>
-    <div class="card" style="cursor:pointer" onclick="go('reward')"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🏆 Ca học & phần thưởng</h3><span class="mut" style="font-size:13px">Xem ›</span></div>
-     <div class="sum3"><div><b id="hs-pts">0</b>điểm</div><div><b id="hs-today">0</b>ca đạt hôm nay</div><div><b id="hs-streak">0</b>ngày liên tiếp</div></div>
+    <div class="card" style="cursor:pointer" onclick="go('reward')"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🌱 Ca học & tưới cây thưởng</h3><span class="mut" style="font-size:13px">Xem ›</span></div>
+     <div class="sum3"><div><b id="hs-pts">0</b>điểm</div><div><b id="hs-today">0</b>ca đạt hôm nay</div><div><b id="hs-water">0</b>lần tưới cây</div></div>
      <div class="mut" id="hs-last" style="font-size:13px">Chưa có ca học nào.</div></div>
     <div class="card" id="boxcard"><h3>📦 Hộp điện thoại</h3><div id="boxst" class="mut">—</div>
      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="boxbtn" onclick="boxMin(15)">🔓 Mở 15′</button><button class="boxbtn" onclick="boxMin(30)">🔓 Mở 30′</button><button class="boxbtn" onclick="boxMin(60)">🔓 Mở 60′</button><button class="boxbtn" onclick="boxMinAsk()">🔓 Mở … phút</button><button class="boxbtn" onclick="boxCmd('box_unlock')">🔓 Mở tới khi khóa</button><button class="boxbtn" onclick="cmd('box_lock')">🔒 Khóa hộp</button></div>
@@ -536,14 +539,15 @@ h3{margin:4px 0 10px}
 
   <section data-view="reward">
    <div class="cols"><div>
-    <div class="card"><h3>🏆 Ca học thành công</h3>
-     <div class="sum3"><div><b id="w-pts" style="color:#b45309">0</b>điểm hiện có</div><div><b id="w-streak">0</b>ngày liên tiếp</div><div><b id="w-30" style="color:#16a34a">0</b>ca đạt / 30 ngày</div></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">🌱 Ca học thành công → tưới cây</h3>
+     <button style="padding:4px 10px;font-size:12px" onclick="waterNow()">🌱 Tưới cây ngay</button></div>
+     <div class="sum3"><div><b id="w-pts" style="color:#b45309">0</b>điểm hiện có</div><div><b id="w-water" style="color:#16a34a">0</b>🌱 lần tưới cây</div><div><b id="w-30" style="color:#16a34a">0</b>ca đạt / 30 ngày</div></div>
      <div id="w-line" class="mut"></div><div class="sdays" id="w-days"></div><div class="mut" style="font-size:12px">30 ngày gần nhất · ô càng đậm = càng nhiều ca thành công</div>
      <p class="mut" id="w-crit" style="font-size:13px"></p></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:4px 0">📋 Các ca học gần đây</h3>
      <button style="padding:4px 10px;font-size:12px" onclick="sessCsv()">⬇️ Tải CSV</button></div><div id="w-list" class="mut">Chưa có ca học nào.</div></div>
    </div><div>
-    <div class="card"><h3>🎁 Đổi phần thưởng</h3><p class="mut" style="font-size:13px">Con đủ điểm thì bấm “Đổi”: điểm bị trừ và ghi vào lịch sử để hai bên cùng theo dõi.</p><div id="w-rewards"></div><div id="w-redeemed" class="mut" style="margin-top:8px;font-size:13px"></div></div>
+    <div class="card"><h3>🎁 Điểm thưởng & đổi quà (tùy chọn)</h3><p class="mut" style="font-size:13px">Con đủ điểm thì bấm “Đổi”: điểm bị trừ và ghi vào lịch sử để hai bên cùng theo dõi.</p><div id="w-rewards"></div><div id="w-redeemed" class="mut" style="margin-top:8px;font-size:13px"></div></div>
     <div class="card"><h3>🏫 Kết nối LMS của trường · tuyên dương</h3>
      <p class="mut" style="font-size:13px">Tạo 1 link <b>chỉ-đọc</b> gửi giáo viên chủ nhiệm: trang <b>Ghi nhận nỗ lực học tập</b> in được, file CSV cho Google Sheets / Excel / Moodle / K12Online và JSON cho phần mềm của trường. Link chỉ chứa họ tên, lớp, mã HS và số liệu ca học — không có ảnh camera, không có lịch sử web. Thu hồi bất cứ lúc nào.</p>
      <div id="w-lms"></div></div>
@@ -551,10 +555,12 @@ h3{margin:4px 0 10px}
      <div class="frm">
       <label>Học tối thiểu (phút)<input id="s-min" type="number" min="5" max="240"></label>
       <label>Vi phạm tối đa / ca<input id="s-viol" type="number" min="0" max="20"></label>
-      <label>Tập trung camera ≥ (%)<input id="s-focus" type="number" min="0" max="100"></label>
+      <label>Tập trung ≥ (% thời gian học)<input id="s-focus" type="number" min="0" max="100"></label>
+      <label>Tưới cây mỗi ca đạt (giây bơm)<input id="s-wsec" type="number" min="0.5" max="10" step="0.5"></label>
       <label>Điểm mỗi ca đạt<input id="s-pts" type="number" min="1" max="1000"></label>
       <label>Nhân điểm tối đa (khối)<input id="s-blocks" type="number" min="1" max="10"></label></div>
-     <p class="mut" style="font-size:12.5px">Vi phạm = mở game / web giải trí, nhờ AI làm game, quá giờ AI, cầm điện thoại. Tập trung chỉ xét khi máy có camera (0 = bỏ qua). Ca dài gấp đôi/ba thời gian tối thiểu được nhân điểm (tối đa theo “khối”). Thời gian xin đi vệ sinh không tính.</p>
+     <label class="row" style="gap:8px;margin:4px 0 6px;align-items:center"><input type="checkbox" id="s-water"> <span><b>🌱 Tưới cây khi ca học đạt chuẩn</b> <span class="mut" style="font-size:12.5px">(mô-đun ESP32 + bơm mini trên bàn học)</span></span></label>
+     <p class="mut" style="font-size:12.5px">Mặc định: ca học ≥ 25 phút, không vi phạm và <b>tập trung trên 2/3 (67%) thời gian học</b> → máy tự bật bơm tưới chậu cây. Tập trung = khoảng thời gian camera AI thấy học sinh nhìn bài, ngồi đúng (điểm CFI ≥ 60%); chỉ xét khi máy có camera (đặt 0 = bỏ qua). Vi phạm = mở game / web giải trí, nhờ AI làm game, quá giờ AI, cầm điện thoại. Thời gian xin đi vệ sinh không tính. Điểm thưởng: ca dài gấp đôi/ba thời gian tối thiểu được nhân điểm.</p>
      <h3 style="margin-top:14px">👤 Thông tin cho giáo viên</h3>
      <div class="frm">
       <label>Họ tên học sinh<input id="s-name" maxlength="60"></label><label>Lớp<input id="s-class" maxlength="30"></label>
@@ -802,24 +808,24 @@ let STUDY=null;const VIOL_VI={GAME:'game/giải trí',AI_GAME:'AI làm game',AI_
 const hm=ts=>new Date(ts*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
 const dm=ts=>new Date(ts*1000).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'});
 function renderStudyHome(v){const st=v.study||{},l=st.last;$('hs-pts').textContent=st.points||0;$('hs-today').textContent=st.today_ok||0;
- $('hs-streak').textContent=st.streak||0;
- $('hs-last').innerHTML=l?`Ca gần nhất ${dm(l.start)} ${hm(l.start)}–${hm(l.end)} · ${l.minutes}′ · `+(l.success?`<b style="color:#16a34a">✅ đạt +${l.points} điểm</b>`:`<b style="color:#dc2626">chưa đạt</b>: ${esc((l.reasons||[]).join(', '))}`):'Chưa có ca học nào. Ca học = từ lúc con vào chế độ Học sinh tới lúc rời.';}
+ $('hs-water').textContent=st.waterings||0;
+ $('hs-last').innerHTML=l?`Ca gần nhất ${dm(l.start)} ${hm(l.start)}–${hm(l.end)} · ${l.minutes}′ · `+(l.success?`<b style="color:#16a34a">✅ đạt${l.watered?' · 🌱 đã tưới cây':''} · +${l.points} điểm</b>`:`<b style="color:#dc2626">chưa đạt</b>: ${esc((l.reasons||[]).join(', '))}`):'Chưa có ca học nào. Ca học = từ lúc con vào chế độ Học sinh tới lúc rời.';}
 async function loadStudy(fill){const v=cur();if(!v)return;const d=await api(`/api/parent/devices/${v.id}/study?days=30`);if(d.error){toast(d.error);return;}
  STUDY=d;const st=d.stats||{},sm=d.summary||{},c=d.cfg||{};
- $('w-pts').textContent=st.points||0;$('w-streak').textContent=st.streak||0;$('w-30').textContent=(sm.d30||[0,0])[1];
- $('w-line').innerHTML=`Hôm nay <b>${(sm.today||[0,0])[1]}/${(sm.today||[0,0])[0]}</b> ca đạt · tuần này <b>${(sm.week||[0,0])[1]}/${(sm.week||[0,0])[0]}</b> · tổng <b>${st.total_success||0}</b> ca · chuỗi dài nhất ${st.best_streak||0} ngày`+(d.badge?` · <span class="pill on">${esc(d.badge)}</span>`:'');
+ $('w-pts').textContent=st.points||0;$('w-water').textContent=st.waterings||0;$('w-30').textContent=(sm.d30||[0,0])[1];
+ $('w-line').innerHTML=`Hôm nay <b>${(sm.today||[0,0])[1]}/${(sm.today||[0,0])[0]}</b> ca đạt · tuần này <b>${(sm.week||[0,0])[1]}/${(sm.week||[0,0])[0]}</b> · tổng <b>${st.total_success||0}</b> ca · chuỗi ${st.streak||0} ngày (dài nhất ${st.best_streak||0})`+(d.badge?` · <span class="pill on">${esc(d.badge)}</span>`:'');
  let h='';for(let i=29;i>=0;i--){const day=vnDay(-i),b=(sm.by_day||{})[day]||[0,0,0];h+=`<span class="${b[1]>=3?'s3':b[1]==2?'s2':b[1]==1?'s1':''}" title="${day}: ${b[1]}/${b[0]} ca đạt · ${b[2]}′"></span>`;}
  $('w-days').innerHTML=h;
- $('w-crit').textContent=`Ca thành công: học ≥ ${c.min_minutes} phút · vi phạm ≤ ${c.max_violations}`+(c.min_focus?` · tập trung camera ≥ ${c.min_focus}%`:'')+` · ${c.points_per_session} điểm/ca (ca dài được nhân tối đa ×${c.max_blocks}).`;
+ $('w-crit').textContent=`Ca thành công: học ≥ ${c.min_minutes} phút · vi phạm ≤ ${c.max_violations}`+(c.min_focus?` · tập trung trên ${c.min_focus}% thời gian học`:'')+(c.water_on_success?` → 🌱 tưới cây ${c.water_seconds} giây`:' (đang tắt tưới cây)')+` · ${c.points_per_session} điểm/ca.`;
  const ss=d.sessions||[];$('w-list').innerHTML=ss.length?ss.slice(0,30).map(r=>{const nv=Object.values(r.violations||{}).reduce((a,b)=>a+b,0);
-  return `<div class="sess"><span>${r.success?'✅':'❌'}</span><span><b>${dm(r.start)}</b> ${hm(r.start)}–${hm(r.end)} · ${r.minutes}′${r.focus!=null?` · 🎯 ${r.focus}%`:''}${nv?` · ⚠️ ${nv}`:''}</span>
+  return `<div class="sess"><span>${r.success?'✅':'❌'}</span><span><b>${dm(r.start)}</b> ${hm(r.start)}–${hm(r.end)} · ${r.minutes}′${r.focus_ratio!=null?` · 🎯 ${r.focus_ratio}% thời gian`:(r.focus!=null?` · 🎯 ${r.focus}%`:'')}${r.watered?' · 🌱':''}${nv?` · ⚠️ ${nv}`:''}</span>
    <span>${r.success?`<b style="color:#b45309">+${r.points}</b>`:''}</span>${r.success?'':`<span class="why">Chưa đạt: ${esc((r.reasons||[]).join(' · '))}</span>`}</div>`;}).join(''):'Chưa có ca học nào. Ca học được ghi khi con vào chế độ Học sinh rồi rời chế độ đó (về màn hình khóa, phụ huynh đăng nhập, tắt máy…).';
  const pts=st.points||0;$('w-rewards').innerHTML=(c.rewards||[]).map((r,i)=>`<div class="rw"><span>🎁</span><span class="nm"><b>${esc(r.name)}</b><br><span class="mut">${r.points} điểm</span></span>
   <button ${pts>=r.points?'class="pri" style="background:var(--acc);color:#fff"':'disabled'} onclick="redeem(${i})">${pts>=r.points?'Đổi':'Thiếu '+(r.points-pts)}</button></div>`).join('')||'<span class="mut">Chưa có phần thưởng — thêm ở thẻ Tiêu chí bên dưới.</span>';
  $('w-redeemed').innerHTML=(st.redeemed||[]).length?'Đã đổi: '+st.redeemed.slice(0,5).map(x=>`${dm(x.ts)} ${esc(x.name)} (−${x.points})`).join(' · '):'';
  renderLms(d.lms||{});
  if(fill){$('s-min').value=c.min_minutes;$('s-viol').value=c.max_violations;$('s-focus').value=c.min_focus;$('s-pts').value=c.points_per_session;
-  $('s-blocks').value=c.max_blocks;$('s-name').value=c.student_name||'';$('s-class').value=c.class_name||'';$('s-code').value=c.student_code||'';
+  $('s-blocks').value=c.max_blocks;$('s-wsec').value=c.water_seconds;$('s-water').checked=!!c.water_on_success;$('s-name').value=c.student_name||'';$('s-class').value=c.class_name||'';$('s-code').value=c.student_code||'';
   $('s-school').value=c.school||'';$('s-hook').value=c.webhook_url||'';$('s-rewards').value=(c.rewards||[]).map(r=>r.name+' | '+r.points).join(String.fromCharCode(10));}}
 function renderLms(l){const el=$('w-lms');if(!l.token){el.innerHTML='<button class="pri" style="background:var(--acc);color:#fff" onclick="lms(&quot;create&quot;)">🔗 Tạo link cho giáo viên</button>';return;}
  const f=`=IMPORTDATA("${l.csv}?only=success")`;
@@ -837,8 +843,9 @@ async function redeem(i){const v=cur(),r0=((STUDY||{}).cfg||{}).rewards[i];if(!v
 async function saveStudy(){const v=cur();if(!v)return;const num=id=>Number($(id).value);
  const rewards=$('s-rewards').value.split(/\\r?\\n/).map(x=>x.split('|')).filter(x=>x[0].trim()).map(x=>({name:x[0].trim(),points:Number((x[1]||'').replace(/[^0-9]/g,''))||50}));
  const r=await api(`/api/parent/devices/${v.id}/study_cfg`,{min_minutes:num('s-min'),max_violations:num('s-viol'),min_focus:num('s-focus'),
-  points_per_session:num('s-pts'),max_blocks:num('s-blocks'),student_name:$('s-name').value,class_name:$('s-class').value,student_code:$('s-code').value,
+  points_per_session:num('s-pts'),max_blocks:num('s-blocks'),water_on_success:$('s-water').checked,water_seconds:num('s-wsec'),student_name:$('s-name').value,class_name:$('s-class').value,student_code:$('s-code').value,
   school:$('s-school').value,webhook_url:$('s-hook').value.trim(),rewards});toast(r.message||r.error);loadStudy(true);}
+async function waterNow(){if(confirm('Bật bơm tưới cây ngay trên máy học sinh?'))cmd('water_plant');}
 function sessCsv(){const v=cur();if(v)location.href=`/api/parent/devices/${v.id}/sessions.csv?days=90`;}
 const RESET_ASK={events:'Xóa lịch sử Thay đổi gần đây?',alerts:'Xóa toàn bộ cảnh báo (trên web và trên máy)?',
  report_today:'Xóa báo cáo hoạt động hôm nay?',blocked_links:'Bỏ chặn TẤT CẢ link đã chặn riêng?',
@@ -980,6 +987,7 @@ def _study_home(dev: Dict[str, Any]) -> Dict[str, Any]:
     return {"points": int(st.get("points", 0) or 0), "total": int(st.get("total_success", 0) or 0),
             "streak": study.live_streak(st, vn_date(), vn_date(now() - 86400)),
             "today_ok": int(td.get("ok", 0) or 0) if td.get("d") == vn_date() else 0,
+            "waterings": int(st.get("waterings", 0) or 0),
             "last": dev.get("study_last") or None}
 
 
@@ -1338,7 +1346,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-03.12"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-03.13"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
@@ -1884,6 +1892,7 @@ def _handle_sessions(did: str, dev: Dict[str, Any], reps: List[Dict[str, Any]]) 
     cfg = study_cfg_of(dev)
     stats = dict(dev.get("study_stats") or {})
     changed = False
+    watered_now = False
     for rep in sorted(reps, key=lambda r: int(r.get("start") or 0)):
         try:
             minutes = round(float(rep.get("minutes") or 0), 1)
@@ -1898,12 +1907,18 @@ def _handle_sessions(did: str, dev: Dict[str, Any], reps: List[Dict[str, Any]]) 
         viol = {fb_key(str(k))[:20]: int(v) for k, v in (rep.get("violations") or {}).items()
                 if isinstance(v, (int, float))}
         focus = rep.get("focus") if isinstance(rep.get("focus"), (int, float)) else None
-        rec = {"start": int(rep["start"]), "end": int(rep.get("end") or rep["start"]), "minutes": minutes,
+        fratio = rep.get("focus_ratio") if isinstance(rep.get("focus_ratio"), (int, float)) else None
+        # Tưới cây chỉ cho ca vừa kết thúc (máy gửi bù nhiều ca cũ sau khi mất mạng thì không tưới dồn), tối đa 1 lần/lượt
+        water = bool(ok and cfg.get("water_on_success") and not watered_now
+                     and now() - int(rep.get("end") or rep["start"]) < 1800)
+        watered_now = watered_now or water
+        rec = {"focus_ratio": fratio, "watered": water, "start": int(rep["start"]), "end": int(rep.get("end") or rep["start"]), "minutes": minutes,
                "break_min": round(float(rep.get("break_min") or 0), 1), "violations": viol, "focus": focus,
                "ai_min": round(float(rep.get("ai_min") or 0), 1), "end_reason": str(rep.get("end_reason", ""))[:80],
                "success": ok, "points": pts, "reasons": reasons,
                "criteria": {k: cfg[k] for k in ("min_minutes", "max_violations", "min_focus")}}
-        last = {k: rec.get(k) for k in ("start", "end", "minutes", "success", "points", "reasons", "focus")}
+        last = {k: rec.get(k) for k in ("start", "end", "minutes", "success", "points", "reasons", "focus",
+                                        "focus_ratio", "watered")}
         db.set(f"sessions/{did}/{key}", dict(rec))       # bản sao: kho cục bộ/Firebase bỏ trường None
         d_end = vn_date(rec["end"])
         td = dev.get("study_today") or {}
@@ -1916,9 +1931,15 @@ def _handle_sessions(did: str, dev: Dict[str, Any], reps: List[Dict[str, Any]]) 
         day = vn_date(rec["end"])
         stats = study.update_stats(stats, day, vn_date(rec["end"] - 86400), pts, minutes)
         changed = True
+        if water:   # thưởng xanh: máy học sinh bật bơm tưới cây qua mô-đun ESP32
+            queue_command(did, "water_plant", by="study", ms=int(cfg["water_seconds"] * 1000))
+            stats["waterings"] = int(stats.get("waterings", 0) or 0) + 1
+            stats["last_water"] = rec["end"]
         name = dev.get("name") or did
+        fshow = fratio if fratio is not None else focus
         msg = (f"🏆 {cfg['student_name'] or name} hoàn thành ca học {minutes:g} phút"
-               + (f", tập trung {focus:g}%" if focus is not None else "") + f" · +{pts} điểm"
+               + (f", tập trung {fshow:g}% thời gian" if fshow is not None else "")
+               + (" · 🌱 đã tưới cây" if water else "") + f" · +{pts} điểm"
                + f" (đang có {stats['points']} điểm, chuỗi {stats.get('streak', 1)} ngày)")
         for chat in chats_of_device(did):
             tg_send(chat, html.escape(msg))
@@ -1928,7 +1949,8 @@ def _handle_sessions(did: str, dev: Dict[str, Any], reps: List[Dict[str, Any]]) 
                 requests.post(cfg["webhook_url"], timeout=3, json={
                     "event": "study_session_success", "student_code": cfg["student_code"],
                     "student_name": cfg["student_name"], "class_name": cfg["class_name"], "day": day,
-                    "minutes": minutes, "focus": focus, "points": pts, "total_success": stats["total_success"],
+                    "minutes": minutes, "focus": focus, "focus_ratio": fratio, "watered": water, "points": pts,
+                    "total_success": stats["total_success"],
                     "streak": stats.get("streak", 1)})
             except Exception:
                 pass
@@ -2068,6 +2090,7 @@ def _lms_public(did: str, dev: Dict[str, Any]) -> Dict[str, Any]:
             "best_streak": int(st.get("best_streak", 0) or 0),
             "success_today": sm["today"][1], "success_week": sm["week"][1], "success_30d": sm["d30"][1],
             "sessions_30d": sm["d30"][0], "minutes_30d": sm["minutes_30d"], "focus_30d": sm["focus_30d"],
+            "water_30d": sm.get("water_30d", 0),
             "badge": p["badge"], "by_day": sm["by_day"],
             "days30": [[d, *(sm["by_day"].get(d) or [0, 0, 0])[:2]] for d in (vn_date(now() - i * 86400)
                                                                              for i in range(29, -1, -1))],
@@ -2176,6 +2199,8 @@ def api_agent_heartbeat():
             item = {"id": cid, "type": c.get("type"), "chat_id": c.get("chat_id", "")}
             if c.get("minutes"):
                 item["minutes"] = int(c["minutes"])
+            if c.get("ms"):
+                item["ms"] = int(c["ms"])
             out.append(item)
         db.delete(f"commands/{did}/{cid}")
     fast = int(dev.get("watch_until", 0) or 0) > now() or bool(out)
@@ -2471,7 +2496,8 @@ button{font:inherit;padding:8px 16px;border-radius:10px;border:1px solid var(--l
   <div class="grid">
    <div><b>{{ d.streak }}</b>ngày liên tiếp</div><div><b>{{ d.best_streak }}</b>chuỗi dài nhất</div>
    <div><b>{{ (d.minutes_30d / 60) | round(1) }}</b>giờ học / 30 ngày</div>
-   <div><b>{{ d.focus_30d if d.focus_30d is not none else "—" }}{% if d.focus_30d is not none %}%{% endif %}</b>tập trung TB (camera)</div>
+   <div><b>{{ d.focus_30d if d.focus_30d is not none else "—" }}{% if d.focus_30d is not none %}%{% endif %}</b>thời gian tập trung TB</div>
+   <div><b>{{ d.water_30d }}</b>lần tưới cây thưởng</div>
    <div><b>{{ d.total_success }}</b>tổng ca thành công</div><div><b>{{ d.earned_total }}</b>điểm đã đạt</div>
   </div>
   <div class="days" title="Mỗi ô = 1 ngày, màu đậm = nhiều ca thành công">
@@ -2479,7 +2505,7 @@ button{font:inherit;padding:8px 16px;border-radius:10px;border:1px solid var(--l
   </div>
   <div class="mut" style="font-size:12px">30 ngày gần nhất · ô càng đậm = càng nhiều ca thành công</div>
   <p class="mut">Ca học thành công = học liên tục ≥ {{ d.criteria.min_minutes }} phút, ≤ {{ d.criteria.max_violations }} lần vi phạm
-   (mở game / web giải trí, nhờ AI làm game, dùng điện thoại…){% if d.criteria.min_focus %}, mức tập trung camera ≥ {{ d.criteria.min_focus }}%{% endif %}.
+   (mở game / web giải trí, nhờ AI làm game, dùng điện thoại…){% if d.criteria.min_focus %}, tập trung trên {{ d.criteria.min_focus }}% thời gian học (camera AI){% endif %}. Mỗi ca thành công được thưởng tưới chậu cây trên bàn học.
    Số liệu ghi tự động bởi phần mềm FocusDesk trên máy học sinh.</p>
  </div>
  <div class="tech noprint">

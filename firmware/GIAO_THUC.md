@@ -33,6 +33,7 @@ Chỉ cần hộp nói đúng giao thức dưới đây là phần mềm nhận 
 | PC → hộp | `ping` | `id`, `ts` | Gửi 2 giây/lần; trả `state`. Quá 6 giây không nghe gì từ hộp → phần mềm báo mất kết nối |
 | PC → hộp | `get` | `id` | Trả `state` ngay (dùng khi gỡ lỗi) |
 | PC → hộp | `beep` | `id`, `n` | Kêu `n` tiếng, trả `ack ok` |
+| PC → hộp | `water` | `id`, `ms` | **Thưởng xanh:** bật rơ-le bơm tưới cây `ms` mili-giây (firmware khóa cứng tối đa 10 000), trả `ack ok`, gửi `event watering` rồi `event watered` khi tắt bơm |
 | PC → hộp | `lock` | `id`, `mac` | Kiểm chữ ký → khóa → `ack ok` → `event locked` |
 | PC → hộp | `unlock` | `id`, `sec`, `mac` | Kiểm chữ ký → mở → `ack ok` → `event unlocked`. `sec > 0` = tự khóa lại sau `sec` giây khi nắp đã đóng |
 | PC → hộp | `setkey` | `id`, `key` | Chỉ nhận khi đang ở chế độ ghép (mục 6); lưu `key` vào bộ nhớ không mất khi tắt nguồn |

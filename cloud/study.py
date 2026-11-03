@@ -23,7 +23,8 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_CFG: Dict[str, Any] = {
-    "min_minutes": 25, "max_violations": 0, "min_focus": 60, "points_per_session": 10, "max_blocks": 3,
+    "min_minutes": 25, "max_violations": 0, "min_focus": 67, "points_per_session": 10, "max_blocks": 3,
+    "water_on_success": True, "water_seconds": 2.5,
     "student_name": "", "class_name": "", "student_code": "", "school": "", "webhook_url": "",
     "rewards": [{"name": "30 phút chơi game cuối tuần", "points": 50},
                 {"name": "Chọn phim tối thứ Bảy", "points": 80},
@@ -48,7 +49,13 @@ def clean_cfg(raw: Any) -> Dict[str, Any]:
     cfg = dict(DEFAULT_CFG)
     cfg["min_minutes"] = _int(raw.get("min_minutes", cfg["min_minutes"]), 25, 5, 240)
     cfg["max_violations"] = _int(raw.get("max_violations", cfg["max_violations"]), 0, 0, 20)
-    cfg["min_focus"] = _int(raw.get("min_focus", cfg["min_focus"]), 60, 0, 100)
+    # min_focus = % THỜI GIAN HỌC có tập trung (mặc định 67% ≈ 2/3), phụ huynh đặt riêng
+    cfg["min_focus"] = _int(raw.get("min_focus", cfg["min_focus"]), 67, 0, 100)
+    cfg["water_on_success"] = bool(raw.get("water_on_success", cfg["water_on_success"]))
+    try:
+        cfg["water_seconds"] = round(max(0.5, min(10.0, float(raw.get("water_seconds", cfg["water_seconds"])))), 1)
+    except (TypeError, ValueError):
+        cfg["water_seconds"] = 2.5
     cfg["points_per_session"] = _int(raw.get("points_per_session", cfg["points_per_session"]), 10, 1, 1000)
     cfg["max_blocks"] = _int(raw.get("max_blocks", cfg["max_blocks"]), 3, 1, 10)
     for k, n in (("student_name", 60), ("class_name", 30), ("student_code", 40), ("school", 80)):
@@ -75,9 +82,12 @@ def evaluate(rep: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[bool, List[str],
     if nv > cfg["max_violations"]:
         reasons.append(f"{nv} vi phạm (" + ", ".join(f"{VIOLATION_VI.get(k, k.lower())} ×{v}"
                                                     for k, v in viol.items() if v) + ")")
-    focus = rep.get("focus")
-    if isinstance(focus, (int, float)) and cfg["min_focus"] and focus < cfg["min_focus"]:
-        reasons.append(f"tập trung {focus:g}% < {cfg['min_focus']}%")
+    # Tập trung: % thời gian học có tập trung (bản máy mới); bản cũ chỉ có điểm tập trung trung bình
+    fr = rep.get("focus_ratio")
+    if not isinstance(fr, (int, float)):
+        fr = rep.get("focus") if isinstance(rep.get("focus"), (int, float)) else None
+    if fr is not None and cfg["min_focus"] and fr < cfg["min_focus"]:
+        reasons.append(f"tập trung {fr:g}% thời gian < {cfg['min_focus']}%")
     ok = not reasons
     blocks = min(cfg["max_blocks"], int(minutes // cfg["min_minutes"])) if ok else 0
     return ok, reasons, cfg["points_per_session"] * max(1, blocks) if ok else 0
@@ -117,7 +127,8 @@ def badge(success_30d: int) -> str:
 
 def summarize(records: Dict[str, Any], day_of, today: str, week_start: str, month_start: str) -> Dict[str, Any]:
     """Tổng hợp danh sách ca: số ca / số ca thành công / phút học theo hôm nay, tuần, 30 ngày + theo từng ngày."""
-    out = {"today": [0, 0], "week": [0, 0], "d30": [0, 0], "minutes_30d": 0.0, "focus_30d": None, "by_day": {}}
+    out = {"today": [0, 0], "week": [0, 0], "d30": [0, 0], "minutes_30d": 0.0, "focus_30d": None, "by_day": {},
+           "water_30d": 0}
     fsum, fn = 0.0, 0
     for _k, r in sorted((records or {}).items()):
         if not isinstance(r, dict):
@@ -134,14 +145,17 @@ def summarize(records: Dict[str, Any], day_of, today: str, week_start: str, mont
                 out[key][1] += ok
         if d >= month_start:
             out["minutes_30d"] = round(out["minutes_30d"] + float(r.get("minutes") or 0), 1)
-            if isinstance(r.get("focus"), (int, float)):
-                fsum, fn = fsum + float(r["focus"]), fn + 1
+            out["water_30d"] += 1 if r.get("watered") else 0
+            fv = r.get("focus_ratio") if isinstance(r.get("focus_ratio"), (int, float)) else r.get("focus")
+            if isinstance(fv, (int, float)):
+                fsum, fn = fsum + float(fv), fn + 1
     out["focus_30d"] = round(fsum / fn, 1) if fn else None
     return out
 
 
-CSV_HEADER = ["ngay", "bat_dau", "ket_thuc", "phut_hoc", "nghi_ve_sinh_phut", "tap_trung_pct", "so_vi_pham",
-              "chi_tiet_vi_pham", "phut_ai", "thanh_cong", "diem", "ly_do_chua_dat", "ma_hoc_sinh", "ho_ten", "lop"]
+CSV_HEADER = ["ngay", "bat_dau", "ket_thuc", "phut_hoc", "nghi_ve_sinh_phut", "tap_trung_pct", "tap_trung_thoi_gian_pct",
+              "so_vi_pham", "chi_tiet_vi_pham", "phut_ai", "thanh_cong", "tuoi_cay", "diem", "ly_do_chua_dat",
+              "ma_hoc_sinh", "ho_ten", "lop"]
 
 
 def to_csv(records: Dict[str, Any], cfg: Dict[str, Any], tz_offset_s: int) -> str:
@@ -156,9 +170,10 @@ def to_csv(records: Dict[str, Any], cfg: Dict[str, Any], tz_offset_s: int) -> st
         viol = r.get("violations") or {}
         w.writerow([fmt(r.get("start"), "%Y-%m-%d"), fmt(r.get("start"), "%H:%M"), fmt(r.get("end"), "%H:%M"),
                     r.get("minutes", 0), r.get("break_min", 0), "" if r.get("focus") is None else r.get("focus"),
+                    "" if r.get("focus_ratio") is None else r.get("focus_ratio"),
                     sum(int(v) for v in viol.values() if isinstance(v, (int, float))),
                     "; ".join(f"{VIOLATION_VI.get(k, k)} x{v}" for k, v in viol.items()),
-                    r.get("ai_min", 0), 1 if r.get("success") else 0, r.get("points", 0),
+                    r.get("ai_min", 0), 1 if r.get("success") else 0, 1 if r.get("watered") else 0, r.get("points", 0),
                     "; ".join(r.get("reasons") or []), cfg.get("student_code", ""), cfg.get("student_name", ""),
                     cfg.get("class_name", "")])
     return "﻿" + buf.getvalue()

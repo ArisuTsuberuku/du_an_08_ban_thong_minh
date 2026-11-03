@@ -295,6 +295,19 @@ class CloudAgent:
                     msg = f"Đã mở hộp điện thoại {minutes} phút (tự khóa lại khi nắp đóng)"
                 else:
                     msg = "Đã mở hộp điện thoại"
+            elif ctype == "water_plant":
+                # Thưởng xanh: ca học đạt chuẩn (hoặc phụ huynh bấm "Tưới cây ngay") -> mô-đun ESP32 bật bơm
+                cfg = load_config()
+                if not cfg.get("phone_box_enabled"):
+                    ok, msg = False, "Chưa bật mô-đun ESP32 (Admin → Hộp điện thoại / mô-đun ESP32 → Bật)"
+                else:
+                    from services.phone_box import get_box
+
+                    ms = max(500, min(10000, int(cmd.get("ms") or 2500)))
+                    r = get_box().water(ms)
+                    ok = bool(r.get("ok"))
+                    msg = (f"🌱 Đã tưới cây {ms / 1000:g} giây" if ok
+                           else f"Không tưới được cây: {r.get('err') or 'mô-đun ESP32 chưa kết nối'}")
             elif ctype == "snapshot":
                 ok, msg = self._send_snapshot(cmd.get("chat_id") or "")
             else:

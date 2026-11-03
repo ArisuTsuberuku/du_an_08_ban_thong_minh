@@ -27,6 +27,8 @@
 #define PIN_BTN           0
 #define PIN_BUZZ          7
 #define PIN_RGB           48
+#define PIN_PUMP          15     // rơ-le máy bơm mini tưới cây (HIGH = bơm). Đổi chân tùy mạch
+#define PUMP_MAX_MS       10000UL // khóa cứng: bơm tối đa 10 giây/lần, chống tràn nước
 #define LOCK_IS_SOLENOID  0      // 0 = servo, 1 = solenoid (HIGH = mo chot)
 #define SERVO_LOCK_DEG    0
 #define SERVO_OPEN_DEG    90
@@ -45,6 +47,8 @@ void rgb(uint8_t r, uint8_t g, uint8_t b) {
   neopixelWrite(PIN_RGB, r, g, b);
 #endif
 }
+
+unsigned long pumpOffAt = 0;
 
 void beep(int n, int ms = 80) {
   for (int i = 0; i < n; i++) { digitalWrite(PIN_BUZZ, HIGH); delay(ms); digitalWrite(PIN_BUZZ, LOW); delay(ms); }
@@ -116,6 +120,10 @@ void handle(const String& line) {
   if (!strcmp(t, "hello")) { sendState("hello"); return; }
   if (!strcmp(t, "ping") || !strcmp(t, "get")) { lastPing = millis(); sendState("state"); return; }
   if (!strcmp(t, "beep")) { beep(m["n"] | 2); ack(id, true); return; }
+  if (!strcmp(t, "water")) {            // thưởng xanh: bơm tưới cây ms mili-giây (không chặn vòng lặp)
+    unsigned long ms = m["ms"] | 2500UL; if (ms > PUMP_MAX_MS) ms = PUMP_MAX_MS;
+    digitalWrite(PIN_PUMP, HIGH); pumpOffAt = millis() + ms; ack(id, true); event("watering"); return;
+  }
   if (!strcmp(t, "setkey")) {
     if (!pairMode || millis() > pairUntil) { ack(id, false, "not_in_pair_mode"); return; }
     key = (const char*)(m["key"] | ""); prefs.putString("key", key); pairMode = false; beep(3); ack(id, true);
@@ -163,6 +171,7 @@ void setup() {
   Serial.begin(115200);
   pinMode(PIN_LID, INPUT_PULLUP); pinMode(PIN_PHONE, INPUT_PULLUP); pinMode(PIN_BTN, INPUT_PULLUP);
   pinMode(PIN_BUZZ, OUTPUT);
+  pinMode(PIN_PUMP, OUTPUT); digitalWrite(PIN_PUMP, LOW);
 #if LOCK_IS_SOLENOID
   pinMode(PIN_LOCK, OUTPUT);
 #else
@@ -191,6 +200,7 @@ void loop() {
   if (millis() - lastSensor > 50) { lastSensor = millis(); readSensors(); readButton(); }
   if (relockAt && millis() > relockAt && lidClosed) { relockAt = 0; setLock(true); event("locked"); }
   if (pairMode && millis() > pairUntil) pairMode = false;
+  if (pumpOffAt && millis() > pumpOffAt) { pumpOffAt = 0; digitalWrite(PIN_PUMP, LOW); event("watered"); }
   // Mat may tinh > 60s: GIU NGUYEN trang thai (an toan), den nhap nhay vang
   if (lastPing && millis() - lastPing > 60000UL) rgb((millis() / 500) % 2 ? 40 : 0, (millis() / 500) % 2 ? 30 : 0, 0);
 }

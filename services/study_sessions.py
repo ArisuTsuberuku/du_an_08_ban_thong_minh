@@ -28,6 +28,7 @@ except Exception:  # pragma: no cover
 # Loại cảnh báo tính là vi phạm trong ca học
 VIOLATION_TYPES = {"GAME": "Mở game / web giải trí", "AI_GAME": "Nhờ AI làm game", "AI_OVERUSE": "Quá giờ AI",
                    "PHONE": "Dùng điện thoại", "POSTURE_PHONE": "Cầm điện thoại"}
+FOCUS_CFI = 60.0      # khoảnh khắc có CFI >= 60% (camera) được tính là "đang tập trung"
 STALE_S = 180          # ca không được cập nhật quá 3 phút (máy tắt ngang) -> chốt ở lần cập nhật cuối
 MAX_QUEUE = 30
 
@@ -81,6 +82,10 @@ def tick(cfi: Optional[float] = None, ai_seconds: Optional[float] = None, on_bre
         if cfi is not None and not on_break:
             s["cfi_sum"] = float(s.get("cfi_sum", 0)) + float(cfi)
             s["cfi_n"] = int(s.get("cfi_n", 0)) + 1
+            step = dt if dt > 0 else 5.0
+            s["cam_s"] = float(s.get("cam_s", 0)) + step              # thời gian camera quan sát được
+            if float(cfi) >= FOCUS_CFI:
+                s["focus_s"] = float(s.get("focus_s", 0)) + step      # trong đó, thời gian tập trung
         if on_break and dt > 0:
             s["break_s"] = float(s.get("break_s", 0)) + dt
         if ai_seconds is not None:
@@ -96,6 +101,9 @@ def _report(s: Dict[str, Any], end: float, reason: str) -> Dict[str, Any]:
             "break_min": round(float(s.get("break_s", 0)) / 60.0, 1),
             "violations": {k: int(v) for k, v in (s.get("violations") or {}).items()},
             "focus": round(float(s.get("cfi_sum", 0)) / n, 1) if n else None,
+            # % thời gian học có tập trung (chỉ tính khi camera quan sát được >= 1 phút)
+            "focus_ratio": (round(100.0 * float(s.get("focus_s", 0)) / float(s["cam_s"]), 1)
+                            if float(s.get("cam_s", 0)) >= 60 else None),
             "ai_min": round(ai_used / 60.0, 1), "phone_in_box": s.get("phone_in_box"), "end_reason": reason}
 
 

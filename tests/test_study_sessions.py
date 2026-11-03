@@ -72,6 +72,17 @@ class TestStudyCloud(unittest.TestCase):
         self.assertTrue(out.startswith("﻿ngay,"))
         self.assertIn("HS01,An,8A", out)
 
+    def test_focus_ratio_two_thirds(self):
+        self.assertEqual(self.cfg["min_focus"], 67)
+        self.assertTrue(self.cfg["water_on_success"])
+        ok, _w, _p = study.evaluate({"minutes": 30, "violations": {}, "focus_ratio": 70, "focus": 50}, self.cfg)
+        self.assertTrue(ok)                                     # xét % thời gian tập trung, không xét điểm TB
+        ok, why, _p = study.evaluate({"minutes": 30, "violations": {}, "focus_ratio": 60}, self.cfg)
+        self.assertFalse(ok)
+        self.assertIn("thời gian", why[0])
+        c = study.clean_cfg({"min_focus": 80, "water_on_success": False, "water_seconds": 99})
+        self.assertEqual((c["min_focus"], c["water_on_success"], c["water_seconds"]), (80, False, 10.0))
+
     def test_badge(self):
         self.assertEqual(study.badge(3), "")
         self.assertIn("Vàng", study.badge(25))
@@ -113,6 +124,15 @@ class TestStudyClient(unittest.TestCase):
         ss.requeue(q)
         self.assertTrue(ss.has_pending())
         self.assertIsNone(ss.end_session("không có ca"))
+
+    def test_focus_ratio_client(self):
+        ss = self.ss
+        ss.start_session()
+        for cfi in [90] * 10 + [30] * 5:                       # 50 s tập trung / 75 s quan sát
+            ss.tick(cfi=cfi, dt=5)
+        ss.tick(on_break=True, dt=30)                          # nghỉ vệ sinh không tính
+        rep = ss.end_session("test")
+        self.assertAlmostEqual(rep["focus_ratio"], 66.7, delta=0.1)
 
     def test_stale_session_closed_at_last_tick(self):
         ss = self.ss

@@ -345,6 +345,10 @@ class PhoneBoxLink:
     def beep(self, n: int = 2) -> Dict[str, Any]:
         return self.command("beep", n=int(n))
 
+    def water(self, ms: int = 2500) -> Dict[str, Any]:
+        """Thưởng xanh: bật bơm tưới cây ms mili-giây (firmware tự khóa cứng tối đa 10 giây)."""
+        return self.command("water", ms=max(500, min(10000, int(ms))))
+
     def pair(self) -> Dict[str, Any]:
         """Tạo khóa chung mới và gửi cho hộp (hộp phải đang ở chế độ ghép: giữ nút 5 giây)."""
         key = secrets.token_hex(16)
