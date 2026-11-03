@@ -49,3 +49,6 @@ hosts_goc.bak
 # (docx/pdf/pptx/xlsx/skill-creator la ban quyen Anthropic, khong duoc phat hanh lai trong repo public)
 .agents/skills/
 .claude/skills/
+
+# APK tai ve tu GitHub Actions (file build, khong dua vao git)
+Code APK/APK_ban_build/
