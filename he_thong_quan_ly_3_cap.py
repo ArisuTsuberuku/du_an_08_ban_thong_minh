@@ -2156,6 +2156,10 @@ class PhanMemQuanLyBanHocEXE:
 
         def gui_cfi() -> Dict[str, Any]:
             phone_box.set_test_cfi(int(so(v_cfi, 40)), int(so(v_giay, 60)))
+            pha = (load_runtime_state().get("phone_box") or {}).get("phase")
+            if pha != "active":   # đèn / còi theo CFI chỉ chạy TRONG CA — nhắc để khỏi tưởng hỏng
+                return {"ok": False, "err": f"đã gửi CFI, nhưng tủ đang ở pha “{pha or '?'}” — đèn/còi theo CFI chỉ "
+                                            "chạy TRONG CA: bấm ▶️ Bắt đầu ca thử, hoặc mở rồi đóng lại cửa tủ"}
             return {"ok": True}
 
         self._ui_button(f_cfi, "🎯 Giả lập CFI", lambda: chay(gui_cfi, "CFI thử (gửi kèm ping 2 giây/lần)"),
@@ -2202,7 +2206,8 @@ class PhanMemQuanLyBanHocEXE:
             elif int(st.get("proto", 1) or 1) >= 2:
                 pha = {"active": f"{'🧪 CA THỬ' if st.get('test') else '📚 ĐANG TRONG CA'} — còn {int(st.get('left_s') or 0) // 60}:{int(st.get('left_s') or 0) % 60:02d}"
                                  f" · vi phạm {st.get('viol', 0)}",
-                       "done": "✅ Hết giờ học (mở tủ / rút sạc không báo)"}.get(st.get("phase"), "⏸️ Chờ: đóng cửa + cắm sạc")
+                       "done": "✅ Hết giờ học (mở tủ / rút sạc không báo) — MỞ rồi ĐÓNG lại cửa để bắt đầu ca mới"
+                       }.get(st.get("phase"), "⏸️ Chờ: đóng cửa + cắm sạc + điện thoại xác thực")
                 cfi = phone_box.current_cfi()
                 lbl.config(fg=UI["txt"], text=(
                     f"🟢 Tủ v2 {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n{pha}\n"
