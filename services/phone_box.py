@@ -79,11 +79,24 @@ def make_mac(key: str, t: str, msg_id: int, nonce: str, sec: int = 0) -> str:
     return hmac.new(key.encode(), f"{t}|{msg_id}|{nonce}|{sec}".encode(), hashlib.sha256).hexdigest()[:16]
 
 
+_diag_last: Dict[str, float] = {}
+
+
+def _diag(key: str, text: str, every_s: float = 30.0) -> None:
+    """Ghi lý do KHÔNG kết nối được vào nhật ký Serial monitor (tối đa 1 lần / every_s giây mỗi loại)."""
+    if time.time() - _diag_last.get(key, 0) >= every_s:
+        _diag_last[key] = time.time()
+        log_traffic("SYS", "⚠️ " + text)
+        safe_log("[HỘP] " + text)
+
+
 def find_box_ports() -> List[Dict[str, Any]]:
     """Cổng COM có thể là hộp, đã xếp theo khả năng; bỏ cổng Bluetooth ảo."""
     try:
         from serial.tools import list_ports
-    except Exception:
+    except Exception as exc:
+        _diag("noserial", f"Không dùng được serial.tools.list_ports ({exc}). Thường do cài nhầm gói 'serial' thay vì "
+                          "'pyserial': chạy  python -m pip uninstall -y serial  rồi  python -m pip install pyserial")
         return []
     out = []
     for p in list_ports.comports():
@@ -194,6 +207,12 @@ class PhoneBoxLink:
         cfg = load_config()
         want = str(cfg.get("esp32_com_port", "auto") or "auto").strip()
         ports = [want] if want.lower() not in ("auto", "", "com3") else [p["port"] for p in find_box_ports()]
+        if not ports:
+            _diag("noport", "Không thấy cổng USB-serial nào (cáp chưa cắm, cáp chỉ có dây sạc, thiếu driver CH343/CP210x, "
+                            "hoặc Python không đọc được danh sách cổng). Kiểm tra Device Manager → Ports (COM & LPT).")
+        elif want.lower() not in ("auto", "", "com3"):
+            _diag("pinned", f"Đang GHIM cổng {want} (Admin → Cổng kết nối). Nếu Device Manager hiện số COM khác, chọn 'auto'.",
+                  every_s=120)
         for port in ports:
             if self._suspended.is_set():
                 return False
@@ -709,11 +728,16 @@ def get_box() -> PhoneBoxLink:
 def start_phone_box() -> None:
     """Bật kết nối hộp nếu Admin đã bật tính năng (phone_box_enabled) và có pyserial."""
     if not load_config().get("phone_box_enabled", False):
+        _diag("off", "Mô-đun ESP32 đang TẮT trên máy này → FocusDesk không mở cổng COM. Admin → 📦 Hộp điện thoại → "
+                     "tick “Bật mô-đun ESP32” → Lưu.", every_s=0)
         return
     try:
         import serial  # noqa: F401
-    except Exception:
-        safe_log("[HỘP] Chưa cài pyserial (pip install pyserial) — bỏ qua hộp điện thoại.")
+        if not hasattr(serial, "Serial"):
+            raise ImportError(f"gói 'serial' ở {getattr(serial, '__file__', '?')} không phải pyserial")
+    except Exception as exc:
+        _diag("noserial", f"Chưa có pyserial dùng được ({exc}) — chạy KIEM_TRA.bat --sua hoặc "
+                          "python -m pip uninstall -y serial && python -m pip install pyserial", every_s=0)
         return
     get_box().start()
 
