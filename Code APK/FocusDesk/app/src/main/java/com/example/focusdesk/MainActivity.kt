@@ -226,7 +226,7 @@ fun MainScreen(
             }
 
             "STUDYING" -> {
-                Text("📚 Đã sẵn sàng học!\n\nĐiện thoại đang sạc trong tủ. Đóng cửa tủ là bắt đầu ca học — lấy điện thoại ra trước giờ sẽ bị tính vi phạm.",
+                Text("📚 Điện thoại đã sẵn sàng!\n\nĐã xác minh và đang sạc trong tủ. Đóng cửa tủ + vào chế độ Học sinh trên máy tính là bắt đầu ca học — lấy điện thoại ra trước giờ sẽ bị tính vi phạm.",
                     color = Color(0xFF388E3C), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = onHide) { Text("Ẩn app") }

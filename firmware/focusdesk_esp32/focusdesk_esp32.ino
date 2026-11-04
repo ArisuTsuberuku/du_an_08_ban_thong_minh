@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.6.1"
+#define FW_VERSION   "2.7.0"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -244,8 +244,11 @@ bool verifyECDSASignature(const uint8_t* pub, size_t pubLen, const uint8_t* nonc
   return ret == 0;
 }
 
+unsigned long lastVerifyReq = 0;
+int verifyFails = 0;
 void requestVerify() {                              // gửi nonce mới -> app ký bằng khóa TEE -> notify charSign
   if (!bleConnected || !pNonceChar || !hasPubKey) return;
+  lastVerifyReq = millis();
   esp_fill_random(currentNonce, sizeof(currentNonce));
   pNonceChar->writeValue(currentNonce, sizeof(currentNonce));
 }
@@ -267,8 +270,9 @@ void handleBleCmd(const uint8_t* data, size_t len) {
 static void notifyCallback(BLERemoteCharacteristic* ch, uint8_t* data, size_t len, bool) {
   if (ch->getUUID().equals(charSignUUID)) {
     if (hasPubKey && len > 0) {
-      if (verifyECDSASignature(savedPubKey, savedPubKeyLen, currentNonce, sizeof(currentNonce), data, len)) signatureVerified = true;
-      else verifyFailNew = true;
+      if (verifyECDSASignature(savedPubKey, savedPubKeyLen, currentNonce, sizeof(currentNonce), data, len)) {
+        signatureVerified = true; verifyFails = 0;
+      } else { verifyFailNew = true; verifyFails++; }
     }
   } else if (ch->getUUID().equals(charCmdUUID)) {
     handleBleCmd(data, len);
@@ -296,7 +300,8 @@ class AdvCB : public BLEAdvertisedDeviceCallbacks {
 
 bool connectToPhone() {
   if (!pClient) { pClient = BLEDevice::createClient(); pClient->setClientCallbacks(new ClientCB()); }
-  if (!pClient->connect(targetDevice)) return false;
+  // connect() mặc định chờ VÔ HẠN nếu điện thoại không trả lời -> treo loop (lỗi "tìm thấy tủ mà chờ mãi"). Giới hạn 6 s.
+  if (!pClient->connectTimeout(targetDevice, 6000)) return false;
   BLERemoteService* svc = pClient->getService(serviceUUID);
   if (!svc) { pClient->disconnect(); return false; }
   pNonceChar = svc->getCharacteristic(charNonceUUID);
@@ -323,7 +328,7 @@ bool connectToPhone() {
       savedPubKeyLen = v.length();
       memcpy(savedPubKey, (const uint8_t*)v.c_str(), savedPubKeyLen);
       prefs.putBytes("pubkey", savedPubKey, savedPubKeyLen);
-      hasPubKey = true; pairUntil = 0; expectFp[0] = 0; computeFp();
+      hasPubKey = true; pairUntil = 0; expectFp[0] = 0; verifyFails = 0; computeFp();
       sendEvent("paired");
     }
   }
@@ -481,7 +486,7 @@ void setup() {
   BLEDevice::setMTU(185);                           // chữ ký DER ~72 byte, khóa công khai 91 byte -> cần MTU > 23
   BLEScan* scan = BLEDevice::getScan();
   scan->setAdvertisedDeviceCallbacks(new AdvCB());
-  scan->setInterval(1349); scan->setWindow(449); scan->setActiveScan(true);
+  scan->setInterval(100); scan->setWindow(99); scan->setActiveScan(true);   // quét ~100% thời gian -> tìm điện thoại nhanh
   scan->start(5, nullptr, false);                    // không chặn (bản gốc chặn 5 s lúc khởi động)
   sendHello();                                      // PC đang mở cổng sẽ nhận ngay
 }
@@ -510,9 +515,13 @@ void loop() {
     bleCmdNew = false;
     JsonDocument d; d["t"] = "event"; d["e"] = "ble_cmd"; d["v"] = bleCmdRaw; fillState(d); sendDoc(d);
   }
-  if (!bleConnected && !doConnect && now - lastScan > 7000) {   // quét KHÔNG chặn: serial vẫn trả lời ping
-    BLEScan* sc = BLEDevice::getScan(); sc->clearResults(); sc->start(4, nullptr, false); lastScan = now;
+  if (!bleConnected && !doConnect && now - lastScan > 3500) {   // quét KHÔNG chặn 3 s / 3,5 s khi chưa nối điện thoại
+    BLEScan* sc = BLEDevice::getScan(); sc->clearResults(); sc->start(3, nullptr, false); lastScan = now;
   }
+  // Xác minh lại tự động: đã nối mà chưa ký được (mất gói, app vừa mở...) -> gửi nonce mới mỗi 4 s
+  // (chữ ký sai liên tục > 3 lần -> chậm lại 30 s/lần, chờ phụ huynh ghép lại)
+  if (bleConnected && hasPubKey && !signatureVerified && phase != ACTIVE &&
+      now - lastVerifyReq > (verifyFails > 3 ? 30000UL : 4000UL)) requestVerify();
 
   // 0. Hết giờ nghỉ giữa ca -> kêu ngắn báo học sinh, về chờ ca mới (đủ điều kiện là vào ca luôn)
   if (phase == BREAK && (long)(millis() - breakUntil) >= 0) {

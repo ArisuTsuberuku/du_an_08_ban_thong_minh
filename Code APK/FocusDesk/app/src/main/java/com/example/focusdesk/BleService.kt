@@ -56,7 +56,7 @@ class BleService : Service() {
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")   // ô "bật thông báo" chuẩn BLE
         private const val CHANNEL_ID = "FocusDeskChannel_Auto"
         private const val NOTIFICATION_ID = 2
-        private const val NO_BOX_TIMEOUT_MS = 60_000L        // 60 s không thấy tủ -> tắt
+        private const val NO_BOX_TIMEOUT_MS = 180_000L       // 3 phút không thấy tủ -> tắt (đủ cho phụ huynh ghép lại)
         private const val UNPLUG_STOP_MS = 120_000L          // rút sạc 2 phút -> tắt
         private const val TAG = "BleService"
     }
@@ -72,7 +72,7 @@ class BleService : Service() {
     private val main = Handler(Looper.getMainLooper())
 
     private val noBoxTimeout = Runnable {
-        sendUi("READY", "Không thấy tủ trong 60 giây. Kiểm tra tủ đã cắm điện, rồi bấm BẮT ĐẦU HỌC lại.")
+        sendUi("READY", "Không thấy tủ trong 3 phút. Kiểm tra tủ đã cắm điện, máy tính đang mở FocusDesk, rồi bấm BẮT ĐẦU HỌC lại.")
         stopSelf()
     }
     private val unplugStop = Runnable {
@@ -159,7 +159,7 @@ class BleService : Service() {
     private fun sendCharge(charging: Boolean) {
         notifyBox(cmdChar, chargeText(charging).toByteArray())
         if (!verified) return
-        if (charging) sendUi("STUDYING", "Đã báo tủ: điện thoại đang sạc. Đóng cửa tủ là bắt đầu ca học.")
+        if (charging) sendUi("STUDYING", "Đã báo tủ: điện thoại đang sạc. Đóng cửa tủ + vào chế độ Học sinh trên máy tính là bắt đầu ca học.")
         else sendUi("WAITING_POWER", "Hãy cắm cáp sạc trong tủ cho điện thoại.")
     }
 
@@ -235,7 +235,7 @@ class BleService : Service() {
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setConnectable(true)
             .setTimeout(0)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)   // phát mạnh -> tủ tìm thấy nhanh hơn
             .build()
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)

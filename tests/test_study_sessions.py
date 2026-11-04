@@ -43,7 +43,7 @@ class TestStudyCloud(unittest.TestCase):
     def test_clean_cfg_limits(self):
         c = study.clean_cfg({"min_minutes": 1, "max_violations": -3, "min_focus": 300, "webhook_url": "http://x",
                              "rewards": [{"name": " Kem ", "points": "20"}, {"name": ""}, "rác"]})
-        self.assertEqual((c["min_minutes"], c["max_violations"], c["min_focus"]), (5, 0, 100))
+        self.assertEqual((c["min_minutes"], c["max_violations"], c["min_focus"]), (1, 0, 100))   # tối thiểu 1 phút
         self.assertEqual(c["webhook_url"], "")
         self.assertEqual(c["rewards"], [{"name": "Kem", "points": 20}])
 

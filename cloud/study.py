@@ -51,7 +51,7 @@ def clean_cfg(raw: Any) -> Dict[str, Any]:
     """Chuẩn hóa tiêu chí từ web (giới hạn giá trị, cắt chuỗi). Thiếu trường -> giá trị mặc định."""
     raw = raw if isinstance(raw, dict) else {}
     cfg = dict(DEFAULT_CFG)
-    cfg["min_minutes"] = _int(raw.get("min_minutes", cfg["min_minutes"]), 25, 5, 240)
+    cfg["min_minutes"] = _int(raw.get("min_minutes", cfg["min_minutes"]), 25, 1, 240)   # tối thiểu 1 phút (thử nghiệm)
     cfg["max_violations"] = _int(raw.get("max_violations", cfg["max_violations"]), 0, 0, 20)
     # min_focus = % THỜI GIAN HỌC có tập trung (mặc định 67% ≈ 2/3), phụ huynh đặt riêng
     cfg["min_focus"] = _int(raw.get("min_focus", cfg["min_focus"]), 67, 0, 100)

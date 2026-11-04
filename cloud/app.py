@@ -561,7 +561,7 @@ h3{margin:4px 0 10px}
      <div id="w-lms"></div></div>
     <div class="card"><h3>⚙️ Tiêu chí ca học thành công</h3>
      <div class="frm">
-      <label>Thời gian 1 ca học (phút)<input id="s-min" type="number" min="5" max="240"></label>
+      <label>Thời gian 1 ca học (phút, 1–240)<input id="s-min" type="number" min="1" max="240"></label>
       <label>Vi phạm tối đa / ca<input id="s-viol" type="number" min="0" max="20"></label>
       <label>Tập trung ≥ (% thời gian học)<input id="s-focus" type="number" min="0" max="100"></label>
       <label>Tưới cây mỗi ca đạt (giây bơm)<input id="s-wsec" type="number" min="0.5" max="10" step="0.5"></label>
@@ -1416,7 +1416,7 @@ KIND_VI = {"game": "Web game", "social": "Mạng xã hội", "video": "Video / p
            "comics": "Truyện tranh", "study": "Học tập", "ai": "Chatbot AI", "ai_game": "AI làm game", "other": "Khác"}
 KIND_CAT = {"game": "Giai_tri", "social": "Giai_tri", "video": "Giai_tri", "shopping": "Giai_tri", "comics": "Giai_tri",
             "study": "Hoc_tap", "ai": "Hoc_tap", "ai_game": "Giai_tri", "other": "Khac"}
-WEB_BUILD = "2026-11-04.1"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
+WEB_BUILD = "2026-11-04.2"   # đổi mỗi lần sửa web -> /api/health cho biết Vercel đã chạy bản mới chưa
 RISKY_KINDS = ("game", "social", "video", "shopping", "comics", "ai_game")
 BLOCKABLE_KINDS = ("game", "social", "video", "shopping", "comics")      # được tự chặn theo phân loại
 YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "m.youtube.com", "www.youtube.com", "music.youtube.com")
