@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.5.0"
+#define FW_VERSION   "2.6.0"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -39,8 +39,20 @@
 #define BUZZER_PIN      9
 #define PIN_DOOR        5     // công tắc hành trình (LOW = cửa đóng)
 #define PIN_CHARGE     -1     // -1 = không dùng; >= 0: LOW = đang sạc
-#define BOM_CHAY     HIGH
-#define BOM_TAT      LOW
+// Kiểu kích rơ-le (đổi được bằng lệnh cfg {"relay":"high|low|low_od"}, lưu vào bộ nhớ):
+//   high   : IN = HIGH thì bơm chạy (module kích mức cao)
+//   low    : IN = LOW  thì bơm chạy (đa số module rơ-le 5V bán sẵn — "kích mức thấp")
+//   low_od : như low nhưng lúc TẮT thả chân lơ lửng (INPUT) — dùng khi module cấp 5V mà mức 3,3 V của ESP32
+//            không đủ tắt rơ-le (triệu chứng: cắm vào là bơm chạy luôn, lệnh water không đổi gì)
+enum RelayMode { RELAY_HIGH = 0, RELAY_LOW = 1, RELAY_LOW_OD = 2 };
+int relayMode = RELAY_LOW;
+const char* relayName() { return relayMode == RELAY_HIGH ? "high" : relayMode == RELAY_LOW_OD ? "low_od" : "low"; }
+void pumpSet(bool on) {
+  if (relayMode == RELAY_HIGH) { pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, on ? HIGH : LOW); }
+  else if (relayMode == RELAY_LOW) { pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, on ? LOW : HIGH); }
+  else if (on) { pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW); }
+  else pinMode(RELAY_PIN, INPUT);                   // thả nổi: điện trở kéo lên 5V trên module tự tắt rơ-le
+}
 #define REQUIRE_TEE     1     // 1 = bắt buộc chữ ký TEE của điện thoại đã ghép mới bắt đầu ca
 
 #define PUMP_MAX_MS    10000UL
@@ -148,6 +160,7 @@ void fillState(JsonDocument& d) {
   d["viol"] = sessionViol;
   d["cfi"] = currentCfi;
   d["pump"] = pumpOffAt != 0;
+  d["relay"] = relayName();
   d["break_left"] = phase == BREAK ? (long)(breakUntil - millis()) > 0 ? (breakUntil - millis() + 999) / 1000UL : 0 : 0;
   d["test"] = testSession;
   d["study"] = studyOk();
@@ -204,7 +217,7 @@ void violation(const char* e) {
 
 void startPump(unsigned long ms) {
   ms = constrain(ms, 300UL, PUMP_MAX_MS);
-  digitalWrite(RELAY_PIN, BOM_CHAY);
+  pumpSet(true);
   pumpOffAt = millis() + ms; greenUntil = pumpOffAt;
   sendEvent("watering");
 }
@@ -343,6 +356,12 @@ void handleLine(const String& line) {
     if (ms) sessionMs = constrain(ms, 60000UL, 240UL * 60000UL);     // 1 – 240 phút; áp dụng từ ca SAU
     if (m["led_cfi"].is<int>()) ledCfi = constrain((int)m["led_cfi"], 0, 100);
     if (m["buzz_cfi"].is<int>()) buzzCfi = constrain((int)m["buzz_cfi"], 0, 100);
+    if (m["relay"].is<const char*>()) {
+      String r = m["relay"].as<const char*>();
+      relayMode = r == "high" ? RELAY_HIGH : r == "low_od" ? RELAY_LOW_OD : RELAY_LOW;
+      prefs.putInt("relay", relayMode);
+      if (!pumpOffAt) pumpSet(false);               // áp ngay kiểu mới -> bơm phải TẮT
+    }
     prefs.putULong("sess_ms", sessionMs); prefs.putInt("led", ledCfi); prefs.putInt("buzz", buzzCfi);
     sendAck(id, true); sendState(); return;
   }
@@ -421,7 +440,7 @@ void readSensors() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, BOM_TAT);
+  pumpSet(false);                                   // tắt bơm NGAY khi cấp điện (theo kiểu rơ-le mặc định)
   pinMode(LED_RED_PIN, OUTPUT); pinMode(LED_GREEN_PIN, OUTPUT); pinMode(BUZZER_PIN, OUTPUT);
   pinMode(PIN_DOOR, INPUT_PULLUP);
 #if PIN_CHARGE >= 0
@@ -437,6 +456,8 @@ void setup() {
   if (!hasPubKey) pairUntil = millis() + PAIR_BOOT_MS;
   sessionMs = prefs.getULong("sess_ms", sessionMs);
   ledCfi = prefs.getInt("led", ledCfi); buzzCfi = prefs.getInt("buzz", buzzCfi);
+  relayMode = prefs.getInt("relay", relayMode);
+  pumpSet(false);
   doorClosed = doorRaw = digitalRead(PIN_DOOR) == LOW;
 
   BLEDevice::init("FocusDesk_ESP32");
@@ -487,7 +508,7 @@ void loop() {
   if (phase == ACTIVE && millis() - sessionStart >= sessionLen) endSession("time_up");
 
   // 3. Bơm tự tắt
-  if (pumpOffAt && (long)(now - pumpOffAt) >= 0) { digitalWrite(RELAY_PIN, BOM_TAT); pumpOffAt = 0; sendEvent("watered"); }
+  if (pumpOffAt && (long)(now - pumpOffAt) >= 0) { pumpSet(false); pumpOffAt = 0; sendEvent("watered"); }
 
   // 4. Đèn xanh: nháy khi hết giờ / đang bơm
   if (greenUntil && (long)(now - greenUntil) < 0) {

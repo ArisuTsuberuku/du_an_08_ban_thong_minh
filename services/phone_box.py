@@ -41,7 +41,7 @@ BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware 
 STATE_KEYS = ("phone", "lid", "lock", "nonce", "fw", "box_id", "paired", "unlock_left",
               # v2 (tủ điện thoại)
               "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active", "test",
-              "cfi", "sim_charge", "key_fp", "pair_left", "pair_expect", "study", "break_left")
+              "cfi", "sim_charge", "key_fp", "pair_left", "pair_expect", "study", "break_left", "relay")
 DEFAULT_BOX_CFG = {"session_min": 25, "led_cfi": 50, "buzz_cfi": 30}
 
 BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
@@ -441,6 +441,11 @@ class PhoneBoxLink:
         if not r.get("ok") and r.get("err") == "busy":
             r["err"] = "Đang trong ca học — chờ hết giờ học rồi reset"
         return r
+
+    def set_relay(self, mode: str) -> Dict[str, Any]:
+        """Kiểu kích rơ-le bơm: high | low | low_od (tủ lưu vào bộ nhớ, tắt bơm ngay theo kiểu mới)."""
+        mode = mode if mode in ("high", "low", "low_od") else "low"
+        return self.command("cfg", relay=mode)
 
     def start_test(self, session_min: float = 1.0) -> Dict[str, Any]:
         """THỬ NGHIỆM: tủ vào ca ngay (bỏ qua cửa / sạc / chữ ký điện thoại). Ca thử không ghi điểm, không tưới cây."""

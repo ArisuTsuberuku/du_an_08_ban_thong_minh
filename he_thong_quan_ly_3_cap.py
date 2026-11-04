@@ -2225,6 +2225,16 @@ class PhanMemQuanLyBanHocEXE:
         self._ui_button(f_test, "TẮT", lambda: chay(lambda: box.sim_charge(False), "Bỏ giả lập sạc"),
                         kind="ghost").pack(side="left", padx=(4, 0))
 
+        f_rl = tk.Frame(t2, bg=UI["card"])
+        f_rl.pack(anchor="w", fill="x", pady=(8, 0))
+        tk.Label(f_rl, text="Rơ-le bơm:", bg=UI["card"], fg=UI["txt"], font=("Segoe UI", 9)).pack(side="left")
+        for ma, nhan in (("low", "Kích mức THẤP (đa số module)"), ("low_od", "THẤP + thả nổi khi tắt"),
+                         ("high", "Kích mức CAO")):
+            self._ui_button(f_rl, nhan, lambda m=ma: chay(lambda: box.set_relay(m), f"Rơ-le kiểu {m} (bơm phải TẮT ngay)"),
+                            kind="ghost").pack(side="left", padx=(6, 0))
+        self._label(t2, "Cắm vào bơm chạy luôn / water không đổi gì → thử lần lượt 3 kiểu: kiểu đúng là kiểu mà bơm TẮT khi "
+                        "chờ và chạy đúng 2 giây khi bấm water.", bold=False, size=9)
+
         f_cmd = tk.Frame(t2, bg=UI["card"])
         f_cmd.pack(anchor="w", fill="x", pady=(8, 0))
         v_ms = o_so(f_cmd, "Bơm (ms)", 2500)
@@ -2280,7 +2290,7 @@ class PhanMemQuanLyBanHocEXE:
                     f"{'🔑 đã xác thực' if st.get('verified') else ('🔑 đã ghép' if st.get('paired') else '🔑 CHƯA GHÉP')}\n"
                     f"📱 Mã ghép: {st.get('key_fp') or '— (chưa ghép)'}{cho_ghep}\n"
                     f"Ca {int(st.get('session_s') or 0) // 60} phút · CFI gửi tủ: {cfi if cfi >= 0 else '—'}"
-                    f"{' · 💧 đang bơm' if st.get('pump') else ''}"))
+                    f"{' · 💧 đang bơm' if st.get('pump') else ''} · rơ-le: {st.get('relay') or '?'}"))
             else:
                 lbl.config(fg=UI["txt"], text=(
                     f"🟢 Đã kết nối {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n"
