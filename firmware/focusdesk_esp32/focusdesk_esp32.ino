@@ -29,7 +29,7 @@
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 
-#define FW_VERSION   "2.6.0"
+#define FW_VERSION   "2.6.1"
 #define PROTO        2
 
 // ---------------------------------------------------------------- PIN
@@ -46,12 +46,20 @@
 //            không đủ tắt rơ-le (triệu chứng: cắm vào là bơm chạy luôn, lệnh water không đổi gì)
 enum RelayMode { RELAY_HIGH = 0, RELAY_LOW = 1, RELAY_LOW_OD = 2 };
 int relayMode = RELAY_LOW;
+int relayPin = RELAY_PIN;                   // đổi được bằng cfg {"relay_pin":n} nếu nối rơ-le vào chân khác GPIO4
+// Chân an toàn trên ESP32-S3 (bỏ chân strapping 0/3/45/46, USB 19/20, UART0 43/44 nối CH343, flash/PSRAM 26–37,
+// và các chân đã dùng: cửa 5, LED 7/8, còi 9)
+bool relayPinOk(int p) {
+  const int ok[] = {1, 2, 4, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 38, 39, 40, 41, 42, 47, 48};
+  for (int x : ok) if (x == p) return true;
+  return false;
+}
 const char* relayName() { return relayMode == RELAY_HIGH ? "high" : relayMode == RELAY_LOW_OD ? "low_od" : "low"; }
 void pumpSet(bool on) {
-  if (relayMode == RELAY_HIGH) { pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, on ? HIGH : LOW); }
-  else if (relayMode == RELAY_LOW) { pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, on ? LOW : HIGH); }
-  else if (on) { pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW); }
-  else pinMode(RELAY_PIN, INPUT);                   // thả nổi: điện trở kéo lên 5V trên module tự tắt rơ-le
+  if (relayMode == RELAY_HIGH) { pinMode(relayPin, OUTPUT); digitalWrite(relayPin, on ? HIGH : LOW); }
+  else if (relayMode == RELAY_LOW) { pinMode(relayPin, OUTPUT); digitalWrite(relayPin, on ? LOW : HIGH); }
+  else if (on) { pinMode(relayPin, OUTPUT); digitalWrite(relayPin, LOW); }
+  else pinMode(relayPin, INPUT);                    // thả nổi: điện trở kéo lên 5V trên module tự tắt rơ-le
 }
 #define REQUIRE_TEE     1     // 1 = bắt buộc chữ ký TEE của điện thoại đã ghép mới bắt đầu ca
 
@@ -161,6 +169,7 @@ void fillState(JsonDocument& d) {
   d["cfi"] = currentCfi;
   d["pump"] = pumpOffAt != 0;
   d["relay"] = relayName();
+  d["relay_pin"] = relayPin;
   d["break_left"] = phase == BREAK ? (long)(breakUntil - millis()) > 0 ? (breakUntil - millis() + 999) / 1000UL : 0 : 0;
   d["test"] = testSession;
   d["study"] = studyOk();
@@ -362,6 +371,12 @@ void handleLine(const String& line) {
       prefs.putInt("relay", relayMode);
       if (!pumpOffAt) pumpSet(false);               // áp ngay kiểu mới -> bơm phải TẮT
     }
+    if (m["relay_pin"].is<int>()) {
+      int p = m["relay_pin"];
+      if (!relayPinOk(p)) { sendAck(id, false, "bad_pin"); return; }
+      if (p != relayPin) { pinMode(relayPin, INPUT); relayPin = p; prefs.putInt("rpin", relayPin); }
+      if (!pumpOffAt) pumpSet(false);
+    }
     prefs.putULong("sess_ms", sessionMs); prefs.putInt("led", ledCfi); prefs.putInt("buzz", buzzCfi);
     sendAck(id, true); sendState(); return;
   }
@@ -457,6 +472,8 @@ void setup() {
   sessionMs = prefs.getULong("sess_ms", sessionMs);
   ledCfi = prefs.getInt("led", ledCfi); buzzCfi = prefs.getInt("buzz", buzzCfi);
   relayMode = prefs.getInt("relay", relayMode);
+  relayPin = prefs.getInt("rpin", relayPin);
+  if (!relayPinOk(relayPin)) relayPin = RELAY_PIN;
   pumpSet(false);
   doorClosed = doorRaw = digitalRead(PIN_DOOR) == LOW;
 

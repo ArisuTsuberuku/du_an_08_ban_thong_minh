@@ -41,7 +41,7 @@ BOX_DEV_IDS = ("focusdesk-box", "smartdesk-box")   # "smartdesk-box" = firmware 
 STATE_KEYS = ("phone", "lid", "lock", "nonce", "fw", "box_id", "paired", "unlock_left",
               # v2 (tủ điện thoại)
               "proto", "phase", "door", "ble", "verified", "session_s", "left_s", "viol", "pump", "active", "test",
-              "cfi", "sim_charge", "key_fp", "pair_left", "pair_expect", "study", "break_left", "relay")
+              "cfi", "sim_charge", "key_fp", "pair_left", "pair_expect", "study", "break_left", "relay", "relay_pin")
 DEFAULT_BOX_CFG = {"session_min": 25, "led_cfi": 50, "buzz_cfi": 30}
 
 BAUD = 115200               # mặc định; Admin có thể đổi (shared_config "esp32_baud")
@@ -446,6 +446,14 @@ class PhoneBoxLink:
         """Kiểu kích rơ-le bơm: high | low | low_od (tủ lưu vào bộ nhớ, tắt bơm ngay theo kiểu mới)."""
         mode = mode if mode in ("high", "low", "low_od") else "low"
         return self.command("cfg", relay=mode)
+
+    def set_relay_pin(self, pin: int) -> Dict[str, Any]:
+        """Đổi chân GPIO nối IN của rơ-le bơm (tủ lưu vào bộ nhớ). Chân không an toàn -> err bad_pin."""
+        r = self.command("cfg", relay_pin=int(pin))
+        if not r.get("ok") and r.get("err") == "bad_pin":
+            r["err"] = ("Chân không dùng được. Chọn: 1, 2, 4, 6, 10–18, 21, 38–42, 47, 48 "
+                        "(không dùng 0/3/45/46, 19/20, 43/44, 26–37 và chân đã dùng 5/7/8/9)")
+        return r
 
     def start_test(self, session_min: float = 1.0) -> Dict[str, Any]:
         """THỬ NGHIỆM: tủ vào ca ngay (bỏ qua cửa / sạc / chữ ký điện thoại). Ca thử không ghi điểm, không tưới cây."""

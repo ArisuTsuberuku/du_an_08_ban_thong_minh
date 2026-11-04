@@ -46,7 +46,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 | `hello` | — | trả tin `hello` (mục 4) | — |
 | `ping` | `ts`, `cfi` (0–100, **-1** = không có camera / không trong giờ học), `study` (true = học sinh đang ở chế độ Học sinh) | cập nhật CFI + cờ học, trả `state`. Phần mềm ping 2 s/lần. Tủ CHỈ vào ca khi `study=true` (FocusDesk phải đang chạy; mất ping > 10 s coi như false) | — |
 | `get` | — | trả `state` | — |
-| `cfg` | `session_ms` (60 000 – 14 400 000) hoặc `session_min`; `led_cfi`, `buzz_cfi` (0–100); `relay` = `high` / `low` (mặc định) / `low_od` (kiểu kích rơ-le bơm) | lưu vào bộ nhớ (Preferences), áp dụng **từ ca sau** | — |
+| `cfg` | `session_ms` (60 000 – 14 400 000) hoặc `session_min`; `led_cfi`, `buzz_cfi` (0–100); `relay` = `high` / `low` (mặc định) / `low_od` (kiểu kích rơ-le bơm); `relay_pin` = chân GPIO nối IN rơ-le (mặc định 4; chỉ nhận chân an toàn, sai → `bad_pin`) | lưu vào bộ nhớ (Preferences), áp dụng **từ ca sau** | — |
 | `water` | `ms` (300 – 10 000, mặc định 2500) | bật rơ-le bơm, event `watering` → `watered` | — |
 | `beep` | `ms` (50 – 3000) | còi + đèn đỏ | — |
 | `reset_key` | `expect` (tùy chọn): mã ghép 6 số trên app | xóa khóa điện thoại đã ghép, ngắt BLE, **mở cửa sổ ghép 2 phút**; có `expect` thì chỉ nhận đúng điện thoại có mã đó (khác mã → event `pair_mismatch`, không ghép); event `key_reset` | `busy` (đang trong ca) |
@@ -60,7 +60,7 @@ Tủ **không tự bơm** khi hết giờ: web chấm ca rồi mới gửi lện
 
 ## 4. Tin ESP32 → máy tính
 
-`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.6.0","box_id":"A1B2","nonce":"…", …trường trạng thái}`
+`hello` = `{"t":"hello","dev":"focusdesk-box","fw":"2.6.1","box_id":"A1B2","nonce":"…", …trường trạng thái}`
 (`dev` phải là `focusdesk-box`, phần mềm chờ tối đa 2,5 s sau khi mở cổng).
 
 **Trường trạng thái** (có trong `hello`, `state` và mọi `event`):

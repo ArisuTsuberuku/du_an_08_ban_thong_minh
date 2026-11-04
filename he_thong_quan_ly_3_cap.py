@@ -2232,6 +2232,11 @@ class PhanMemQuanLyBanHocEXE:
                          ("high", "Kích mức CAO")):
             self._ui_button(f_rl, nhan, lambda m=ma: chay(lambda: box.set_relay(m), f"Rơ-le kiểu {m} (bơm phải TẮT ngay)"),
                             kind="ghost").pack(side="left", padx=(6, 0))
+        f_rp = tk.Frame(t2, bg=UI["card"])
+        f_rp.pack(anchor="w", fill="x", pady=(6, 0))
+        v_rpin = o_so(f_rp, "Chân GPIO nối IN rơ-le", 4, rong=4)
+        self._ui_button(f_rp, "📌 Đặt chân rơ-le", lambda: chay(lambda: box.set_relay_pin(int(so(v_rpin, 4))),
+                                                                 "Đổi chân rơ-le"), kind="ghost").pack(side="left")
         self._label(t2, "Cắm vào bơm chạy luôn / water không đổi gì → thử lần lượt 3 kiểu: kiểu đúng là kiểu mà bơm TẮT khi "
                         "chờ và chạy đúng 2 giây khi bấm water.", bold=False, size=9)
 
@@ -2290,7 +2295,7 @@ class PhanMemQuanLyBanHocEXE:
                     f"{'🔑 đã xác thực' if st.get('verified') else ('🔑 đã ghép' if st.get('paired') else '🔑 CHƯA GHÉP')}\n"
                     f"📱 Mã ghép: {st.get('key_fp') or '— (chưa ghép)'}{cho_ghep}\n"
                     f"Ca {int(st.get('session_s') or 0) // 60} phút · CFI gửi tủ: {cfi if cfi >= 0 else '—'}"
-                    f"{' · 💧 đang bơm' if st.get('pump') else ''} · rơ-le: {st.get('relay') or '?'}"))
+                    f"{' · 💧 đang bơm' if st.get('pump') else ''} · rơ-le: {st.get('relay') or '?'} ở GPIO{st.get('relay_pin', 4)}"))
             else:
                 lbl.config(fg=UI["txt"], text=(
                     f"🟢 Đã kết nối {st.get('box_id', '')} ở {st.get('port', '')} (fw {st.get('fw', '?')})\n"
